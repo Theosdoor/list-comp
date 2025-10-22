@@ -15,3 +15,6 @@ ipykernel
 # Experiment tracking
 wandb>=0.18.0
 python-dotenv>=1.0.1
+
+# Visualization
+seaborn>=0.13.2
