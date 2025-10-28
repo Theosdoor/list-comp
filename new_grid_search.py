@@ -1,15 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# grid_search.py
+"""
+new_grid_search.py
+
+Runs the ablation grid described in train.py (LN, Bias, freeze_wv, freeze_wo
+at d_model=64, n_heads=1, n_layers=2) plus the extra fixed configs over
+d_model in [128, 32, 8] with LN=False, Bias=False, freeze_wv=True, freeze_wo=True.
+
+Training/eval pipeline follows listlen_grid_search.py (synthetic batches), and
+results are appended to a CSV (default: ablation_res.csv) with POSIX file locks
+and skip-existing behavior.
+"""
+
 import os
-import math
 import time
 import csv
 import argparse
 import hashlib
 import random
 from dataclasses import dataclass, asdict
-from itertools import product
 from typing import Dict, List, Tuple
 from pathlib import Path
 
@@ -20,7 +29,9 @@ from tqdm.auto import tqdm
 
 import fcntl  # POSIX file locking
 
-from transformer_lens import HookedTransformer, HookedTransformerConfig, utils
+from transformer_lens import HookedTransformer
+from model_utils import configure_runtime, make_model
+
 
 # -----------------------------
 # Device, seeds, utils
@@ -32,8 +43,8 @@ def pick_device(explicit: str = "auto") -> torch.device:
         return torch.device(explicit)
     if torch.cuda.is_available():
         return torch.device("cuda")
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
+    # if torch.backends.mps.is_available():
+    #     return torch.device("mps")
     return torch.device("cpu")
 
 
@@ -115,7 +126,7 @@ class Config:
 
 
 def eval_accuracy(
-    model: HookedTransformer,
+    model: nn.Module,
     val_inputs: torch.Tensor,
     val_targets: torch.Tensor,
     list_len: int,
@@ -137,84 +148,22 @@ def eval_accuracy(
     return hits / max(1, tots)
 
 
-def attach_custom_mask(model, seq_len, list_len):
-    mask_bias = torch.triu(
-        torch.ones(seq_len, seq_len) * float("-inf")
-    )  # upper triangular bias mask (lead_diag & above = -inf, rest = 0)
-    mask_bias[0, 0] = 0.0
-    mask_bias[list_len + 1 :, :list_len] = float("-inf")
-    mask_bias = mask_bias.unsqueeze(0).unsqueeze(0)  # (1,1,T,T)
-
-    def _mask(scores, hook=None):
-        return scores + mask_bias.to(scores.device)
-
-    for block in model.blocks:
-        block.attn.hook_attn_scores.add_perma_hook(_mask, dir="fwd")
-
-
-def strip_bias(m):
-    for mod in m.modules():
-        if hasattr(mod, "bias") and mod.bias is not None:
-            mod.bias.requires_grad_(False)
-            torch.nn.init.zeros_(mod.bias)
-            print(mod)
-
-    attn_biases = ["b_Q", "b_K", "b_V", "b_O"]
-    for block in m.blocks:
-        for b in attn_biases:
-            mod = getattr(block.attn, b, None)
-            if mod is not None:
-                mod.requires_grad_(False)
-                torch.nn.init.zeros_(mod)
-
-    if hasattr(m, "unembed") and m.b_U is not None:
-        m.unembed.b_U.requires_grad_(False)
-        torch.nn.init.zeros_(m.unembed.b_U)
-
-
-def set_WV_identity_and_freeze(model):
-    with torch.no_grad():
-        identity_slice = torch.eye(model.cfg.d_model, model.cfg.d_head)
-        W_V_identity = identity_slice.unsqueeze(0).repeat(model.cfg.n_heads, 1, 1)
-        for block in model.blocks:
-            block.attn.W_V.copy_(W_V_identity)
-            block.attn.W_V.requires_grad = False
-
-
-def set_WO_identity_and_freeze(model):
-    with torch.no_grad():
-        identity_slice = torch.eye(model.cfg.d_head, model.cfg.d_model)
-        W_O_identity = identity_slice.unsqueeze(0).repeat(model.cfg.n_heads, 1, 1)
-        for block in model.blocks:
-            block.attn.W_O.copy_(W_O_identity)
-            block.attn.W_O.requires_grad = False
-
-
-def build_model_from_config(cfg: Config, device: torch.device) -> HookedTransformer:
+def build_model_from_config(cfg: Config, device: torch.device) -> nn.Module:
     assert cfg.D_MODEL % cfg.N_HEAD == 0, "d_model must be divisible by n_heads"
     vocab = cfg.N_DIGITS + 2
     seq_len = 2 * cfg.LIST_LEN + 1
-    model = HookedTransformer(
-        HookedTransformerConfig(
-            n_layers=cfg.N_LAYERS,
-            n_heads=cfg.N_HEAD,
-            d_head=cfg.D_MODEL // cfg.N_HEAD,
-            d_model=cfg.D_MODEL,
-            d_vocab=vocab,
-            n_ctx=seq_len,
-            attn_only=True,
-            normalization_type=("LN" if cfg.USE_LN else None),
-        )
-    ).to(device)
-
-    if not cfg.USE_BIAS:
-        strip_bias(model)
-    if cfg.FREEZE_WV:
-        set_WV_identity_and_freeze(model)
-    if cfg.FREEZE_WO:
-        set_WO_identity_and_freeze(model)
-
-    attach_custom_mask(model, cfg.LIST_LEN * 2 + 1, cfg.LIST_LEN)
+    # Configure shared runtime and build via model_utils
+    configure_runtime(list_len=cfg.LIST_LEN, seq_len=seq_len, vocab=vocab, device=device)
+    model = make_model(
+        n_layers=cfg.N_LAYERS,
+        n_heads=cfg.N_HEAD,
+        d_model=cfg.D_MODEL,
+        ln=cfg.USE_LN,
+        use_bias=cfg.USE_BIAS,
+        freeze_wv=cfg.FREEZE_WV,
+        freeze_wo=cfg.FREEZE_WO,
+        device=device,
+    )
     return model
 
 
@@ -228,7 +177,9 @@ def train_and_return_model(
     val_size: int,
     base_seed: int,
     lr: float,
-) -> Tuple[HookedTransformer, Dict]:
+    eval_batch_size: int,
+    grad_clip: float,
+) -> Tuple[nn.Module, Dict]:
     seed_material = (str(asdict(cfg)) + str(base_seed)).encode("utf-8")
     seed = int.from_bytes(hashlib.sha256(seed_material).digest()[:4], "big")
     set_global_seed(seed + cfg.run_idx)
@@ -262,11 +213,15 @@ def train_and_return_model(
 
         loss = ce(logits.reshape(-1, logits.size(-1)), gold.reshape(-1))
         loss.backward()
+        if grad_clip and grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
         opt.step()
         opt.zero_grad()
 
         if step % eval_every == 0 or step == train_steps:
-            last_eval = eval_accuracy(model, val_inputs, val_targets, cfg.LIST_LEN)
+            last_eval = eval_accuracy(
+                model, val_inputs, val_targets, cfg.LIST_LEN, batch_size=eval_batch_size
+            )
             with torch.no_grad():
                 preds = logits.argmax(dim=-1)
                 train_acc = (preds == gold).float().mean().item()
@@ -285,7 +240,9 @@ def train_and_return_model(
 
     train_time_sec = time.time() - start
     if last_eval == 0.0:
-        last_eval = eval_accuracy(model, val_inputs, val_targets, cfg.LIST_LEN)
+        last_eval = eval_accuracy(
+            model, val_inputs, val_targets, cfg.LIST_LEN, batch_size=eval_batch_size
+        )
 
     metrics = {
         "val_acc": last_eval,
@@ -309,6 +266,8 @@ def train_one(
     val_size: int,
     base_seed: int,
     lr: float,
+    eval_batch_size: int,
+    grad_clip: float,
 ) -> Dict:
     _model, metrics = train_and_return_model(
         cfg=cfg,
@@ -320,95 +279,91 @@ def train_one(
         val_size=val_size,
         base_seed=base_seed,
         lr=lr,
+        eval_batch_size=eval_batch_size,
+        grad_clip=grad_clip,
     )
     return metrics
 
 
 # -----------------------------
-# Grid (exact values requested)
+# Ablation grids
 # -----------------------------
 
 
-def build_grid() -> List[Config]:
-    LIST_LEN = list(range(1, 20))
-    N_DIGITS = [100]
-    D_MODEL = [128]
-    N_HEAD = [1]
-    N_LAYERS = list(range(1, 20))
-    USE_LN = [False]
-    USE_BIAS = [False]
-    FREEZE_WV = [True]
-    FREEZE_WO = [True]
-    WEIGHT_DECAY = [0.01]
-    RUNS = [0, 1, 2]
+def build_ablation_grid(n_runs: int) -> List[Config]:
+    """Grid over LN, Bias, freeze_wv, freeze_wo at fixed d/h/L.
+
+    Mirrors the section in train.py with defaults:
+      d_model=64, n_heads=1, n_layers=2, LIST_LEN=2, N_DIGITS=100.
+    """
+    GRID_D_MODEL = 64
+    GRID_N_HEADS = 1
+    GRID_N_LAYERS = 2
+    LIST_LEN = 2
+    N_DIGITS = 100
+    WEIGHT_DECAY = 0.01
+
+    grid_lns = [False, True]
+    grid_biases = [False, True]
+    grid_freeze_wv = [False, True]
+    grid_freeze_wo = [False, True]
 
     cfgs: List[Config] = []
-    for L, ND, DM, NH, NL, LN, UB, FWV, FWO, WD, R in product(
-        LIST_LEN,
-        N_DIGITS,
-        D_MODEL,
-        N_HEAD,
-        N_LAYERS,
-        USE_LN,
-        USE_BIAS,
-        FREEZE_WV,
-        FREEZE_WO,
-        WEIGHT_DECAY,
-        RUNS,
-    ):
-        if DM % NH != 0:
-            continue
-        cfgs.append(
-            Config(
-                LIST_LEN=L,
-                N_DIGITS=ND,
-                D_MODEL=DM,
-                N_HEAD=NH,
-                N_LAYERS=NL,
-                USE_LN=LN,
-                USE_BIAS=UB,
-                FREEZE_WV=FWV,
-                FREEZE_WO=FWO,
-                WEIGHT_DECAY=WD,
-                run_idx=R,
+    for ln in grid_lns:
+        for bias in grid_biases:
+            for fwv in grid_freeze_wv:
+                for fwo in grid_freeze_wo:
+                    for run_idx in range(1, n_runs + 1):
+                        cfgs.append(
+                            Config(
+                                LIST_LEN=LIST_LEN,
+                                N_DIGITS=N_DIGITS,
+                                D_MODEL=GRID_D_MODEL,
+                                N_HEAD=GRID_N_HEADS,
+                                N_LAYERS=GRID_N_LAYERS,
+                                USE_LN=ln,
+                                USE_BIAS=bias,
+                                FREEZE_WV=fwv,
+                                FREEZE_WO=fwo,
+                                WEIGHT_DECAY=0.01,
+                                run_idx=run_idx,
+                            )
+                        )
+    return cfgs
+
+
+def build_extra_grid(n_runs: int, d_models: List[int]) -> List[Config]:
+    """Fixed configs over d_model with LN/Bias=False and fWV/fWO=True."""
+    LIST_LEN = 2
+    N_DIGITS = 100
+    GRID_N_HEADS = 1
+    GRID_N_LAYERS = 2
+    WEIGHT_DECAY = 0.01
+
+    cfgs: List[Config] = []
+    for d in d_models:
+        for run_idx in range(1, n_runs + 1):
+            cfgs.append(
+                Config(
+                    LIST_LEN=LIST_LEN,
+                    N_DIGITS=N_DIGITS,
+                    D_MODEL=d,
+                    N_HEAD=GRID_N_HEADS,
+                    N_LAYERS=GRID_N_LAYERS,
+                    USE_LN=False,
+                    USE_BIAS=False,
+                    FREEZE_WV=True,
+                    FREEZE_WO=True,
+                    WEIGHT_DECAY=WEIGHT_DECAY,
+                    run_idx=run_idx,
+                )
             )
-        )
     return cfgs
 
 
 # -----------------------------
-# Sharding helpers
+# CSV helpers
 # -----------------------------
-
-
-def detect_shard_from_env() -> Tuple[int, int]:
-    """Infer (shard_index, shard_count) from SLURM variables if present."""
-    env = os.environ
-    sid = env.get("SLURM_ARRAY_TASK_ID")
-    if sid is None:
-        return 0, 1
-    # Prefer explicit count if available
-    scount = env.get("SLURM_ARRAY_TASK_COUNT")
-    if scount is not None:
-        return int(sid), int(scount)
-    # Fall back to min/max/step
-    smin = env.get("SLURM_ARRAY_TASK_MIN")
-    smax = env.get("SLURM_ARRAY_TASK_MAX")
-    sstep = env.get("SLURM_ARRAY_TASK_STEP", "1")
-    if smin is not None and smax is not None:
-        amin = int(smin)
-        amax = int(smax)
-        step = int(sstep)
-        count = (amax - amin) // step + 1
-        idx = (int(sid) - amin) // step
-        return idx, count
-    return 0, 1
-
-
-def shard_items(items: List, shard_index: int, shard_count: int) -> List:
-    if shard_count <= 1:
-        return items
-    return [x for i, x in enumerate(items) if (i % shard_count) == shard_index]
 
 
 def ensure_csv_header(path: str, fields: List[str]) -> None:
@@ -442,21 +397,27 @@ def append_row_locked(path: str, fields: List[str], row: Dict) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Copy-Task Transformer Grid Search")
-    p.add_argument("--output", type=str, default="results.csv", help="CSV file path")
+    p = argparse.ArgumentParser(description="Ablation Grid Search for Copy Task")
+    p.add_argument("--output", type=str, default="ablation_res.csv", help="CSV file path")
     p.add_argument("--device", type=str, default="auto", help="cuda|mps|cpu|auto")
     p.add_argument("--seed", type=int, default=42, help="base seed")
     p.add_argument("--train-steps", type=int, default=50000, help="max steps per run")
     p.add_argument("--eval-every", type=int, default=2500, help="validation frequency")
-    p.add_argument(
-        "--early-stop-acc", type=float, default=0.99, help="early stop threshold"
-    )
+    p.add_argument("--early-stop-acc", type=float, default=0.999, help="early stop threshold")
     p.add_argument("--val-size", type=int, default=8192, help="validation set size")
     p.add_argument("--batch-size", type=int, default=1024, help="training batch size")
     p.add_argument("--lr", type=float, default=1e-3, help="AdamW learning rate")
-    # New: sharding (overridden by SLURM env if not set)
-    p.add_argument("--shard-index", type=int, default=None, help="0-based shard index")
-    p.add_argument("--shard-count", type=int, default=None, help="total shards")
+    p.add_argument("--eval-batch-size", type=int, default=1024, help="evaluation batch size")
+    p.add_argument("--grad-clip", type=float, default=0.0, help="max grad-norm clipping (0 disables)")
+    p.add_argument("--skip-existing", action="store_true", default=True, help="skip configs already present in output CSV")
+    p.add_argument("--runs", type=int, default=30, help="number of runs per config")
+    p.add_argument(
+        "--extra-d-models",
+        type=str,
+        default="128,32,8",
+        help="comma-separated list of extra d_model values (with LN/Bias False and fWV/fWO True)",
+    )
+    p.add_argument("--no-extra", action="store_true", help="disable running the extra d_model configs")
     return p.parse_args()
 
 
@@ -465,19 +426,14 @@ def main():
     device = pick_device(args.device)
     set_global_seed(args.seed)
 
-    # Build and shard the config list
-    full_cfgs = build_grid()
-    if args.shard_index is None or args.shard_count is None:
-        env_idx, env_cnt = detect_shard_from_env()
-        shard_index = env_idx if args.shard_index is None else args.shard_index
-        shard_count = env_cnt if args.shard_count is None else args.shard_count
-    else:
-        shard_index, shard_count = args.shard_index, args.shard_count
+    # Build config list
+    cfgs = build_ablation_grid(n_runs=args.runs)
+    if not args.no_extra:
+        extra_dims = [int(x) for x in args.extra_d_models.split(",") if x.strip()]
+        cfgs += build_extra_grid(n_runs=args.runs, d_models=extra_dims)
 
-    cfgs = shard_items(full_cfgs, shard_index, shard_count)
     total = len(cfgs)
 
-    # CSV fields unchanged
     fields = [
         "LIST_LEN",
         "N_DIGITS",
@@ -499,11 +455,51 @@ def main():
         "batch_size",
         "device",
     ]
-    # Header-once init with lock
     ensure_csv_header(args.output, fields)
 
-    outer = tqdm(total=total, desc=f"grid[{shard_index}/{shard_count}]", ncols=100)
+    # Optionally load existing rows to skip duplicates
+    existing_keys = set()
+    if args.skip_existing and os.path.exists(args.output):
+        try:
+            with open(args.output, "r", newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    key = (
+                        int(row["LIST_LEN"]),
+                        int(row["N_DIGITS"]),
+                        int(row["D_MODEL"]),
+                        int(row["N_HEAD"]),
+                        int(row["N_LAYERS"]),
+                        row["USE_LN"] in ("True", "true", "1"),
+                        row["USE_BIAS"] in ("True", "true", "1"),
+                        row["FREEZE_WV"] in ("True", "true", "1"),
+                        row["FREEZE_WO"] in ("True", "true", "1"),
+                        float(row["WEIGHT_DECAY"]),
+                        int(row["run_idx"]),
+                    )
+                    existing_keys.add(key)
+        except Exception:
+            pass
+
+    outer = tqdm(total=total, desc="ablation", ncols=100)
     for cfg in cfgs:
+        if args.skip_existing:
+            key = (
+                cfg.LIST_LEN,
+                cfg.N_DIGITS,
+                cfg.D_MODEL,
+                cfg.N_HEAD,
+                cfg.N_LAYERS,
+                cfg.USE_LN,
+                cfg.USE_BIAS,
+                cfg.FREEZE_WV,
+                cfg.FREEZE_WO,
+                cfg.WEIGHT_DECAY,
+                cfg.run_idx,
+            )
+            if key in existing_keys:
+                outer.update(1)
+                continue
         try:
             metrics = train_one(
                 cfg=cfg,
@@ -515,6 +511,8 @@ def main():
                 val_size=args.val_size,
                 base_seed=args.seed,
                 lr=args.lr,
+                eval_batch_size=args.eval_batch_size,
+                grad_clip=args.grad_clip,
             )
         except RuntimeError:
             metrics = {
@@ -532,7 +530,7 @@ def main():
         outer.update(1)
     outer.close()
 
-    print(f"Wrote {total} rows for shard {shard_index}/{shard_count} to {args.output}")
+    print(f"Wrote {total} rows to {args.output}")
 
 
 if __name__ == "__main__":
