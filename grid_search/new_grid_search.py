@@ -29,8 +29,11 @@ from tqdm.auto import tqdm
 
 import fcntl  # POSIX file locking
 
-from transformer_lens import HookedTransformer
 from model_utils import configure_runtime, make_model
+from model_utils import accuracy as eval_accuracy_dataset
+from data import get_dataset
+from torch.utils.data import DataLoader
+import itertools
 
 
 # -----------------------------
@@ -40,11 +43,19 @@ from model_utils import configure_runtime, make_model
 
 def pick_device(explicit: str = "auto") -> torch.device:
     if explicit != "auto":
-        return torch.device(explicit)
+        dev = torch.device(explicit)
+        # Gracefully fall back if unavailable
+        if dev.type == "cuda" and not torch.cuda.is_available():
+            return torch.device("cpu")
+        if dev.type == "mps":
+            has_mps = getattr(torch.backends, "mps", None)
+            if not has_mps or not torch.backends.mps.is_available():
+                return torch.device("cpu")
+        return dev
     if torch.cuda.is_available():
         return torch.device("cuda")
-    # if torch.backends.mps.is_available():
-    #     return torch.device("mps")
+    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        return torch.device("mps")
     return torch.device("cpu")
 
 
@@ -179,6 +190,8 @@ def train_and_return_model(
     lr: float,
     eval_batch_size: int,
     grad_clip: float,
+    dataset_mode: bool,
+    train_split: float,
 ) -> Tuple[nn.Module, Dict]:
     seed_material = (str(asdict(cfg)) + str(base_seed)).encode("utf-8")
     seed = int.from_bytes(hashlib.sha256(seed_material).digest()[:4], "big")
@@ -190,13 +203,36 @@ def train_and_return_model(
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=cfg.WEIGHT_DECAY)
     ce = nn.CrossEntropyLoss()
 
-    val_inputs, val_targets = make_validation_set(
-        n_examples=val_size,
-        n_digits=cfg.N_DIGITS,
-        list_len=cfg.LIST_LEN,
-        device=device,
-        seed=seed + 123456,
-    )
+    # Build validation data depending on mode
+    val_inputs = None
+    val_targets = None
+    val_dl = None
+    train_iter = None
+    val_examples_count = 0
+    train_bs = batch_size
+    if dataset_mode:
+        # Build enumerated dataset and DataLoaders like train.py
+        train_ds, val_ds = get_dataset(
+            list_len=cfg.LIST_LEN,
+            n_digits=cfg.N_DIGITS,
+            train_split=train_split,
+            mask_tok=cfg.N_DIGITS,
+            sep_tok=cfg.N_DIGITS + 1,
+        )
+        train_bs = min(batch_size, len(train_ds)) if len(train_ds) > 0 else batch_size
+        val_bs = min(eval_batch_size, len(val_ds)) if len(val_ds) > 0 else eval_batch_size
+        train_dl = DataLoader(train_ds, batch_size=train_bs, shuffle=True, drop_last=True)
+        val_dl = DataLoader(val_ds, batch_size=val_bs, shuffle=False, drop_last=False)
+        val_examples_count = len(val_ds)
+        train_iter = itertools.cycle(train_dl)
+    else:
+        val_inputs, val_targets = make_validation_set(
+            n_examples=val_size,
+            n_digits=cfg.N_DIGITS,
+            list_len=cfg.LIST_LEN,
+            device=device,
+            seed=seed + 123456,
+        )
 
     model.train()
     g = torch.Generator(device=device).manual_seed(seed + 999)
@@ -207,7 +243,13 @@ def train_and_return_model(
 
     pbar = tqdm(total=train_steps, desc="train", leave=False, ncols=120)
     for step in range(1, train_steps + 1):
-        xb, yb = make_batch(batch_size, cfg.N_DIGITS, cfg.LIST_LEN, device, g)
+        if dataset_mode:
+            assert train_iter is not None
+            xb, yb = next(train_iter)
+            xb = xb.to(device)
+            yb = yb.to(device)
+        else:
+            xb, yb = make_batch(batch_size, cfg.N_DIGITS, cfg.LIST_LEN, device, g)
         logits = model(xb)[:, cfg.LIST_LEN + 1 :]
         gold = yb[:, cfg.LIST_LEN + 1 :]
 
@@ -219,9 +261,13 @@ def train_and_return_model(
         opt.zero_grad()
 
         if step % eval_every == 0 or step == train_steps:
-            last_eval = eval_accuracy(
-                model, val_inputs, val_targets, cfg.LIST_LEN, batch_size=eval_batch_size
-            )
+            if dataset_mode:
+                last_eval = eval_accuracy_dataset(model, val_dl, list_len=cfg.LIST_LEN, device=device)
+            else:
+                assert val_inputs is not None and val_targets is not None
+                last_eval = eval_accuracy(
+                    model, val_inputs, val_targets, cfg.LIST_LEN, batch_size=eval_batch_size
+                )
             with torch.no_grad():
                 preds = logits.argmax(dim=-1)
                 train_acc = (preds == gold).float().mean().item()
@@ -240,9 +286,22 @@ def train_and_return_model(
 
     train_time_sec = time.time() - start
     if last_eval == 0.0:
-        last_eval = eval_accuracy(
-            model, val_inputs, val_targets, cfg.LIST_LEN, batch_size=eval_batch_size
-        )
+        if dataset_mode:
+            last_eval = eval_accuracy_dataset(model, val_dl, list_len=cfg.LIST_LEN, device=device)
+        else:
+            assert val_inputs is not None and val_targets is not None
+            last_eval = eval_accuracy(
+                model, val_inputs, val_targets, cfg.LIST_LEN, batch_size=eval_batch_size
+            )
+
+    # Prepare metric fields based on mode
+    if dataset_mode:
+        val_examples_field = val_examples_count
+        batch_size_field = train_bs
+    else:
+        assert val_inputs is not None
+        val_examples_field = val_inputs.size(0)
+        batch_size_field = batch_size
 
     metrics = {
         "val_acc": last_eval,
@@ -250,8 +309,8 @@ def train_and_return_model(
         "train_time_sec": train_time_sec,
         "params_total": total_params,
         "params_trainable": trainable_params,
-        "val_examples": val_inputs.size(0),
-        "batch_size": batch_size,
+        "val_examples": val_examples_field,
+        "batch_size": batch_size_field,
     }
     return model, metrics
 
@@ -268,6 +327,8 @@ def train_one(
     lr: float,
     eval_batch_size: int,
     grad_clip: float,
+    dataset_mode: bool,
+    train_split: float,
 ) -> Dict:
     _model, metrics = train_and_return_model(
         cfg=cfg,
@@ -281,6 +342,8 @@ def train_one(
         lr=lr,
         eval_batch_size=eval_batch_size,
         grad_clip=grad_clip,
+        dataset_mode=dataset_mode,
+        train_split=train_split,
     )
     return metrics
 
@@ -332,8 +395,16 @@ def build_ablation_grid(n_runs: int) -> List[Config]:
     return cfgs
 
 
-def build_extra_grid(n_runs: int, d_models: List[int]) -> List[Config]:
-    """Fixed configs over d_model with LN/Bias=False and fWV/fWO=True."""
+def build_extra_grid(
+    n_runs: int,
+    d_models: List[int],
+    *,
+    use_ln: bool = False,
+    use_bias: bool = False,
+    freeze_wv: bool = True,
+    freeze_wo: bool = True,
+) -> List[Config]:
+    """Fixed configs over d_model with selectable LN/Bias and fWV/fWO flags."""
     LIST_LEN = 2
     N_DIGITS = 100
     GRID_N_HEADS = 1
@@ -350,10 +421,10 @@ def build_extra_grid(n_runs: int, d_models: List[int]) -> List[Config]:
                     D_MODEL=d,
                     N_HEAD=GRID_N_HEADS,
                     N_LAYERS=GRID_N_LAYERS,
-                    USE_LN=False,
-                    USE_BIAS=False,
-                    FREEZE_WV=True,
-                    FREEZE_WO=True,
+                    USE_LN=use_ln,
+                    USE_BIAS=use_bias,
+                    FREEZE_WV=freeze_wv,
+                    FREEZE_WO=freeze_wo,
                     WEIGHT_DECAY=WEIGHT_DECAY,
                     run_idx=run_idx,
                 )
@@ -398,7 +469,8 @@ def append_row_locked(path: str, fields: List[str], row: Dict) -> None:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Ablation Grid Search for Copy Task")
-    p.add_argument("--output", type=str, default="ablation_res.csv", help="CSV file path")
+    # default resolves later to CWD/ablation_res.csv
+    p.add_argument("--output", type=str, default=None, help="CSV file path (defaults to ./ablation_res.csv)")
     p.add_argument("--device", type=str, default="auto", help="cuda|mps|cpu|auto")
     p.add_argument("--seed", type=int, default=42, help="base seed")
     p.add_argument("--train-steps", type=int, default=50000, help="max steps per run")
@@ -409,6 +481,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lr", type=float, default=1e-3, help="AdamW learning rate")
     p.add_argument("--eval-batch-size", type=int, default=1024, help="evaluation batch size")
     p.add_argument("--grad-clip", type=float, default=0.0, help="max grad-norm clipping (0 disables)")
+    p.add_argument("--dataset-mode", default=True, help="use enumerated dataset + DataLoaders like train.py")
+    p.add_argument("--train-split", type=float, default=0.8, help="train/val split for dataset mode")
     p.add_argument("--skip-existing", action="store_true", default=True, help="skip configs already present in output CSV")
     p.add_argument("--runs", type=int, default=30, help="number of runs per config")
     p.add_argument(
@@ -416,6 +490,12 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="128,32,8",
         help="comma-separated list of extra d_model values (with LN/Bias False and fWV/fWO True)",
+    )
+    p.add_argument(
+        "--extras-flags",
+        type=str,
+        default="F,F,T,T",
+        help="flags for extras as LN,Bias,WV,WO using T/F (e.g., 'F,F,F,F')",
     )
     p.add_argument("--no-extra", action="store_true", help="disable running the extra d_model configs")
     return p.parse_args()
@@ -426,11 +506,37 @@ def main():
     device = pick_device(args.device)
     set_global_seed(args.seed)
 
+    # Resolve output to the script directory by default (robust to scheduler CWD)
+    script_dir = Path(__file__).parent
+    if args.output is None or args.output.strip() == "":
+        output_path = str((script_dir / "ablation_res.csv").resolve())
+    else:
+        output_path = args.output
+        if not os.path.isabs(output_path):
+            output_path = str((script_dir / output_path).resolve())
+
     # Build config list
     cfgs = build_ablation_grid(n_runs=args.runs)
     if not args.no_extra:
         extra_dims = [int(x) for x in args.extra_d_models.split(",") if x.strip()]
-        cfgs += build_extra_grid(n_runs=args.runs, d_models=extra_dims)
+        def _parse_tf(s: str) -> bool:
+            s = s.strip().lower()
+            if s in {"t", "true", "1", "y", "yes"}: return True
+            if s in {"f", "false", "0", "n", "no"}: return False
+            raise ValueError(f"Invalid T/F flag: {s}")
+        try:
+            ln_s, bias_s, wv_s, wo_s = [x.strip() for x in args.extras_flags.split(",")]
+            ln_b, bias_b, wv_b, wo_b = map(_parse_tf, (ln_s, bias_s, wv_s, wo_s))
+        except Exception:
+            raise SystemExit("--extras-flags must be like 'F,F,T,T' for LN,Bias,WV,WO")
+        cfgs += build_extra_grid(
+            n_runs=args.runs,
+            d_models=extra_dims,
+            use_ln=ln_b,
+            use_bias=bias_b,
+            freeze_wv=wv_b,
+            freeze_wo=wo_b,
+        )
 
     total = len(cfgs)
 
@@ -455,13 +561,13 @@ def main():
         "batch_size",
         "device",
     ]
-    ensure_csv_header(args.output, fields)
+    ensure_csv_header(output_path, fields)
 
     # Optionally load existing rows to skip duplicates
     existing_keys = set()
-    if args.skip_existing and os.path.exists(args.output):
+    if args.skip_existing and os.path.exists(output_path):
         try:
-            with open(args.output, "r", newline="") as f:
+            with open(output_path, "r", newline="") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     key = (
@@ -513,6 +619,8 @@ def main():
                 lr=args.lr,
                 eval_batch_size=args.eval_batch_size,
                 grad_clip=args.grad_clip,
+                dataset_mode=args.dataset_mode,
+                train_split=args.train_split,
             )
         except RuntimeError:
             metrics = {
@@ -526,11 +634,11 @@ def main():
             }
 
         row = {**asdict(cfg), **metrics, "device": str(device)}
-        append_row_locked(args.output, fields, row)
+        append_row_locked(output_path, fields, row)
         outer.update(1)
     outer.close()
 
-    print(f"Wrote {total} rows to {args.output}")
+    print(f"Wrote {total} rows to {output_path}")
 
 
 if __name__ == "__main__":

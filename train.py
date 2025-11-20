@@ -51,10 +51,10 @@ VOCAB = len(DIGITS) + 2  # + the special tokens
 D_MODEL = 64
 N_HEAD = 1
 N_LAYER = 2
-USE_LN = False # use layer norm in model
-USE_BIAS = False # use bias in model
-FREEZE_WV = True # no value matrix in attn 
-FREEZE_WO = True # no output matrix in attn (i.e. attn head can only copy inputs to outputs)
+USE_LN = True # use layer norm in model
+USE_BIAS = True # use bias in model
+FREEZE_WV = False # no value matrix in attn 
+FREEZE_WO = False # no output matrix in attn (i.e. attn head can only copy inputs to outputs)
 
 LEARNING_RATE = 1e-3 # default 1e-3
 WEIGHT_DECAY = 0.01 # default 0.01
@@ -62,8 +62,8 @@ MAX_TRAIN_STEPS = 50_000 # max training steps
 USE_CHECKPOINTING = False # whether to use checkpointing for training
 
 RUN_TS = datetime.now().strftime("%Y%m%d-%H%M%S")
-MODEL_NAME = f'{N_LAYER}layer_{N_DIGITS}dig_{D_MODEL}d_{RUN_TS}'
-# MODEL_NAME = 
+tf_string = ''.join('T' if b else 'F' for b in [USE_LN, USE_BIAS, FREEZE_WV, FREEZE_WO])
+MODEL_NAME = f'{N_LAYER}layer_{N_DIGITS}dig_{D_MODEL}d_LBVO-{tf_string}_{RUN_TS}'
 MODEL_PATH = "models/" + MODEL_NAME + ".pt"
 
 # --- dataset --- (not necessary as we fix seed?)
@@ -263,7 +263,9 @@ while acc < 0.9:
     train(model, max_steps=MAX_TRAIN_STEPS, checkpoints=USE_CHECKPOINTING)
     acc = accuracy(model, val_dl)
     if acc > 0.8:
-        save_model(model, MODEL_PATH)
+        MODEL_NAME_WITH_ACC = f'{MODEL_NAME}_acc{acc:.4f}'
+        MODEL_PATH_WITH_ACC = f"models/{MODEL_NAME_WITH_ACC}.pt"
+        save_model(model, MODEL_PATH_WITH_ACC)
 
 # %%
 # --- Model Parameters Overview ---
