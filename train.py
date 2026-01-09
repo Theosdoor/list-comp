@@ -53,8 +53,8 @@ N_HEAD = 1
 N_LAYER = 2
 USE_LN = True # use layer norm in model
 USE_BIAS = True # use bias in model
-FREEZE_WV = False # no value matrix in attn 
-FREEZE_WO = False # no output matrix in attn (i.e. attn head can only copy inputs to outputs)
+USE_WV = True # use value matrix in attn (False = freeze to identity)
+USE_WO = True # use output matrix in attn (False = freeze to identity)
 
 LEARNING_RATE = 1e-3 # default 1e-3
 WEIGHT_DECAY = 0.01 # default 0.01
@@ -62,7 +62,7 @@ MAX_TRAIN_STEPS = 50_000 # max training steps
 USE_CHECKPOINTING = False # whether to use checkpointing for training
 
 RUN_TS = datetime.now().strftime("%Y%m%d-%H%M%S")
-tf_string = ''.join('T' if b else 'F' for b in [USE_LN, USE_BIAS, FREEZE_WV, FREEZE_WO])
+tf_string = ''.join('T' if b else 'F' for b in [USE_LN, USE_BIAS, USE_WV, USE_WO])
 MODEL_NAME = f'{N_LAYER}layer_{N_DIGITS}dig_{D_MODEL}d_LBVO-{tf_string}_{RUN_TS}'
 MODEL_PATH = "models/" + MODEL_NAME + ".pt"
 
@@ -155,14 +155,14 @@ train_ds[:5]
 
 # %%
 # ---------- experiment grid ----------
-def make_name(d_model, n_layers, ln, use_bias, freeze_wv, freeze_wo):
+def make_name(d_model, n_layers, ln, use_bias, use_wv, use_wo):
     parts = [
         f"d{d_model}",
         f"{n_layers}L",
         ("LN" if ln else "noLN"),
         ("Bias" if use_bias else "noBias"),
-        ("fWV" if freeze_wv else "uWV"), # freeze / unfreeze
-        ("fWO" if freeze_wo else "uWO"),
+        ("WV" if use_wv else "noWV"),
+        ("WO" if use_wo else "noWO"),
     ]
     return "_".join(parts)
 
@@ -208,8 +208,8 @@ for spec in specs:
         'd_model': D_MODEL,
         'ln': USE_LN,
         'bias': USE_BIAS,
-        'freeze_wv': FREEZE_WV,
-        'freeze_wo': FREEZE_WO,
+        'use_wv': USE_WV,
+        'use_wo': USE_WO,
         'lr': LEARNING_RATE,
         'weight_decay': WEIGHT_DECAY,
     }
@@ -222,8 +222,8 @@ for spec in specs:
         d_model=full_spec['d_model'],
         ln=full_spec['ln'],
         use_bias=full_spec['bias'],
-        freeze_wv=full_spec['freeze_wv'],
-        freeze_wo=full_spec['freeze_wo'],
+        use_wv=full_spec['use_wv'],
+        use_wo=full_spec['use_wo'],
     )
 
     train(model, max_steps=50_000, lr=full_spec['lr'], weight_decay=full_spec['weight_decay'])
@@ -257,8 +257,8 @@ while acc < 0.9:
         d_model=D_MODEL,
         ln=USE_LN,
         use_bias=USE_BIAS,
-        freeze_wv=FREEZE_WV,
-        freeze_wo=FREEZE_WO,
+        use_wv=USE_WV,
+        use_wo=USE_WO,
     )
     train(model, max_steps=MAX_TRAIN_STEPS, checkpoints=USE_CHECKPOINTING)
     acc = accuracy(model, val_dl)

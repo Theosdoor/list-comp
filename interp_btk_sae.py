@@ -27,9 +27,9 @@ from model_utils import make_model, configure_runtime, load_model
 from data import get_dataset
 
 # Set Device
-device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
+device =  "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 print(f"Using device: {device}")
-torch.set_grad_enabled(False)
+torch.set_grad_enabled(False) # don't need gradients - analysis only
 
 #%% [markdown]
 # ## 1. Configuration & Model Loading
@@ -99,8 +99,8 @@ try:
         d_model=cfg.d_model,
         ln=False,
         use_bias=False,
-        freeze_wv=True,
-        freeze_wo=True
+        use_wv=False,
+        use_wo=False
     )
     print(f"✓ Loaded base model from {MODEL_PATH}")
 except Exception as e:
@@ -108,7 +108,7 @@ except Exception as e:
     raise
 
 # Load SAE
-SAE_PATH = "sep_token_sae_batch_topk.pt"
+SAE_PATH = "sae.pt"
 sae_checkpoint = torch.load(SAE_PATH, map_location=device, weights_only=False)
 
 sae = BatchTopKSAE(cfg).to(device)

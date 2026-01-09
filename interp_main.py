@@ -59,8 +59,8 @@ VOCAB = len(DIGITS) + 2  # + special tokens
 N_HEAD = 1
 USE_LN = False # use layer norm in model
 USE_BIAS = False # use bias in model
-FREEZE_WV = True # no value matrix in attn 
-FREEZE_WO = True # no output matrix in attn (i.e. attn head can only copy inputs to outputs)
+USE_WV = False # use value matrix in attn (False = freeze to identity)
+USE_WO = False # use output matrix in attn (False = freeze to identity)
 
 DEV = (
     "cuda"
@@ -115,8 +115,8 @@ if os.path.exists(MODEL_PATH):
         d_model=D_MODEL,
         ln=USE_LN,
         use_bias=USE_BIAS,
-        freeze_wv=FREEZE_WV,
-        freeze_wo=FREEZE_WO,
+        use_wv=USE_WV,
+        use_wo=USE_WO,
         device=DEV,
     )
 else:

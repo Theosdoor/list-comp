@@ -166,8 +166,8 @@ def make_model(
 	d_model,
 	ln = False,
 	use_bias = False,
-	freeze_wv = True,
-	freeze_wo = True,
+	use_wv = False,
+	use_wo = False,
 	seq_len = None,
 	vocab = None,
 	list_len = None,
@@ -180,6 +180,8 @@ def make_model(
 		vocab: vocabulary size
 		list_len: number of input digits (used by mask)
 		device: device to place model on (defaults to DEV)
+		use_wv: if False, freeze W_V to identity (default: False)
+		use_wo: if False, freeze W_O to identity (default: False)
 	"""
 	# Resolve from explicit args or runtime config
 	if seq_len is None:
@@ -202,9 +204,9 @@ def make_model(
 		normalization_type=("LN" if ln else None),
 	)
 	model = HookedTransformer(cfg).to(dev)
-	if freeze_wv:
+	if not use_wv:
 		set_WV_identity_and_freeze(model, d_model)
-	if freeze_wo:
+	if not use_wo:
 		set_WO_identity_and_freeze(model, d_model)
 	if not use_bias:
 		strip_bias(model)

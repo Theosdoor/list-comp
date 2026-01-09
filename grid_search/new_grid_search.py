@@ -3,9 +3,9 @@
 """
 new_grid_search.py
 
-Runs the ablation grid described in train.py (LN, Bias, freeze_wv, freeze_wo
+Runs the ablation grid described in train.py (LN, Bias, use_wv, use_wo
 at d_model=64, n_heads=1, n_layers=2) plus the extra fixed configs over
-d_model in [128, 32, 8] with LN=False, Bias=False, freeze_wv=True, freeze_wo=True.
+d_model in [128, 32, 8] with LN=False, Bias=False, use_wv=False, use_wo=False.
 
 Training/eval pipeline follows listlen_grid_search.py (synthetic batches), and
 results are appended to a CSV (default: ablation_res.csv) with POSIX file locks
@@ -130,8 +130,8 @@ class Config:
     N_LAYERS: int
     USE_LN: bool
     USE_BIAS: bool
-    FREEZE_WV: bool
-    FREEZE_WO: bool
+    USE_WV: bool
+    USE_WO: bool
     WEIGHT_DECAY: float
     run_idx: int
 
@@ -171,8 +171,8 @@ def build_model_from_config(cfg: Config, device: torch.device) -> nn.Module:
         d_model=cfg.D_MODEL,
         ln=cfg.USE_LN,
         use_bias=cfg.USE_BIAS,
-        freeze_wv=cfg.FREEZE_WV,
-        freeze_wo=cfg.FREEZE_WO,
+        use_wv=cfg.USE_WV,
+        use_wo=cfg.USE_WO,
         device=device,
     )
     return model
@@ -354,7 +354,7 @@ def train_one(
 
 
 def build_ablation_grid(n_runs: int) -> List[Config]:
-    """Grid over LN, Bias, freeze_wv, freeze_wo at fixed d/h/L.
+    """Grid over LN, Bias, use_wv, use_wo at fixed d/h/L.
 
     Mirrors the section in train.py with defaults:
       d_model=64, n_heads=1, n_layers=2, LIST_LEN=2, N_DIGITS=100.
@@ -368,14 +368,14 @@ def build_ablation_grid(n_runs: int) -> List[Config]:
 
     grid_lns = [False, True]
     grid_biases = [False, True]
-    grid_freeze_wv = [False, True]
-    grid_freeze_wo = [False, True]
+    grid_use_wv = [False, True]
+    grid_use_wo = [False, True]
 
     cfgs: List[Config] = []
     for ln in grid_lns:
         for bias in grid_biases:
-            for fwv in grid_freeze_wv:
-                for fwo in grid_freeze_wo:
+            for fwv in grid_use_wv:
+                for fwo in grid_use_wo:
                     for run_idx in range(1, n_runs + 1):
                         cfgs.append(
                             Config(
@@ -386,8 +386,8 @@ def build_ablation_grid(n_runs: int) -> List[Config]:
                                 N_LAYERS=GRID_N_LAYERS,
                                 USE_LN=ln,
                                 USE_BIAS=bias,
-                                FREEZE_WV=fwv,
-                                FREEZE_WO=fwo,
+                                USE_WV=fwv,
+                                USE_WO=fwo,
                                 WEIGHT_DECAY=0.01,
                                 run_idx=run_idx,
                             )
@@ -401,10 +401,10 @@ def build_extra_grid(
     *,
     use_ln: bool = False,
     use_bias: bool = False,
-    freeze_wv: bool = True,
-    freeze_wo: bool = True,
+    use_wv: bool = False,
+    use_wo: bool = False,
 ) -> List[Config]:
-    """Fixed configs over d_model with selectable LN/Bias and fWV/fWO flags."""
+    """Fixed configs over d_model with selectable LN/Bias and WV/WO flags."""
     LIST_LEN = 2
     N_DIGITS = 100
     GRID_N_HEADS = 1
@@ -423,8 +423,8 @@ def build_extra_grid(
                     N_LAYERS=GRID_N_LAYERS,
                     USE_LN=use_ln,
                     USE_BIAS=use_bias,
-                    FREEZE_WV=freeze_wv,
-                    FREEZE_WO=freeze_wo,
+                    USE_WV=use_wv,
+                    USE_WO=use_wo,
                     WEIGHT_DECAY=WEIGHT_DECAY,
                     run_idx=run_idx,
                 )
@@ -489,7 +489,7 @@ def parse_args() -> argparse.Namespace:
         "--extra-d-models",
         type=str,
         default="128,32,8",
-        help="comma-separated list of extra d_model values (with LN/Bias False and fWV/fWO True)",
+        help="comma-separated list of extra d_model values (with LN/Bias False and WV/WO True)",
     )
     p.add_argument(
         "--extras-flags",
@@ -534,8 +534,8 @@ def main():
             d_models=extra_dims,
             use_ln=ln_b,
             use_bias=bias_b,
-            freeze_wv=wv_b,
-            freeze_wo=wo_b,
+            use_wv=wv_b,
+            use_wo=wo_b,
         )
 
     total = len(cfgs)
@@ -548,8 +548,8 @@ def main():
         "N_LAYERS",
         "USE_LN",
         "USE_BIAS",
-        "FREEZE_WV",
-        "FREEZE_WO",
+        "USE_WV",
+        "USE_WO",
         "WEIGHT_DECAY",
         "run_idx",
         "val_acc",
@@ -578,8 +578,8 @@ def main():
                         int(row["N_LAYERS"]),
                         row["USE_LN"] in ("True", "true", "1"),
                         row["USE_BIAS"] in ("True", "true", "1"),
-                        row["FREEZE_WV"] in ("True", "true", "1"),
-                        row["FREEZE_WO"] in ("True", "true", "1"),
+                        row["USE_WV"] in ("True", "true", "1"),
+                        row["USE_WO"] in ("True", "true", "1"),
                         float(row["WEIGHT_DECAY"]),
                         int(row["run_idx"]),
                     )
@@ -598,8 +598,8 @@ def main():
                 cfg.N_LAYERS,
                 cfg.USE_LN,
                 cfg.USE_BIAS,
-                cfg.FREEZE_WV,
-                cfg.FREEZE_WO,
+                cfg.USE_WV,
+                cfg.USE_WO,
                 cfg.WEIGHT_DECAY,
                 cfg.run_idx,
             )

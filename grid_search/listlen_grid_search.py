@@ -109,8 +109,8 @@ class Config:
     N_LAYERS: int
     USE_LN: bool
     USE_BIAS: bool
-    FREEZE_WV: bool
-    FREEZE_WO: bool
+    USE_WV: bool
+    USE_WO: bool
     WEIGHT_DECAY: float
     run_idx: int
 
@@ -150,8 +150,8 @@ def build_model_from_config(cfg: Config, device: torch.device) -> HookedTransfor
         d_model=cfg.D_MODEL,
         ln=cfg.USE_LN,
         use_bias=cfg.USE_BIAS,
-        freeze_wv=cfg.FREEZE_WV,
-        freeze_wo=cfg.FREEZE_WO,
+        use_wv=cfg.USE_WV,
+        use_wo=cfg.USE_WO,
         device=device,
     )
     return model
@@ -288,8 +288,8 @@ def build_grid() -> List[Config]:
     N_LAYERS = list(range(1, 11))
     USE_LN = [False]
     USE_BIAS = [False]
-    FREEZE_WV = [True]
-    FREEZE_WO = [True]
+    USE_WV = [False]
+    USE_WO = [False]
     WEIGHT_DECAY = [0.01]
     RUNS = [0, 1, 2]
 
@@ -302,8 +302,8 @@ def build_grid() -> List[Config]:
         N_LAYERS,
         USE_LN,
         USE_BIAS,
-        FREEZE_WV,
-        FREEZE_WO,
+        USE_WV,
+        USE_WO,
         WEIGHT_DECAY,
         RUNS,
     ):
@@ -318,8 +318,8 @@ def build_grid() -> List[Config]:
                 N_LAYERS=NL,
                 USE_LN=LN,
                 USE_BIAS=UB,
-                FREEZE_WV=FWV,
-                FREEZE_WO=FWO,
+                USE_WV=FWV,
+                USE_WO=FWO,
                 WEIGHT_DECAY=WD,
                 run_idx=R,
             )
@@ -438,8 +438,8 @@ def main():
         "N_LAYERS",
         "USE_LN",
         "USE_BIAS",
-        "FREEZE_WV",
-        "FREEZE_WO",
+        "USE_WV",
+        "USE_WO",
         "WEIGHT_DECAY",
         "run_idx",
         "val_acc",
@@ -469,8 +469,8 @@ def main():
                         int(row["N_LAYERS"]),
                         row["USE_LN"] in ("True", "true", "1"),
                         row["USE_BIAS"] in ("True", "true", "1"),
-                        row["FREEZE_WV"] in ("True", "true", "1"),
-                        row["FREEZE_WO"] in ("True", "true", "1"),
+                        row["USE_WV"] in ("True", "true", "1"),
+                        row["USE_WO"] in ("True", "true", "1"),
                         float(row["WEIGHT_DECAY"]),
                         int(row["run_idx"]),
                     )
@@ -489,8 +489,8 @@ def main():
                 cfg.N_LAYERS,
                 cfg.USE_LN,
                 cfg.USE_BIAS,
-                cfg.FREEZE_WV,
-                cfg.FREEZE_WO,
+                cfg.USE_WV,
+                cfg.USE_WO,
                 cfg.WEIGHT_DECAY,
                 cfg.run_idx,
             )
