@@ -266,14 +266,14 @@ print("VALIDATION 1: Decoder-Embedding Alignment")
 print("=" * 60)
 
 # Get embedding matrices from base model
-E = model.embed.W_E.detach()  # [vocab, d_model] - token embeddings
-P = model.pos_embed.W_pos.detach()  # [seq_len, d_model] - position embeddings
+w_e = model.embed.W_E.detach()  # [vocab, d_model] - token embeddings
+w_pos = model.pos_embed.W_pos.detach()  # [seq_len, d_model] - position embeddings
 
 # Compute D1 and D2 directions for all possible digit values
 # D_i = E[d_i] + P[position_i]
 # Position 0 = d1, Position 1 = d2
-D1_directions = E[:cfg.n_digits] + P[0]  # [100, d_model]
-D2_directions = E[:cfg.n_digits] + P[1]  # [100, d_model]
+D1_directions = w_e[:cfg.n_digits] + w_pos[0]  # [100, d_model]
+D2_directions = w_e[:cfg.n_digits] + w_pos[1]  # [100, d_model]
 
 # Normalize decoder vectors for cosine similarity
 W_dec_norm = F.normalize(sae.W_dec.detach(), dim=1)  # [d_sae, d_model]
@@ -292,7 +292,7 @@ max_cos_D2 = cos_D2.abs().max(dim=1).values  # [d_sae]
 best_match = torch.maximum(max_cos_D1, max_cos_D2)
 
 # Analyze top features by firing rate
-top_k_features = 50
+top_k_features = 100
 top_indices = torch.argsort(firing_rate, descending=True)[:top_k_features]
 top_alignments = best_match[top_indices]
 
@@ -351,7 +351,114 @@ print("\nTop features correlation with attention patterns:")
 print(corr_df.to_string(index=False))
 
 avg_expected_corr = corr_df['expected_corr'].mean()
-print(f"\n✓ Average correlation with expected alpha: {avg_expected_corr:.4f}")
+print(f"\nAverage correlation with expected alpha: {avg_expected_corr:.4f}")
+
+#%% [markdown]
+# This value is surprisingly low!
+# 
+# ### Validation 2 Reasoning
+# 
+# The Order by Scale paper predicts that the SEP token residual stream is:
+# ```
+# r_SEP = α_{s→d1}(E_d1 + P_d1) + α_{s→d2}(E_d2 + P_d2) + constant
+# ```
+# 
+# If SAE features align with (E_di + P_di) directions, then their activations should
+# be proportional to the attention weights α. However, the above test correlates
+# feature activations with attention *across all samples*, which mixes different digits.
+# 
+# A more precise test: for features that encode a *specific* digit (e.g., d1=50),
+# their activation should correlate with α_d1 specifically when d1=50 is present.
+
+#%%
+# --- Validation 2b: Digit-Specific Activation-Attention Correlation ---
+print("\n" + "=" * 60)
+print("VALIDATION 2b: Digit-Specific Activation-Attention Correlation")
+print("=" * 60)
+
+# For each feature, find which digit it's most selective for
+# Then check if activation correlates with attention FOR THAT DIGIT ONLY
+
+digit_specific_results = []
+
+for feat_idx in top_indices[:50]:  # Analyze top 50 features
+    feat_acts = sae_acts_all[:, feat_idx].numpy()
+    
+    if feat_acts.sum() == 0:
+        continue
+    
+    # Find which digit value this feature is most selective for
+    # by looking at mean activation for each d1 and d2 value
+    d1_selectivity = np.zeros(cfg.n_digits)
+    d2_selectivity = np.zeros(cfg.n_digits)
+    
+    for digit in range(cfg.n_digits):
+        d1_mask = (d1_all.numpy() == digit)
+        d2_mask = (d2_all.numpy() == digit)
+        
+        if d1_mask.sum() > 0:
+            d1_selectivity[digit] = feat_acts[d1_mask].mean()
+        if d2_mask.sum() > 0:
+            d2_selectivity[digit] = feat_acts[d2_mask].mean()
+    
+    # Determine if feature is more d1-selective or d2-selective
+    best_d1_digit = d1_selectivity.argmax()
+    best_d2_digit = d2_selectivity.argmax()
+    
+    is_d1_feature = d1_selectivity.max() > d2_selectivity.max()
+    best_digit = best_d1_digit if is_d1_feature else best_d2_digit
+    
+    # Now correlate activation with attention for samples containing this digit
+    if is_d1_feature:
+        mask = (d1_all.numpy() == best_digit)
+        alpha_relevant = alpha_d1_all.numpy()[mask]
+        position = "D1"
+    else:
+        mask = (d2_all.numpy() == best_digit)
+        alpha_relevant = alpha_d2_all.numpy()[mask]
+        position = "D2"
+    
+    acts_relevant = feat_acts[mask]
+    
+    # Only compute correlation if we have enough samples and variance
+    if len(acts_relevant) >= 10 and acts_relevant.std() > 1e-6:
+        corr, p_val = stats.pearsonr(acts_relevant, alpha_relevant)
+        
+        digit_specific_results.append({
+            'feature': feat_idx.item(),
+            'position': position,
+            'best_digit': best_digit,
+            'n_samples': len(acts_relevant),
+            'correlation': corr,
+            'p_value': p_val,
+            'mean_activation': acts_relevant.mean(),
+        })
+
+digit_df = pd.DataFrame(digit_specific_results)
+if len(digit_df) > 0:
+    # Sort by absolute correlation
+    digit_df = digit_df.sort_values('correlation', key=abs, ascending=False)
+    
+    print("\nDigit-specific feature correlations with attention:")
+    print(digit_df.head(20).to_string(index=False))
+    
+    # Summary stats
+    strong_corr = (digit_df['correlation'].abs() > 0.3).sum()
+    mean_abs_corr = digit_df['correlation'].abs().mean()
+    
+    print(f"\nFeatures with |correlation| > 0.3: {strong_corr}/{len(digit_df)}")
+    print(f"Mean |correlation|: {mean_abs_corr:.4f}")
+    
+    # The paper predicts correlation ≈ 1.0 for well-aligned features
+    # because activation should equal α * ||E_d + P_d||
+    if mean_abs_corr > 0.5:
+        print("\n✓ Strong support for Order by Scale prediction. Also suggests features are digit-specific: each feature tracks atnn for one particular digit, not attn in general")
+    elif mean_abs_corr > 0.2:
+        print("\n~ Moderate support for Order by Scale prediction")
+    else:
+        print("\n✗ Weak support - features may encode discrete digits rather than graded attention")
+else:
+    print("No features with sufficient variance for correlation analysis")
 
 #%% [markdown]
 # ## 6. Validation 3: Graded Activations (Same Features, Different Magnitudes)
@@ -420,6 +527,302 @@ print(f"  Mean (b,a) only: {swap_df['n_ba_only'].mean():.1f}")
 graded_evidence = swap_df['n_shared_features'].mean() > swap_df['n_ab_only'].mean()
 print(f"\n✓ Graded activation evidence: {'SUPPORTED' if graded_evidence else 'NOT SUPPORTED'}")
 print(f"  (More shared features than unique features indicates graded, not binary, representation)")
+
+#%% [markdown]
+# ### Concrete Example: Same Feature, Different Magnitudes
+#
+# Let's examine a specific swapped pair to see how the same feature has different
+# activations that lead to different reconstructions.
+
+#%%
+# --- Validation 3b: Concrete Example of Graded Activation ---
+print("\n" + "=" * 60)
+print("VALIDATION 3b: Concrete Example of Graded Activation")
+print("=" * 60)
+
+# Find a pair with large ratio differences (to make the effect clear)
+extreme_pairs = swap_df.nlargest(5, 'max_ratio')
+example = extreme_pairs.iloc[0]
+a, b = int(example['a']), int(example['b'])
+
+# Get indices for (a,b) and (b,a)
+idx_ab = pair_to_idx[(a, b)]
+idx_ba = pair_to_idx[(b, a)]
+
+# Get activations
+acts_ab = sae_acts_all[idx_ab]
+acts_ba = sae_acts_all[idx_ba]
+
+# Get attention patterns
+alpha_ab = (alpha_d1_all[idx_ab].item(), alpha_d2_all[idx_ab].item())
+alpha_ba = (alpha_d1_all[idx_ba].item(), alpha_d2_all[idx_ba].item())
+
+print(f"\nComparing inputs (d1={a}, d2={b}) vs (d1={b}, d2={a})")
+print(f"\nAttention patterns:")
+print(f"  (a={a}, b={b}): α_d1={alpha_ab[0]:.3f}, α_d2={alpha_ab[1]:.3f}")
+print(f"  (a={b}, b={a}): α_d1={alpha_ba[0]:.3f}, α_d2={alpha_ba[1]:.3f}")
+
+# Find shared active features
+both_active_mask = (acts_ab > 0) & (acts_ba > 0)
+shared_indices = torch.where(both_active_mask)[0]
+
+print(f"\nShared active features ({len(shared_indices)} features):")
+print(f"{'Feature':>8} {'Act(a,b)':>10} {'Act(b,a)':>10} {'Ratio':>8} {'Best Digit':>12}")
+print("-" * 50)
+
+for feat_idx in shared_indices:
+    act_ab = acts_ab[feat_idx].item()
+    act_ba = acts_ba[feat_idx].item()
+    ratio = act_ab / act_ba if act_ba > 0 else float('inf')
+    
+    # Find which digit this feature prefers
+    feat_acts = sae_acts_all[:, feat_idx].numpy()
+    d1_means = [feat_acts[d1_all.numpy() == d].mean() for d in range(cfg.n_digits)]
+    best_digit = np.argmax(d1_means)
+    
+    print(f"{feat_idx.item():>8} {act_ab:>10.3f} {act_ba:>10.3f} {ratio:>8.2f} {best_digit:>12}")
+
+# %%
+# --- Validation 3c: Feature Scaling Experiment ---
+# This directly tests whether magnitude matters by SCALING a feature and observing output change
+
+print("\n" + "=" * 60)
+print("VALIDATION 3c: Feature Scaling Experiment")
+print("=" * 60)
+print("\nDoes scaling SAE feature magnitudes change model output?")
+
+# Get the input tensors for both orderings
+inputs_ab = val_ds.tensors[0][idx_ab:idx_ab+1].to(device)
+targets_ab = val_ds.tensors[1][idx_ab:idx_ab+1].to(device)
+
+# Get original model output
+with torch.no_grad():
+    orig_logits_ab = model(inputs_ab)
+    orig_pred_ab = orig_logits_ab[:, -2:, :cfg.n_digits].argmax(-1)
+
+print(f"\nInput (d1={a}, d2={b}) → Original output: {orig_pred_ab[0].tolist()}  (target: {targets_ab[0, -2:].tolist()})")
+
+# Hook for patching SAE reconstruction into model
+hook_name = f"blocks.{layer_idx}.hook_resid_post"
+
+def make_sae_patch_hook(sae_recon, sep_idx):
+    """Hook that replaces SEP token residual with SAE reconstruction."""
+    def hook(resid, hook):
+        resid = resid.clone()
+        resid[:, sep_idx, :] = sae_recon + act_mean.to(resid.device)
+        return resid
+    return hook
+
+# Find the most influential feature (highest activation for this input)
+z_ab = sae_acts_all[idx_ab].clone()
+top_feat_idx = z_ab.argmax().item()
+top_feat_val = z_ab[top_feat_idx].item()
+
+# Find which digit this feature encodes
+feat_acts = sae_acts_all[:, top_feat_idx].numpy()
+d1_means = [feat_acts[d1_all.numpy() == d].mean() for d in range(cfg.n_digits)]
+feat_best_digit = np.argmax(d1_means)
+
+print(f"\nScaling feature {top_feat_idx} (encodes digit {feat_best_digit})")
+print(f"Original activation: {top_feat_val:.3f}")
+
+# Scale experiments
+scale_factors = [0.0, 0.5, 1.0, 1.5, 2.0]
+print(f"\n{'Scale':<8} {'Feature Act':<12} {'Output o1':<12} {'Output o2':<12}")
+print("-" * 45)
+
+with torch.no_grad():
+    for scale in scale_factors:
+        # Modify the SAE latents
+        z_scaled = z_ab.clone().to(device)
+        z_scaled[top_feat_idx] = top_feat_val * scale
+        
+        # Decode through SAE
+        recon_scaled = sae.decode(z_scaled.unsqueeze(0))
+        
+        # Patch into model
+        patched_logits = model.run_with_hooks(
+            inputs_ab,
+            fwd_hooks=[(hook_name, make_sae_patch_hook(recon_scaled, cfg.sep_token_index))]
+        )
+        
+        patched_pred = patched_logits[:, -2:, :cfg.n_digits].argmax(-1)
+        o1, o2 = patched_pred[0].tolist()
+        
+        marker = " ← original" if scale == 1.0 else ""
+        print(f"{scale:<8.1f} {top_feat_val * scale:<12.3f} {o1:<12} {o2:<12}{marker}")
+
+print("\n" + "-" * 45)
+print("Removing feature 189 results in wrong order, having it means correct order!")
+print("Scale=0 zeros out the feature; Scale=2 doubles its contribution.")
+
+# %%
+# --- Validation 3d: Targeted Ablation by Digit-Encoding Feature ---
+# For each sample (d1, d2):
+#   1. Find the feature that encodes d1
+#   2. Ablate it (scale=0) and check if o1 changes
+# This tests: "removing the d1-encoding feature should affect output position 1"
+
+print("\n" + "=" * 60)
+print("VALIDATION 3d: Targeted Ablation by Digit-Encoding Feature")
+print("=" * 60)
+
+# First, precompute which digit each feature most strongly encodes
+# by looking at which digit value produces max mean activation
+print("\nStep 1: Precomputing feature → digit mapping...")
+
+feature_to_digit = {}  # Maps feature_idx → best_digit
+
+for feat_idx in range(cfg.d_sae):
+    feat_acts = sae_acts_all[:, feat_idx].numpy()
+    
+    if feat_acts.sum() == 0:  # Skip dead features
+        continue
+    
+    # Mean activation for each digit value (considering both d1 and d2 positions)
+    d1_selectivity = np.zeros(cfg.n_digits)
+    d2_selectivity = np.zeros(cfg.n_digits)
+    
+    for digit in range(cfg.n_digits):
+        d1_mask = (d1_all.numpy() == digit)
+        d2_mask = (d2_all.numpy() == digit)
+        
+        if d1_mask.sum() > 0:
+            d1_selectivity[digit] = feat_acts[d1_mask].mean()
+        if d2_mask.sum() > 0:
+            d2_selectivity[digit] = feat_acts[d2_mask].mean()
+    
+    # Feature encodes the digit with highest selectivity
+    best_d1 = d1_selectivity.max()
+    best_d2 = d2_selectivity.max()
+    
+    if best_d1 > best_d2:
+        feature_to_digit[feat_idx] = {'digit': d1_selectivity.argmax(), 'position': 'D1', 'strength': best_d1}
+    else:
+        feature_to_digit[feat_idx] = {'digit': d2_selectivity.argmax(), 'position': 'D2', 'strength': best_d2}
+
+print(f"Mapped {len(feature_to_digit)} features to digits")
+
+# Build reverse mapping: digit → features that encode it
+digit_to_features = {}
+for feat_idx, info in feature_to_digit.items():
+    digit = info['digit']
+    if digit not in digit_to_features:
+        digit_to_features[digit] = []
+    digit_to_features[digit].append((feat_idx, info['strength']))
+
+# For each digit, keep the strongest feature
+best_feature_for_digit = {}
+for digit, features in digit_to_features.items():
+    best_feat = max(features, key=lambda x: x[1])[0]
+    best_feature_for_digit[digit] = best_feat
+
+print(f"Found best features for {len(best_feature_for_digit)} digits")
+
+# Step 2: Run targeted ablation
+print("\nStep 2: Running targeted ablation on 100 random pairs...")
+print("For each (d1, d2), ablate the feature encoding d1 and check if o1 changes")
+
+np.random.seed(42)
+valid_indices = [i for i in range(n_samples) 
+                 if d1_all[i].item() != d2_all[i].item() 
+                 and d1_all[i].item() in best_feature_for_digit]
+sample_indices = np.random.choice(valid_indices, size=min(100, len(valid_indices)), replace=False)
+
+ablation_results = []
+
+with torch.no_grad():
+    for idx in tqdm(sample_indices, desc="Targeted ablation"):
+        d1_val = d1_all[idx].item()
+        d2_val = d2_all[idx].item()
+        
+        # Get original output
+        inputs_i = val_ds.tensors[0][idx:idx+1].to(device)
+        orig_logits = model(inputs_i)
+        orig_pred = orig_logits[:, -2:, :cfg.n_digits].argmax(-1)
+        orig_o1, orig_o2 = orig_pred[0].tolist()
+        
+        # Get SAE activations
+        z_i = sae_acts_all[idx].clone().to(device)
+        
+        # Find the feature that encodes d1
+        d1_feature = best_feature_for_digit.get(d1_val)
+        if d1_feature is None:
+            continue
+        
+        d1_feat_val = z_i[d1_feature].item()
+        
+        # Ablate: set the d1-encoding feature to 0
+        z_ablated = z_i.clone()
+        z_ablated[d1_feature] = 0.0
+        
+        # Decode and patch
+        recon_ablated = sae.decode(z_ablated.unsqueeze(0))
+        patched_logits = model.run_with_hooks(
+            inputs_i,
+            fwd_hooks=[(hook_name, make_sae_patch_hook(recon_ablated, cfg.sep_token_index))]
+        )
+        patched_pred = patched_logits[:, -2:, :cfg.n_digits].argmax(-1)
+        patched_o1, patched_o2 = patched_pred[0].tolist()
+        
+        # Check results
+        o1_changed = (patched_o1 != orig_o1)
+        o1_became_d2 = (patched_o1 == d2_val)
+        swapped = (patched_o1 == orig_o2 and patched_o2 == orig_o1)
+        
+        ablation_results.append({
+            'd1': d1_val, 'd2': d2_val,
+            'orig_o1': orig_o1, 'orig_o2': orig_o2,
+            'patched_o1': patched_o1, 'patched_o2': patched_o2,
+            'd1_feature': d1_feature,
+            'd1_feat_val': d1_feat_val,
+            'o1_changed': o1_changed,
+            'o1_became_d2': o1_became_d2,
+            'swapped': swapped,
+        })
+
+# Analyze results
+ablation_df = pd.DataFrame(ablation_results)
+
+o1_change_rate = ablation_df['o1_changed'].mean() * 100
+swap_rate = ablation_df['swapped'].mean() * 100
+o1_to_d2_rate = ablation_df['o1_became_d2'].mean() * 100
+
+print(f"\n{'Metric':<30} {'Rate':<10}")
+print("-" * 45)
+print(f"{'O1 changed after ablation:':<30} {o1_change_rate:>6.1f}%")
+print(f"{'O1 became D2 after ablation:':<30} {o1_to_d2_rate:>6.1f}%")
+print(f"{'Full swap (o1↔o2):':<30} {swap_rate:>6.1f}%")
+
+# Plot
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+# Bar chart
+metrics = ['O1\nChanged', 'O1→D2', 'Full\nSwap']
+rates = [o1_change_rate, o1_to_d2_rate, swap_rate]
+colors = ['#e74c3c', '#f39c12', '#9b59b6']
+
+axes[0].bar(metrics, rates, color=colors, edgecolor='black', linewidth=1.5)
+axes[0].set_ylabel('Rate (%)', fontsize=12)
+axes[0].set_xlabel('Effect of Ablating D1-Encoding Feature', fontsize=12)
+axes[0].set_title('Effect of Removing Feature That Encodes D1\n(100 random pairs)', fontsize=13)
+axes[0].set_ylim(0, 100)
+
+for i, r in enumerate(rates):
+    axes[0].annotate(f'{r:.1f}%', xy=(i, r), ha='center', va='bottom', fontsize=11, fontweight='bold')
+
+# Pie chart
+axes[1].pie([o1_change_rate, 100-o1_change_rate], 
+            labels=['O1 Changed', 'O1 Same'], 
+            autopct='%1.1f%%', colors=['#e74c3c', '#2ecc71'], startangle=90,
+            explode=(0.05, 0))
+axes[1].set_title('Does Removing D1-Feature\nChange Output Position 1?', fontsize=13)
+
+plt.tight_layout()
+if cfg.save_dir is not None:
+    os.makedirs(cfg.save_dir, exist_ok=True)
+    plt.savefig(os.path.join(cfg.save_dir, "targeted_ablation.png"), dpi=150)
+plt.show()
 
 #%% [markdown]
 # ## 7. Validation 4: Relative Magnitude Encodes Order
