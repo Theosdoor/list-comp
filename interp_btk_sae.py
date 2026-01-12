@@ -56,25 +56,46 @@ class SAEConfig:
 
 cfg = SAEConfig()
 
-# --- BatchTopK SAE Definition ---
+# --- BatchTopK SAE Definition (must match train_btk_sae.py) ---
 class BatchTopKSAE(nn.Module):
-    """BatchTopK Sparse Autoencoder (Bussmann et al. 2024)"""
+    """
+    BatchTopK Sparse Autoencoder (Bussmann et al. 2024)
+    
+    Structure matches train_btk_sae.py for checkpoint compatibility.
+    Only encode/decode methods needed for inference.
+    """
+    
     def __init__(self, cfg: SAEConfig):
         super().__init__()
         self.cfg = cfg
+        
+        # Encoder/decoder weights and biases
         self.W_enc = nn.Parameter(torch.empty(cfg.d_model, cfg.d_sae))
         self.W_dec = nn.Parameter(torch.empty(cfg.d_sae, cfg.d_model))
         self.b_enc = nn.Parameter(torch.zeros(cfg.d_sae))
         self.b_dec = nn.Parameter(torch.zeros(cfg.d_model))
+        
+        # Buffer for checkpoint compatibility (not used in inference)
+        self.register_buffer('num_batches_not_active', torch.zeros(cfg.d_sae))
 
     def encode(self, x):
-        """Encode with BatchTopK sparsity."""
-        pre_acts = (x - self.b_dec) @ self.W_enc + self.b_enc
-        post_relu = F.relu(pre_acts)
-        topk_values, topk_indices = torch.topk(post_relu, k=self.cfg.k, dim=-1)
-        z = torch.zeros_like(post_relu)
-        z.scatter_(-1, topk_indices, topk_values)
-        return z
+        """Encode with batch-level TopK sparsity."""
+        x_cent = x - self.b_dec
+        pre_acts = x_cent @ self.W_enc + self.b_enc
+        acts = F.relu(pre_acts)
+        
+        # BatchTopK: select top k*batch_size across entire flattened batch
+        batch_size = x.shape[0]
+        total_k = self.cfg.k * batch_size
+        
+        acts_flat = acts.flatten()
+        topk = torch.topk(acts_flat, total_k, dim=-1)
+        
+        acts_topk = torch.zeros_like(acts_flat)
+        acts_topk.scatter_(-1, topk.indices, topk.values)
+        acts_topk = acts_topk.reshape(acts.shape)
+        
+        return acts_topk
 
     def decode(self, z):
         return z @ self.W_dec + self.b_dec

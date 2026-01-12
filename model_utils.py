@@ -33,8 +33,6 @@ _RUNTIME = _RuntimeConfig()
 
 def configure_runtime(*, list_len, seq_len, vocab, device):
 	"""Set module-level runtime configuration so callers can omit repeating constants.
-
-	All arguments are required except device (defaults to detected DEV).
 	"""
 	_RUNTIME.list_len = list_len
 	_RUNTIME.seq_len = seq_len
