@@ -20,7 +20,7 @@ from model_utils import (
     build_attention_mask,
     load_model,
     accuracy,
-    parse_model_name,
+    parse_model_name_safe,
 )
 
 from data import get_dataset
@@ -41,12 +41,10 @@ MODEL_NAME = '2layer_100dig_64d'
 MODEL_PATH = "models/" + MODEL_NAME + ".pt"
 
 # Derive architectural hyperparameters from model name
-try:
-    N_DIGITS, D_MODEL, N_LAYER = parse_model_name(MODEL_NAME)
-except ValueError as e:
-    # Fallback to sane defaults while surfacing the issue
-    print(f"[parse_model_name warning] {e}. Falling back to manual defaults.")
-    N_DIGITS, D_MODEL, N_LAYER = 100, 64, 2
+MODEL_CFG = parse_model_name_safe(MODEL_NAME)
+N_DIGITS = MODEL_CFG.n_digits
+D_MODEL = MODEL_CFG.d_model
+N_LAYER = MODEL_CFG.n_layers
 
 LIST_LEN = 2  # [d1, d2]
 SEQ_LEN = LIST_LEN * 2 + 1  # [d1, d2, SEP, o1, o2]

@@ -15,6 +15,8 @@ __all__ = [
 	"save_model",
 	"load_model",
 	"parse_model_name",
+	"parse_model_name_safe",
+	"ModelConfig",
 ]
 
 torch.manual_seed(0)
@@ -254,29 +256,54 @@ def load_model(path, **model_kwargs):
 	return model
 
 # ----- Model name parsing helper ------
-def parse_model_name(name: str):
-	"""Parse model naming convention to extract (n_layers, n_digits, d_model).
+from typing import NamedTuple
+
+class ModelConfig(NamedTuple):
+	"""Parsed model configuration from model name."""
+	n_digits: int
+	d_model: int
+	n_layers: int
+
+def parse_model_name(name: str) -> ModelConfig:
+	"""Parse model naming convention to extract configuration.
 
 	Supports forms like:
 	    '2layer_100dig_64d'
 	    '2layer_100dig_64d_20241014-153012'
 
 	Returns:
-	    tuple (n_layers:int, n_digits:int, d_model:int)
+	    ModelConfig(n_digits, d_model, n_layers)
 
 	Raises:
 	    ValueError if pattern not recognized.
 	"""
 	import re
-	# Remove an optional trailing timestamp or run id separated by underscore
 	base = name.split('.pt')[0]  # strip accidental file extension
-	# Accept additional suffix segments after the first three components
 	pattern = r"^(?P<layers>\d+)layer_(?P<digits>\d+)dig_(?P<dmodel>\d+)d(?:_.+)?$"
 	m = re.match(pattern, base)
 	if not m:
-		raise ValueError(f"Model name '{name}' does not match expected pattern '<L>layer_<D>dig_<M>d[_...]' ")
-	n_layer = int(m.group('layers'))
-	n_digits = int(m.group('digits'))
-	d_model = int(m.group('dmodel'))
-	print(f"Using model config: {n_layer} layers, {n_digits} digits, {d_model} d_model")
-	return n_digits, d_model, n_layer
+		raise ValueError(f"Model name '{name}' does not match expected pattern '<L>layer_<D>dig_<M>d[_...]'")
+	
+	config = ModelConfig(
+		n_digits=int(m.group('digits')),
+		d_model=int(m.group('dmodel')),
+		n_layers=int(m.group('layers'))
+	)
+	print(f"Parsed model config: {config.n_layers} layers, {config.n_digits} digits, {config.d_model} d_model")
+	return config
+
+def parse_model_name_safe(name: str, fallback: ModelConfig = ModelConfig(100, 64, 2)) -> ModelConfig:
+	"""Parse model name with fallback on failure.
+	
+	Args:
+	    name: Model name string to parse
+	    fallback: Default config if parsing fails (default: 100 digits, 64 d_model, 2 layers)
+	
+	Returns:
+	    ModelConfig from parsed name or fallback
+	"""
+	try:
+		return parse_model_name(name)
+	except ValueError as e:
+		print(f"[parse_model_name warning] {e}. Using fallback: {fallback}")
+		return fallback

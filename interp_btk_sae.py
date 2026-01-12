@@ -23,7 +23,7 @@ from tqdm.auto import tqdm
 from scipy import stats
 
 # Import project utilities
-from model_utils import make_model, configure_runtime, load_model
+from model_utils import configure_runtime, load_model, parse_model_name_safe
 from data import get_dataset
 
 # Set Device
@@ -36,17 +36,23 @@ torch.set_grad_enabled(False) # don't need gradients - analysis only
 
 #%%
 # --- Configuration (Must match training) ---
+MODEL_NAME = '2layer_100dig_64d'
+MODEL_CFG = parse_model_name_safe(MODEL_NAME)
+
 class SAEConfig:
-    d_model = 64
+    d_model = MODEL_CFG.d_model
     d_sae = 256  # ~4× expansion (100 D1 + 100 D2 + buffer)
     k = 4  # TopK sparsity
     
-    # Model Config (from paper Table 3)
-    n_layers = 2
+    # Model Config (derived from model name)
+    n_layers = MODEL_CFG.n_layers
     n_heads = 1
     list_len = 2
-    n_digits = 100
+    n_digits = MODEL_CFG.n_digits
     sep_token_index = 2  # Position of SEP in [d1, d2, SEP, o1, o2]
+    
+    # Output Config
+    save_dir = "sae_results/"  # Set to None to disable saving plots
 
 cfg = SAEConfig()
 
@@ -80,7 +86,7 @@ class BatchTopKSAE(nn.Module):
 
 #%%
 # --- Load Models ---
-MODEL_PATH = "models/2layer_100dig_64d.pt"
+MODEL_PATH = "models/" + MODEL_NAME + ".pt"
 
 # Setup Runtime (required by model_utils)
 configure_runtime(
@@ -485,7 +491,10 @@ def plot_feature_heatmap(feature_idx, title_suffix=""):
     ax.set_xlabel("d2")
     ax.set_ylabel("d1")
     plt.tight_layout()
-    plt.savefig(f"feature_{feature_idx}_heatmap.png", dpi=150)
+    if cfg.save_dir is not None:
+        import os
+        os.makedirs(cfg.save_dir, exist_ok=True)
+        plt.savefig(os.path.join(cfg.save_dir, f"feature_{feature_idx}_heatmap.png"), dpi=150)
     plt.show()
     
     # Analyze pattern
@@ -529,7 +538,10 @@ axes[1].set_ylabel(f"Feature {best_feat_idx} Activation")
 axes[1].set_title(f"Feature Activation vs Attention to d2")
 
 plt.tight_layout()
-plt.savefig("activation_vs_attention.png", dpi=150)
+if cfg.save_dir is not None:
+    import os
+    os.makedirs(cfg.save_dir, exist_ok=True)
+    plt.savefig(os.path.join(cfg.save_dir, "activation_vs_attention.png"), dpi=150)
 plt.show()
 
 #%% [markdown]

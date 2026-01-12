@@ -12,26 +12,29 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
-from model_utils import make_model, configure_runtime
+from model_utils import make_model, configure_runtime, parse_model_name_safe
 from data import get_dataset
 
 #%%
 # --- Configuration ---
+MODEL_NAME = '2layer_100dig_64d'
+MODEL_CFG = parse_model_name_safe(MODEL_NAME)
+
 class SAEConfig:
-    d_model = 64
+    d_model = MODEL_CFG.d_model
     d_sae = 256         # ~4× expansion (100 D1 + 100 D2 + buffer)
     k = 4               # Sparse: only 2-4 features should matter per input
     
-    # Training
+    # Training (from btk paper)
     lr = 3e-4
     batch_size = 4096
     n_steps = 10_000
     
-    # Base Model Config (must match trained model)
-    n_layers = 2
+    # Base Model Config (derived from model name)
+    n_layers = MODEL_CFG.n_layers
     n_heads = 1
     list_len = 2
-    n_digits = 100
+    n_digits = MODEL_CFG.n_digits
     sep_token_index = 2  # [d1, d2, SEP, o1, o2] -> Index 2
 
 #%%
@@ -119,7 +122,7 @@ def train_sae():
     )
     
     import os
-    model_path = "models/2layer_100dig_64d.pt"
+    model_path = "models/" + MODEL_NAME + ".pt"
     if os.path.exists(model_path):
         model.load_state_dict(torch.load(model_path, map_location=device))
         print(f"✓ Loaded model from {model_path}")
