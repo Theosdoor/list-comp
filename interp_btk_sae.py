@@ -468,7 +468,7 @@ else:
 
 #%%
 print("\n" + "=" * 60)
-print("VALIDATION 3: Graded Activations for Swapped Inputs")
+print("VALIDATION 3a: Graded Activations for Swapped Inputs")
 print("=" * 60)
 
 # For pairs (a, b) and (b, a), compare which features fire and their magnitudes
@@ -653,8 +653,92 @@ with torch.no_grad():
         print(f"{scale:<8.1f} {top_feat_val * scale:<12.3f} {o1:<12} {o2:<12}{marker}")
 
 print("\n" + "-" * 45)
-print("Removing feature 189 results in wrong order, having it means correct order!")
 print("Scale=0 zeros out the feature; Scale=2 doubles its contribution.")
+
+# %%
+# --- Validation 3c-ii: Analyze Feature 189 as "Order Feature" ---
+# Testing the hypothesis that feature 189 encodes ordering, not a specific digit
+
+print("\n" + "=" * 60)
+print("VALIDATION 3c-ii: Is Feature 189 an 'Order Feature'?")
+print("=" * 60)
+
+ORDER_FEATURE_IDX = 189  # The feature we observed causing swaps
+
+# 1. Correlate feature 189 activation with attention DIFFERENCE (α_d1 - α_d2)
+feat_189_acts = sae_acts_all[:, ORDER_FEATURE_IDX].numpy()
+alpha_diff = (alpha_d1_all - alpha_d2_all).numpy()  # Positive = d1 dominant
+
+corr_with_diff, p_val = stats.pearsonr(feat_189_acts, alpha_diff)
+corr_with_d1, _ = stats.pearsonr(feat_189_acts, alpha_d1_all.numpy())
+corr_with_d2, _ = stats.pearsonr(feat_189_acts, alpha_d2_all.numpy())
+
+print(f"\n1. Correlation with attention patterns:")
+print(f"   Feature 189 vs (α_d1 - α_d2): r = {corr_with_diff:.4f}  (p = {p_val:.2e})")
+print(f"   Feature 189 vs α_d1:          r = {corr_with_d1:.4f}")
+print(f"   Feature 189 vs α_d2:          r = {corr_with_d2:.4f}")
+
+if corr_with_diff > 0.5:
+    print(f"\n   ✓ STRONG correlation with attention difference!")
+    print(f"     → Feature 189 encodes 'd1 is more attended than d2'")
+elif corr_with_diff > 0.2:
+    print(f"\n   ~ Moderate correlation with attention difference")
+else:
+    print(f"\n   ✗ Weak correlation - may encode something else")
+
+# 2. Check decoder alignment with P_d1 - P_d2 (position embedding difference)
+P_d1 = w_pos[0]  # Position embedding for d1 position
+P_d2 = w_pos[1]  # Position embedding for d2 position
+pos_diff = P_d1 - P_d2  # "d1 comes first" direction
+
+decoder_189 = sae.W_dec[ORDER_FEATURE_IDX].detach()
+
+cos_with_pos_diff = F.cosine_similarity(decoder_189.unsqueeze(0), pos_diff.unsqueeze(0)).item()
+
+print(f"\n2. Decoder direction alignment:")
+print(f"   cos(decoder_189, P_d1 - P_d2) = {cos_with_pos_diff:.4f}")
+
+if abs(cos_with_pos_diff) > 0.5:
+    print(f"\n   ✓ Decoder aligns with positional difference direction!")
+    print(f"     → Feature 189 literally encodes 'position 1 vs position 2'")
+elif abs(cos_with_pos_diff) > 0.2:
+    print(f"\n   ~ Partial alignment with positional difference")
+else:
+    print(f"\n   ✗ Weak alignment - may capture different structure")
+
+# 3. Also check alignment with just P_d1 and P_d2 separately
+cos_with_P_d1 = F.cosine_similarity(decoder_189.unsqueeze(0), P_d1.unsqueeze(0)).item()
+cos_with_P_d2 = F.cosine_similarity(decoder_189.unsqueeze(0), P_d2.unsqueeze(0)).item()
+
+print(f"\n3. Decoder alignment with individual position embeddings:")
+print(f"   cos(decoder_189, P_d1) = {cos_with_P_d1:.4f}")
+print(f"   cos(decoder_189, P_d2) = {cos_with_P_d2:.4f}")
+
+# 4. Visualize: scatter plot of feature 189 vs attention difference
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+# Scatter: Feature 189 vs attention difference
+ax1 = axes[0]
+scatter = ax1.scatter(alpha_diff, feat_189_acts, alpha=0.3, s=10, c=d1_all.numpy(), cmap='viridis')
+ax1.set_xlabel('α_d1 - α_d2 (attention difference)')
+ax1.set_ylabel('Feature 189 activation')
+ax1.set_title(f'Feature 189 vs Attention Difference\nr = {corr_with_diff:.3f}')
+ax1.axvline(x=0, color='red', linestyle='--', alpha=0.5, label='Equal attention')
+ax1.legend()
+plt.colorbar(scatter, ax=ax1, label='d1 value')
+
+# Histogram: Feature 189 activation when d1>d2 vs d1<d2
+ax2 = axes[1]
+mask_d1_dom = alpha_diff > 0
+ax2.hist(feat_189_acts[mask_d1_dom], bins=50, alpha=0.6, label=f'd1 dominant (α_d1 > α_d2)', density=True)
+ax2.hist(feat_189_acts[~mask_d1_dom], bins=50, alpha=0.6, label=f'd2 dominant (α_d1 < α_d2)', density=True)
+ax2.set_xlabel('Feature 189 activation')
+ax2.set_ylabel('Density')
+ax2.set_title('Feature 189 activation by attention dominance')
+ax2.legend()
+
+plt.tight_layout()
+plt.show()
 
 # %%
 # --- Validation 3d: Targeted Ablation by Digit-Encoding Feature ---
