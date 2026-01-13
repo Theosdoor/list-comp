@@ -1,15 +1,17 @@
 #%% [markdown]
 # # Train BatchTopK SAE on SEP Token Activations
 # 
-# Uses BatchTopKSAE from saprmarks/dictionary_learning library.
+# Uses BatchTopKTrainer from saprmarks/dictionary_learning library.
 # Trains an SAE with config optimized for the Order by Scale paper predictions.
 
 #%%
+import os
+
 import torch
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
-from dictionary_learning.trainers.batch_top_k import BatchTopKSAE
+from dictionary_learning.trainers import BatchTopKTrainer
 
 from model_utils import make_model, configure_runtime, parse_model_name_safe
 from data import get_dataset
@@ -18,29 +20,19 @@ from data import get_dataset
 # --- Configuration ---
 MODEL_NAME = '2layer_100dig_64d'
 MODEL_CFG = parse_model_name_safe(MODEL_NAME)
-SAVE_PATH = 'sae2.pt'
+SAVE_PATH = 'models/sae2.pt'
 
 class SAEConfig:
     # Architecture
-    d_model = MODEL_CFG.d_model      # act_size in reference
-    d_sae = 256                      # dict_size in reference (~4× expansion)
+    d_model = MODEL_CFG.d_model      # activation_dim
+    d_sae = 256                      # dict_size (~4× expansion)
     k = 4                            # top_k: activations per sample
     
     # Training
     lr = 3e-4
-    beta1 = 0.9
-    beta2 = 0.999
     batch_size = 4096
     n_steps = 10_000
-    max_grad_norm = 1.0
-    
-    # Loss coefficients
-    l1_coeff = 0.0                    # L1 penalty (TopK handles sparsity, so can be 0)
-    aux_penalty = 1/32                # Auxiliary loss coefficient for dead features
-    
-    # Dead feature detection
-    n_batches_to_dead = 10            # Feature is "dead" if inactive for this many batches
-    k_aux = 32                        # TopK for auxiliary loss
+    warmup_steps = 1000
     
     # Base Model Config (derived from model name)
     n_layers = MODEL_CFG.n_layers
@@ -136,24 +128,24 @@ def train_sae():
     
     sae_dl = DataLoader(all_acts_centered, batch_size=cfg.batch_size, shuffle=True)
     
-    # 4. Initialize SAE using library
-    # Library's BatchTopKSAE: (activation_dim, dict_size, k)
-    sae = BatchTopKSAE(
+    # 4. Initialize Trainer (handles SAE creation internally)
+    trainer = BatchTopKTrainer(
+        steps=cfg.n_steps,
         activation_dim=cfg.d_model,
         dict_size=cfg.d_sae,
-        k=cfg.k
-    ).to(cfg.device)
-    
-    optimizer = torch.optim.Adam(
-        sae.parameters(), 
-        lr=cfg.lr, 
-        betas=(cfg.beta1, cfg.beta2)
+        k=cfg.k,
+        layer=0,  # Required but we're using custom activations
+        lm_name="custom",  # Required but we're using custom activations
+        lr=cfg.lr,
+        warmup_steps=cfg.warmup_steps,
+        seed=cfg.seed,
+        device=cfg.device,
     )
     
     print(f"\nSAE Config: d_sae={cfg.d_sae}, k={cfg.k}")
     print(f"Training for {cfg.n_steps} steps...")
     
-    # 5. Training Loop (manual, since we have custom activation collection)
+    # 5. Training Loop using trainer.update()
     def cycle(iterable):
         while True:
             for x in iterable:
@@ -165,39 +157,26 @@ def train_sae():
     for step in pbar:
         batch_acts = next(iter_dl)
         
-        # Library's forward: returns (reconstruction, features) with output_features=True
-        x_reconstruct, features = sae(batch_acts, output_features=True)
-        
-        # Compute L2 reconstruction loss
-        loss = (x_reconstruct - batch_acts).pow(2).mean()
-        
-        # Backward pass
-        loss.backward()
-        
-        # Gradient clipping
-        torch.nn.utils.clip_grad_norm_(sae.parameters(), max_norm=cfg.max_grad_norm)
-        
-        # Update weights and clear gradients
-        optimizer.step()
-        optimizer.zero_grad()
-        
-        # Compute L0 for logging
-        l0 = (features > 0).float().sum(-1).mean()
+        # Trainer's update() handles forward, loss, backward, optimizer step
+        trainer.update(step, batch_acts)
         
         if step % 100 == 0:
+            # Get logging info
+            log_info = trainer.get_logging_parameters()
             pbar.set_postfix({
-                "loss": f"{loss.item():.4f}",
-                "L0": f"{l0.item():.1f}",
+                "loss": f"{log_info.get('loss', 0):.4f}",
+                "L0": f"{log_info.get('l0', 0):.1f}",
             })
     
-    # 6. Save - include library class info for loading
+    # 6. Save - get SAE from trainer
+    sae = trainer.ae  # The trained autoencoder
+    
     checkpoint = {
         "state_dict": sae.state_dict(),
         "cfg": {
             "activation_dim": cfg.d_model,
             "dict_size": cfg.d_sae,
             "k": cfg.k,
-            # Also save original cfg for compatibility
             "d_model": cfg.d_model,
             "d_sae": cfg.d_sae,
         },

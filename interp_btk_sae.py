@@ -11,6 +11,8 @@
 # 4. Relative magnitude encodes sequence order
 
 #%%
+import os
+
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -55,7 +57,8 @@ class SAEConfig:
     sep_token_index = 2  # Position of SEP in [d1, d2, SEP, o1, o2]
     
     # Output Config
-    save_dir = "sae_results/"  # Set to None to disable saving plots
+    save_dir = None
+    # save_dir = "sae_results/"  # Set to None to disable saving plots
 
 cfg = SAEConfig()
 
@@ -98,21 +101,21 @@ sae = BatchTopKSAE(
     k=cfg.k
 ).to(device)
 
-# Convert old checkpoint format to library format if needed
+# Load state dict (handles both old and new formats)
 old_state_dict = sae_checkpoint["state_dict"]
 if "W_enc" in old_state_dict:
-    # Old format: W_enc [d_model, d_sae], W_dec [d_sae, d_model], b_enc, b_dec
-    # Library format: encoder.weight [d_sae, d_model], decoder.weight [d_model, d_sae]
+    # Legacy format conversion (for old sae.pt)
     new_state_dict = {
-        "encoder.weight": old_state_dict["W_enc"].T,  # [d_model, d_sae] -> [d_sae, d_model]
+        "encoder.weight": old_state_dict["W_enc"].T,
         "encoder.bias": old_state_dict["b_enc"],
-        "decoder.weight": old_state_dict["W_dec"].T,  # [d_sae, d_model] -> [d_model, d_sae]
+        "decoder.weight": old_state_dict["W_dec"].T,
         "b_dec": old_state_dict["b_dec"],
     }
     sae.load_state_dict(new_state_dict, strict=False)
-    print("  (Converted old checkpoint format to library format)")
+    print("  (Converted legacy checkpoint format)")
 else:
     sae.load_state_dict(old_state_dict)
+    print(f"  (Threshold: {sae.threshold.item():.4f})")
 
 # Load the mean for centering (critical for SAE)
 act_mean = sae_checkpoint["act_mean"].to(device)
@@ -183,7 +186,7 @@ with torch.no_grad():
         
         # Run SAE encoding (with mean centering)
         sep_acts_centered = sep_acts - act_mean
-        _, sae_z = sae(sep_acts_centered, output_features=True)
+        sae_z = sae.encode(sep_acts_centered, use_threshold=True)
         
         # Store
         all_d1.append(d1.cpu())
@@ -967,7 +970,7 @@ all_flip_at_zero = all(
     for result in all_results
 )
 all_correct_at_one = all(
-    result['logit_d1_o1'][5] > result['logit_d2_o1'][5]
+    result['logit_d1_o1'][4] > result['logit_d2_o1'][4]  # Index 4 = S=1.0 (original)
     for result in all_results
 )
 
@@ -1232,7 +1235,6 @@ def plot_feature_heatmap(feature_idx, title_suffix=""):
     ax.set_ylabel("d1")
     plt.tight_layout()
     if cfg.save_dir is not None:
-        import os
         os.makedirs(cfg.save_dir, exist_ok=True)
         plt.savefig(os.path.join(cfg.save_dir, f"feature_{feature_idx}_heatmap.png"), dpi=150)
     plt.show()
@@ -1279,7 +1281,6 @@ axes[1].set_title(f"Feature Activation vs Attention to d2")
 
 plt.tight_layout()
 if cfg.save_dir is not None:
-    import os
     os.makedirs(cfg.save_dir, exist_ok=True)
     plt.savefig(os.path.join(cfg.save_dir, "activation_vs_attention.png"), dpi=150)
 plt.show()
