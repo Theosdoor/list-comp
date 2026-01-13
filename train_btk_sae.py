@@ -20,7 +20,7 @@ from data import get_dataset
 # --- Configuration ---
 MODEL_NAME = '2layer_100dig_64d'
 MODEL_CFG = parse_model_name_safe(MODEL_NAME)
-SAVE_PATH = 'models/sae2.pt'
+SAVE_PATH = 'sae_models/sae2.pt'
 
 class SAEConfig:
     # Architecture
