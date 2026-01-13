@@ -9,6 +9,7 @@ pandas
 tabulate # for df.to_markdown()
 tqdm
 transformer-lens
+dictionary-learning  # SAE implementation from saprmarks/dictionary_learning
 
 # Jupyter kernel for notebooks
 ipykernel

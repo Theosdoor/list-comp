@@ -1,15 +1,15 @@
 #%% [markdown]
 # # Train BatchTopK SAE on SEP Token Activations
 # 
-# Implementation based on: https://github.com/bartbussmann/BatchTopK/blob/main/sae.py
+# Uses BatchTopKSAE from saprmarks/dictionary_learning library.
 # Trains an SAE with config optimized for the Order by Scale paper predictions.
 
 #%%
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
+
+from dictionary_learning.trainers.batch_top_k import BatchTopKSAE
 
 from model_utils import make_model, configure_runtime, parse_model_name_safe
 from data import get_dataset
@@ -18,6 +18,7 @@ from data import get_dataset
 # --- Configuration ---
 MODEL_NAME = '2layer_100dig_64d'
 MODEL_CFG = parse_model_name_safe(MODEL_NAME)
+SAVE_PATH = 'sae2.pt'
 
 class SAEConfig:
     # Architecture
@@ -52,166 +53,6 @@ class SAEConfig:
     seed = 42
     device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 
-#%%
-# --- BatchTopK SAE Implementation (matching reference) ---
-
-class BatchTopKSAE(nn.Module):
-    """
-    BatchTopK Sparse Autoencoder (Bussmann et al. 2024)
-    
-    Key difference from TopKSAE: selects top k*batch_size activations
-    across the entire flattened batch, not per-sample.
-    """
-    
-    def __init__(self, cfg: SAEConfig):
-        super().__init__()
-        self.cfg = cfg
-        torch.manual_seed(cfg.seed)
-        
-        # Encoder/decoder weights and biases
-        self.W_enc = nn.Parameter(
-            torch.nn.init.kaiming_uniform_(
-                torch.empty(cfg.d_model, cfg.d_sae)
-            )
-        )
-        self.W_dec = nn.Parameter(
-            torch.nn.init.kaiming_uniform_(
-                torch.empty(cfg.d_sae, cfg.d_model)
-            )
-        )
-        self.b_enc = nn.Parameter(torch.zeros(cfg.d_sae))
-        self.b_dec = nn.Parameter(torch.zeros(cfg.d_model))
-        
-        # Initialize W_dec as normalized transpose of W_enc (per reference)
-        with torch.no_grad():
-            self.W_dec.data[:] = self.W_enc.t().data
-            self.W_dec.data[:] = self.W_dec / self.W_dec.norm(dim=-1, keepdim=True)
-        
-        # Dead feature tracking
-        self.register_buffer(
-            'num_batches_not_active', 
-            torch.zeros(cfg.d_sae)
-        )
-    
-    def encode(self, x):
-        """Encode with batch-level TopK sparsity."""
-        x_cent = x - self.b_dec
-        pre_acts = x_cent @ self.W_enc + self.b_enc # TODO include b_enc? ref code doesnt but paper seems to
-        acts = F.relu(pre_acts)
-        
-        # BatchTopK: select top k*batch_size across entire flattened batch
-        batch_size = x.shape[0]
-        total_k = self.cfg.k * batch_size
-        
-        acts_flat = acts.flatten()
-        topk = torch.topk(acts_flat, total_k, dim=-1)
-        
-        acts_topk = torch.zeros_like(acts_flat)
-        acts_topk.scatter_(-1, topk.indices, topk.values)
-        acts_topk = acts_topk.reshape(acts.shape)
-        
-        return acts_topk, acts  # Return both sparse and full activations
-    
-    def decode(self, z):
-        return z @ self.W_dec + self.b_dec
-    
-    def forward(self, x):
-        """Forward pass returning loss dict (matching reference API)."""
-        # TODO add preprocess_input from ref code? probs not needed
-        acts_topk, acts = self.encode(x)
-        x_reconstruct = self.decode(acts_topk)
-        
-        # Update dead feature tracking
-        self.update_inactive_features(acts_topk)
-        
-        return self.get_loss_dict(x, x_reconstruct, acts, acts_topk)
-    
-    def get_loss_dict(self, x, x_reconstruct, acts, acts_topk):
-        """Compute all loss terms and metrics."""
-        # Reconstruction loss (L2)
-        l2_loss = (x_reconstruct.float() - x.float()).pow(2).mean()
-        
-        # Sparsity loss (L1 on activations)
-        l1_norm = acts_topk.float().abs().sum(-1).mean()
-        l1_loss = self.cfg.l1_coeff * l1_norm
-        
-        # L0 (average number of active features per sample)
-        l0_norm = (acts_topk > 0).float().sum(-1).mean()
-        
-        # Auxiliary loss for dead features
-        aux_loss = self.get_auxiliary_loss(x, x_reconstruct, acts)
-        
-        # Total loss
-        loss = l2_loss + l1_loss + aux_loss
-        
-        # Count dead features
-        num_dead_features = (self.num_batches_not_active > self.cfg.n_batches_to_dead).sum()
-        # TODO include postprocess output? probs not needed
-        return {
-            "sae_out": x_reconstruct,
-            "feature_acts": acts_topk,
-            "num_dead_features": num_dead_features,
-            "loss": loss,
-            "l1_loss": l1_loss,
-            "l2_loss": l2_loss,
-            "l0_norm": l0_norm,
-            "l1_norm": l1_norm,
-            "aux_loss": aux_loss,
-        }
-    
-    def get_auxiliary_loss(self, x, x_reconstruct, acts):
-        """
-        Auxiliary loss to revive dead features.
-        Uses dead features to reconstruct the residual.
-        """
-        dead_features = self.num_batches_not_active >= self.cfg.n_batches_to_dead
-        
-        if dead_features.sum() == 0:
-            return torch.tensor(0.0, dtype=x.dtype, device=x.device)
-        
-        residual = x.float() - x_reconstruct.float()
-        
-        # TopK on dead feature activations only
-        k_aux = min(self.cfg.k_aux, dead_features.sum().item())
-        acts_dead = acts[:, dead_features]
-        topk_aux = torch.topk(acts_dead, k_aux, dim=-1)
-        
-        acts_aux = torch.zeros_like(acts_dead)
-        acts_aux.scatter_(-1, topk_aux.indices, topk_aux.values)
-        
-        # Reconstruct residual using dead features
-        x_reconstruct_aux = acts_aux @ self.W_dec[dead_features]
-        
-        l2_loss_aux = self.cfg.aux_penalty * (
-            (x_reconstruct_aux.float() - residual.float()).pow(2).mean()
-        )
-        
-        return l2_loss_aux
-    
-    def update_inactive_features(self, acts):
-        """Track which features haven't fired recently."""
-        with torch.no_grad():
-            # Increment counter for features that didn't fire
-            self.num_batches_not_active += (acts.sum(0) == 0).float()
-            # Reset counter for features that did fire
-            self.num_batches_not_active[acts.sum(0) > 0] = 0
-    
-    @torch.no_grad()
-    def make_decoder_weights_and_grad_unit_norm(self):
-        """
-        Project out radial component of decoder gradients and normalize weights.
-        This keeps decoder vectors on the unit sphere during optimization.
-        """
-        W_dec_normed = self.W_dec / self.W_dec.norm(dim=-1, keepdim=True)
-        
-        if self.W_dec.grad is not None:
-            # Project out the component of gradient parallel to decoder direction
-            W_dec_grad_proj = (
-                (self.W_dec.grad * W_dec_normed).sum(-1, keepdim=True) * W_dec_normed
-            )
-            self.W_dec.grad -= W_dec_grad_proj
-        
-        self.W_dec.data = W_dec_normed
 
 #%%
 def get_sep_activations(model, dataloader, layer_idx=0, sep_idx=2, max_acts=100_000):
@@ -295,8 +136,14 @@ def train_sae():
     
     sae_dl = DataLoader(all_acts_centered, batch_size=cfg.batch_size, shuffle=True)
     
-    # 4. Initialize SAE
-    sae = BatchTopKSAE(cfg).to(cfg.device)
+    # 4. Initialize SAE using library
+    # Library's BatchTopKSAE: (activation_dim, dict_size, k)
+    sae = BatchTopKSAE(
+        activation_dim=cfg.d_model,
+        dict_size=cfg.d_sae,
+        k=cfg.k
+    ).to(cfg.device)
+    
     optimizer = torch.optim.Adam(
         sae.parameters(), 
         lr=cfg.lr, 
@@ -306,7 +153,7 @@ def train_sae():
     print(f"\nSAE Config: d_sae={cfg.d_sae}, k={cfg.k}")
     print(f"Training for {cfg.n_steps} steps...")
     
-    # 5. Training Loop
+    # 5. Training Loop (manual, since we have custom activation collection)
     def cycle(iterable):
         while True:
             for x in iterable:
@@ -318,9 +165,11 @@ def train_sae():
     for step in pbar:
         batch_acts = next(iter_dl)
         
-        # Forward pass
-        output = sae(batch_acts)
-        loss = output["loss"]
+        # Library's forward: returns (reconstruction, features) with output_features=True
+        x_reconstruct, features = sae(batch_acts, output_features=True)
+        
+        # Compute L2 reconstruction loss
+        loss = (x_reconstruct - batch_acts).pow(2).mean()
         
         # Backward pass
         loss.backward()
@@ -328,33 +177,36 @@ def train_sae():
         # Gradient clipping
         torch.nn.utils.clip_grad_norm_(sae.parameters(), max_norm=cfg.max_grad_norm)
         
-        # Project decoder gradients and normalize (per reference)
-        sae.make_decoder_weights_and_grad_unit_norm()
-        
         # Update weights and clear gradients
         optimizer.step()
         optimizer.zero_grad()
         
+        # Compute L0 for logging
+        l0 = (features > 0).float().sum(-1).mean()
+        
         if step % 100 == 0:
             pbar.set_postfix({
                 "loss": f"{loss.item():.4f}",
-                "L2": f"{output['l2_loss'].item():.4f}",
-                "L0": f"{output['l0_norm']:.1f}",
-                "dead": f"{output['num_dead_features'].item():.0f}",
+                "L0": f"{l0.item():.1f}",
             })
     
-    # 6. Save
+    # 6. Save - include library class info for loading
     checkpoint = {
         "state_dict": sae.state_dict(),
-        "cfg": {k: v for k, v in vars(cfg).items() if not k.startswith('_')},
+        "cfg": {
+            "activation_dim": cfg.d_model,
+            "dict_size": cfg.d_sae,
+            "k": cfg.k,
+            # Also save original cfg for compatibility
+            "d_model": cfg.d_model,
+            "d_sae": cfg.d_sae,
+        },
         "act_mean": act_mean.cpu()
     }
     
-    save_path = "sae.pt"
-    torch.save(checkpoint, save_path)
-    print(f"\n✓ SAE saved to {save_path}")
+    torch.save(checkpoint, SAVE_PATH)
+    print(f"\n✓ SAE saved to {SAVE_PATH}")
     print(f"  Config: d_sae={cfg.d_sae}, k={cfg.k}")
-    print(f"  Final dead features: {output['num_dead_features'].item():.0f}/{cfg.d_sae}")
 
 #%%
 if __name__ == "__main__":

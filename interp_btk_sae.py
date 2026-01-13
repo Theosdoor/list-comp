@@ -12,7 +12,6 @@
 
 #%%
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
@@ -22,6 +21,9 @@ import numpy as np
 from tqdm.auto import tqdm
 from scipy import stats
 
+# Use BatchTopKSAE from dictionary_learning library
+from dictionary_learning.trainers.batch_top_k import BatchTopKSAE
+
 # Import project utilities
 from model_utils import configure_runtime, load_model, parse_model_name_safe
 from data import get_dataset
@@ -29,7 +31,7 @@ from data import get_dataset
 # Set Device
 device =  "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 print(f"Using device: {device}")
-torch.set_grad_enabled(False) # don't need gradients - analysis only
+torch.set_grad_enabled(False) # don't need gradients - analysis only
 
 #%% [markdown]
 # ## 1. Configuration & Model Loading
@@ -55,55 +57,6 @@ class SAEConfig:
     save_dir = "sae_results/"  # Set to None to disable saving plots
 
 cfg = SAEConfig()
-
-# --- BatchTopK SAE Definition (must match train_btk_sae.py) ---
-class BatchTopKSAE(nn.Module):
-    """
-    BatchTopK Sparse Autoencoder (Bussmann et al. 2024)
-    
-    Structure matches train_btk_sae.py for checkpoint compatibility.
-    Only encode/decode methods needed for inference.
-    """
-    
-    def __init__(self, cfg: SAEConfig):
-        super().__init__()
-        self.cfg = cfg
-        
-        # Encoder/decoder weights and biases
-        self.W_enc = nn.Parameter(torch.empty(cfg.d_model, cfg.d_sae))
-        self.W_dec = nn.Parameter(torch.empty(cfg.d_sae, cfg.d_model))
-        self.b_enc = nn.Parameter(torch.zeros(cfg.d_sae))
-        self.b_dec = nn.Parameter(torch.zeros(cfg.d_model))
-        
-        # Buffer for checkpoint compatibility (not used in inference)
-        self.register_buffer('num_batches_not_active', torch.zeros(cfg.d_sae))
-
-    def encode(self, x):
-        """Encode with batch-level TopK sparsity."""
-        x_cent = x - self.b_dec
-        pre_acts = x_cent @ self.W_enc + self.b_enc
-        acts = F.relu(pre_acts)
-        
-        # BatchTopK: select top k*batch_size across entire flattened batch
-        batch_size = x.shape[0]
-        total_k = self.cfg.k * batch_size
-        
-        acts_flat = acts.flatten()
-        topk = torch.topk(acts_flat, total_k, dim=-1)
-        
-        acts_topk = torch.zeros_like(acts_flat)
-        acts_topk.scatter_(-1, topk.indices, topk.values)
-        acts_topk = acts_topk.reshape(acts.shape)
-        
-        return acts_topk
-
-    def decode(self, z):
-        return z @ self.W_dec + self.b_dec
-
-    def forward(self, x):
-        z = self.encode(x)
-        x_reconstruct = self.decode(z)
-        return x_reconstruct, z
 
 #%%
 # --- Load Models ---
@@ -134,12 +87,32 @@ except Exception as e:
     print(f"✗ Error loading model: {e}")
     raise
 
-# Load SAE
+# Load SAE using library's BatchTopKSAE
 SAE_PATH = "sae.pt"
 sae_checkpoint = torch.load(SAE_PATH, map_location=device, weights_only=False)
 
-sae = BatchTopKSAE(cfg).to(device)
-sae.load_state_dict(sae_checkpoint["state_dict"])
+# Library's BatchTopKSAE uses (activation_dim, dict_size, k) constructor
+sae = BatchTopKSAE(
+    activation_dim=cfg.d_model,
+    dict_size=cfg.d_sae,
+    k=cfg.k
+).to(device)
+
+# Convert old checkpoint format to library format if needed
+old_state_dict = sae_checkpoint["state_dict"]
+if "W_enc" in old_state_dict:
+    # Old format: W_enc [d_model, d_sae], W_dec [d_sae, d_model], b_enc, b_dec
+    # Library format: encoder.weight [d_sae, d_model], decoder.weight [d_model, d_sae]
+    new_state_dict = {
+        "encoder.weight": old_state_dict["W_enc"].T,  # [d_model, d_sae] -> [d_sae, d_model]
+        "encoder.bias": old_state_dict["b_enc"],
+        "decoder.weight": old_state_dict["W_dec"].T,  # [d_sae, d_model] -> [d_model, d_sae]
+        "b_dec": old_state_dict["b_dec"],
+    }
+    sae.load_state_dict(new_state_dict, strict=False)
+    print("  (Converted old checkpoint format to library format)")
+else:
+    sae.load_state_dict(old_state_dict)
 
 # Load the mean for centering (critical for SAE)
 act_mean = sae_checkpoint["act_mean"].to(device)
@@ -210,7 +183,7 @@ with torch.no_grad():
         
         # Run SAE encoding (with mean centering)
         sep_acts_centered = sep_acts - act_mean
-        _, sae_z = sae(sep_acts_centered)
+        _, sae_z = sae(sep_acts_centered, output_features=True)
         
         # Store
         all_d1.append(d1.cpu())
@@ -381,7 +354,9 @@ D1_directions = w_e[:cfg.n_digits] + w_pos[0]  # [100, d_model]
 D2_directions = w_e[:cfg.n_digits] + w_pos[1]  # [100, d_model]
 
 # Normalize decoder vectors for cosine similarity
-W_dec_norm = F.normalize(sae.W_dec.detach(), dim=1)  # [d_sae, d_model]
+# Library stores decoder.weight as [d_model, d_sae], so transpose to get [d_sae, d_model]
+W_dec = sae.decoder.weight.T.detach()  # [d_sae, d_model]
+W_dec_norm = F.normalize(W_dec, dim=1)  # [d_sae, d_model]
 D1_norm = F.normalize(D1_directions, dim=1)  # [100, d_model]
 D2_norm = F.normalize(D2_directions, dim=1)  # [100, d_model]
 
@@ -796,7 +771,8 @@ P_d1 = w_pos[0]  # Position embedding for d1 position
 P_d2 = w_pos[1]  # Position embedding for d2 position
 pos_diff = P_d1 - P_d2  # "d1 comes first" direction
 
-decoder_189 = sae.W_dec[ORDER_FEATURE_IDX].detach()
+# Library stores decoder.weight as [d_model, d_sae], we need [d_sae, d_model] indexing
+decoder_189 = sae.decoder.weight[:, ORDER_FEATURE_IDX].detach()
 
 cos_with_pos_diff = F.cosine_similarity(decoder_189.unsqueeze(0), pos_diff.unsqueeze(0)).item()
 
