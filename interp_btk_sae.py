@@ -40,6 +40,7 @@ torch.set_grad_enabled(False) # don't need gradients - analysis only
 # --- Configuration (Must match training) ---
 MODEL_NAME = '2layer_100dig_64d'
 MODEL_CFG = parse_model_name_safe(MODEL_NAME)
+SAE_PATH = "sae.pt"
 
 class SAEConfig:
     d_model = MODEL_CFG.d_model
@@ -88,7 +89,6 @@ except Exception as e:
     raise
 
 # Load SAE using library's BatchTopKSAE
-SAE_PATH = "sae.pt"
 sae_checkpoint = torch.load(SAE_PATH, map_location=device, weights_only=False)
 
 # Library's BatchTopKSAE uses (activation_dim, dict_size, k) constructor
