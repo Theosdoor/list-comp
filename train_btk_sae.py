@@ -157,15 +157,15 @@ def train_sae():
     for step in pbar:
         batch_acts = next(iter_dl)
         
-        # Trainer's update() handles forward, loss, backward, optimizer step
-        trainer.update(step, batch_acts)
+        # Trainer's update() returns the loss value
+        loss = trainer.update(step, batch_acts)
         
         if step % 100 == 0:
-            # Get logging info
+            # Get logging info - library uses 'effective_l0', not 'l0'
             log_info = trainer.get_logging_parameters()
             pbar.set_postfix({
-                "loss": f"{log_info.get('loss', 0):.4f}",
-                "L0": f"{log_info.get('l0', 0):.1f}",
+                "loss": f"{loss:.4f}",
+                "L0": f"{log_info.get('effective_l0', 0):.1f}",
             })
     
     # 6. Save - get SAE from trainer
