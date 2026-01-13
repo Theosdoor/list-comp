@@ -42,7 +42,7 @@ torch.set_grad_enabled(False) # don't need gradients - analysis only
 # --- Configuration (Must match training) ---
 MODEL_NAME = '2layer_100dig_64d'
 MODEL_CFG = parse_model_name_safe(MODEL_NAME)
-SAE_PATH = "sae.pt"
+SAE_PATH = "sae_models/sae.pt"
 
 class SAEConfig:
     d_model = MODEL_CFG.d_model
@@ -934,7 +934,7 @@ for col, result in enumerate(all_results):
     ax2.grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig('feature_189_logit_steering.png', dpi=150, bbox_inches='tight')
+if cfg.save_dir: plt.savefig(os.path.join(cfg.save_dir,'feature_189_logit_steering.png'), dpi=150, bbox_inches='tight')
 plt.show()
 
 # Print summary table with CORRECT indexing
