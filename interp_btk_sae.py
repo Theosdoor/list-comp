@@ -254,6 +254,111 @@ firing_rate = (sae_acts_all > 0).float().mean(dim=0)
 print(f"Firing rate range: [{firing_rate[firing_rate > 0].min():.4f}, {firing_rate.max():.4f}]")
 
 #%% [markdown]
+# ## 3b. Max Activating Examples (Sanity Check)
+# 
+# Before running correlations, verify that features actually encode what we think.
+# For each top feature, show the inputs that maximize its activation.
+# 
+# **Expected patterns:**
+# - Position-specific features (E_d + P_d): Activate for one digit at one position
+# - Order features (like 189): Activate based on attention ratio, not specific digits
+
+#%%
+print("\n" + "=" * 60)
+print("SANITY CHECK: Max Activating Examples")
+print("=" * 60)
+
+# Analyze top features by firing rate
+top_k_to_analyze = 10
+top_feat_indices = torch.argsort(firing_rate, descending=True)[:top_k_to_analyze]
+
+print(f"\nFor each of the top {top_k_to_analyze} features (by firing rate),")
+print("showing the 5 inputs with highest activation:\n")
+
+for rank, feat_idx in enumerate(top_feat_indices):
+    feat_idx = feat_idx.item()
+    feat_acts = sae_acts_all[:, feat_idx]
+    
+    if feat_acts.sum() == 0:
+        continue
+    
+    # Get top 5 activating examples
+    top5_indices = torch.argsort(feat_acts, descending=True)[:5]
+    top5_acts = feat_acts[top5_indices]
+    top5_d1 = d1_all[top5_indices]
+    top5_d2 = d2_all[top5_indices]
+    top5_alpha_d1 = alpha_d1_all[top5_indices]
+    top5_alpha_d2 = alpha_d2_all[top5_indices]
+    
+    # Compute what digit/position this feature is most selective for
+    d1_selectivity = torch.zeros(cfg.n_digits)
+    d2_selectivity = torch.zeros(cfg.n_digits)
+    for digit in range(cfg.n_digits):
+        d1_mask = (d1_all == digit)
+        d2_mask = (d2_all == digit)
+        if d1_mask.sum() > 0:
+            d1_selectivity[digit] = feat_acts[d1_mask].mean()
+        if d2_mask.sum() > 0:
+            d2_selectivity[digit] = feat_acts[d2_mask].mean()
+    
+    best_d1_digit = d1_selectivity.argmax().item()
+    best_d2_digit = d2_selectivity.argmax().item()
+    is_d1_selective = d1_selectivity.max() > d2_selectivity.max()
+    
+    # Classify feature type
+    alpha_diff_corr = np.corrcoef(feat_acts.numpy(), (alpha_d1_all - alpha_d2_all).numpy())[0, 1]
+    
+    if abs(alpha_diff_corr) > 0.5:
+        feat_type = f"ORDER FEATURE (r={alpha_diff_corr:.2f} with α_d1-α_d2)"
+    elif is_d1_selective:
+        feat_type = f"D1-Position: digit {best_d1_digit}"
+    else:
+        feat_type = f"D2-Position: digit {best_d2_digit}"
+    
+    print(f"{'─' * 55}")
+    print(f"Feature {feat_idx} (rank #{rank+1}) — {feat_type}")
+    print(f"{'─' * 55}")
+    print(f"  {'d1':>4} {'d2':>4} {'α_d1':>6} {'α_d2':>6} {'Act':>8}")
+    
+    for i in range(5):
+        print(f"  {top5_d1[i].item():>4} {top5_d2[i].item():>4} "
+              f"{top5_alpha_d1[i].item():>6.3f} {top5_alpha_d2[i].item():>6.3f} "
+              f"{top5_acts[i].item():>8.3f}")
+    
+    # Position invariance check (per colleague's suggestion)
+    if not abs(alpha_diff_corr) > 0.5:  # Only check for digit-encoding features
+        # Does this digit appear in both positions in the top activations?
+        target_digit = best_d1_digit if is_d1_selective else best_d2_digit
+        in_d1 = (top5_d1 == target_digit).sum().item()
+        in_d2 = (top5_d2 == target_digit).sum().item()
+        print(f"  → Target digit {target_digit} appears: {in_d1}x in d1, {in_d2}x in d2")
+        
+        if is_d1_selective and in_d1 >= 4:
+            print(f"  ✓ Position-specific (D1): Consistent with paper's prediction")
+        elif not is_d1_selective and in_d2 >= 4:
+            print(f"  ✓ Position-specific (D2): Consistent with paper's prediction")
+        else:
+            print(f"  ⚠ Mixed positions: May be polysemantic")
+    
+    print()
+
+print("=" * 55)
+print("INTERPRETATION GUIDE:")
+print("=" * 55)
+print("""
+• ORDER FEATURES: Encode relative attention (α_d1 - α_d2)
+  → Expected to fire based on which position gets more attention
+  → Paper predicts these encode 'which comes first'
+
+• D1/D2-Position FEATURES: Encode (E_digit + P_position)  
+  → Expected to fire for ONE digit at ONE position
+  → Paper predicts position-specific, NOT position-invariant
+
+• If a feature fires for same digit at BOTH positions equally,
+  it may be polysemantic or encode pure token identity (E only)
+""")
+
+#%% [markdown]
 # ## 4. Validation 1: Decoder-Embedding Alignment
 # 
 # **Prediction:** SAE learns decoder directions corresponding to D1 = E_d1 + P_d1 and D2 = E_d2 + P_d2
@@ -741,6 +846,157 @@ plt.tight_layout()
 plt.show()
 
 # %%
+# --- Validation 3c-iii: Feature 189 Logit Steering ---
+# Does scaling Feature 189 change logits PREDICTABLY?
+# If it encodes "d1 should come first", increasing it should:
+#   - Increase logit for d1 at position o1
+#   - Decrease logit for d2 at position o1 (and vice versa for o2)
+
+print("\n" + "=" * 60)
+print("VALIDATION 3c-iii: Feature 189 Logit Steering")
+print("=" * 60)
+print("\nDoes scaling Feature 189 change logits predictably?")
+print("Prediction: Feature 189 encodes 'd1 should come first'")
+print("  → Increasing it should boost d1 logit at o1, suppress d2")
+print("  → Decreasing it should boost d2 logit at o1, suppress d1")
+
+# Select diverse test cases (different digit pairs)
+np.random.seed(123)
+test_pairs = [(7, 44), (10, 52), (33, 77), (5, 90), (25, 60)]
+
+# Extended scale range: -1 to 2 to test negative scaling (reversing the feature)
+scale_factors = np.array([-1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0])
+
+# Storage for plotting
+all_results = []
+
+for d1_val, d2_val in test_pairs:
+    # Find this pair in dataset
+    mask = (d1_all == d1_val) & (d2_all == d2_val)
+    if mask.sum() == 0:
+        continue
+    idx = torch.where(mask)[0][0].item()
+    
+    inputs_i = val_ds.tensors[0][idx:idx+1].to(device)
+    z_orig = sae_acts_all[idx].clone().to(device)
+    feat_189_orig = z_orig[189].item()
+    
+    logit_d1_at_o1 = []
+    logit_d2_at_o1 = []
+    logit_d1_at_o2 = []
+    logit_d2_at_o2 = []
+    output_o1 = []
+    output_o2 = []
+    
+    for scale in scale_factors:
+        z_scaled = z_orig.clone()
+        z_scaled[189] = feat_189_orig * scale
+        
+        recon = sae.decode(z_scaled.unsqueeze(0))
+        
+        with torch.no_grad():
+            patched_logits = model.run_with_hooks(
+                inputs_i,
+                fwd_hooks=[(hook_name, make_sae_patch_hook(recon, cfg.sep_token_index))]
+            )
+        
+        # Get logits at o1 (position -2) and o2 (position -1)
+        logits_o1 = patched_logits[0, -2, :cfg.n_digits]
+        logits_o2 = patched_logits[0, -1, :cfg.n_digits]
+        
+        logit_d1_at_o1.append(logits_o1[d1_val].item())
+        logit_d2_at_o1.append(logits_o1[d2_val].item())
+        logit_d1_at_o2.append(logits_o2[d1_val].item())
+        logit_d2_at_o2.append(logits_o2[d2_val].item())
+        output_o1.append(logits_o1.argmax().item())
+        output_o2.append(logits_o2.argmax().item())
+    
+    all_results.append({
+        'd1': d1_val, 'd2': d2_val,
+        'scales': scale_factors,
+        'logit_d1_o1': logit_d1_at_o1,
+        'logit_d2_o1': logit_d2_at_o1,
+        'logit_d1_o2': logit_d1_at_o2,
+        'logit_d2_o2': logit_d2_at_o2,
+        'output_o1': output_o1,
+        'output_o2': output_o2,
+        'feat_189_orig': feat_189_orig,
+    })
+
+# Plot results
+fig, axes = plt.subplots(2, len(all_results), figsize=(4*len(all_results), 8), squeeze=False)
+
+for col, result in enumerate(all_results):
+    d1, d2 = result['d1'], result['d2']
+    scales = result['scales']
+    
+    # Top row: Logits at o1 position
+    ax1 = axes[0, col]
+    ax1.plot(scales, result['logit_d1_o1'], 'b-o', label=f'd1={d1} logit', markersize=4)
+    ax1.plot(scales, result['logit_d2_o1'], 'r-s', label=f'd2={d2} logit', markersize=4)
+    ax1.axvline(x=1.0, color='gray', linestyle='--', alpha=0.5, label='Original')
+    ax1.axvline(x=0.0, color='red', linestyle=':', alpha=0.5)
+    ax1.set_xlabel('Feature 189 Scale')
+    ax1.set_ylabel('Logit at o1')
+    ax1.set_title(f'Input ({d1}, {d2})\nf189_orig={result["feat_189_orig"]:.2f}')
+    ax1.legend(fontsize=8)
+    ax1.grid(True, alpha=0.3)
+    
+    # Bottom row: Logits at o2 position
+    ax2 = axes[1, col]
+    ax2.plot(scales, result['logit_d1_o2'], 'b-o', label=f'd1={d1} logit', markersize=4)
+    ax2.plot(scales, result['logit_d2_o2'], 'r-s', label=f'd2={d2} logit', markersize=4)
+    ax2.axvline(x=1.0, color='gray', linestyle='--', alpha=0.5, label='Original')
+    ax2.axvline(x=0.0, color='red', linestyle=':', alpha=0.5)
+    ax2.set_xlabel('Feature 189 Scale')
+    ax2.set_ylabel('Logit at o2')
+    ax2.set_title(f'Logits at Output Position 2')
+    ax2.legend(fontsize=8)
+    ax2.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.savefig('feature_189_logit_steering.png', dpi=150, bbox_inches='tight')
+plt.show()
+
+# Print summary table with CORRECT indexing
+# scale_factors = [-1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0]
+#                    0     1     2    3    4    5    6
+print("\n" + "=" * 85)
+print("LOGIT STEERING SUMMARY")
+print("=" * 85)
+print("\nFor each input, showing logit difference (d1 - d2) at o1 position:")
+print(f"{'Input':<12} {'f189_orig':<10} {'S=-1':<8} {'S=-0.5':<8} {'S=0':<8} {'S=0.5':<8} {'S=1.0':<8} {'S=1.5':<8} {'S=2.0':<8}")
+print("-" * 85)
+
+for result in all_results:
+    d1, d2 = result['d1'], result['d2']
+    f189 = result['feat_189_orig']
+    # Logit diff = logit(d1) - logit(d2) at o1 position
+    diffs = [result['logit_d1_o1'][i] - result['logit_d2_o1'][i] for i in range(len(result['scales']))]
+    
+    # Now correctly indexed: 0=-1, 1=-0.5, 2=0, 3=0.5, 4=1.0, 5=1.5, 6=2.0
+    print(f"({d1:>2}, {d2:>2})    {f189:>8.2f}  {diffs[0]:>+6.1f}  {diffs[1]:>+6.1f}  {diffs[2]:>+6.1f}  {diffs[3]:>+6.1f}  {diffs[4]:>+6.1f}  {diffs[5]:>+6.1f}  {diffs[6]:>+6.1f}")
+
+print("\n" + "-" * 70)
+print("Interpretation:")
+print("  • Positive diff = d1 winning at o1 (correct order)")
+print("  • Negative diff = d2 winning at o1 (swapped order)")
+print("  • Scale=0: Feature 189 ablated → should flip to negative (swapped)")
+print("  • Scale=1: Original → should be positive (correct)")
+print("  • Scale=2: Feature 189 amplified → should be even more positive")
+
+# Check if behavior is consistent
+all_flip_at_zero = all(
+    result['logit_d1_o1'][0] < result['logit_d2_o1'][0] 
+    for result in all_results
+)
+all_correct_at_one = all(
+    result['logit_d1_o1'][5] > result['logit_d2_o1'][5]
+    for result in all_results
+)
+
+
+# %%
 # --- Validation 3d: Targeted Ablation by Digit-Encoding Feature ---
 # For each sample (d1, d2):
 #   1. Find the feature that encodes d1
@@ -1051,35 +1307,3 @@ if cfg.save_dir is not None:
     os.makedirs(cfg.save_dir, exist_ok=True)
     plt.savefig(os.path.join(cfg.save_dir, "activation_vs_attention.png"), dpi=150)
 plt.show()
-
-#%% [markdown]
-# ## 10. Summary
-
-#%%
-print("\n" + "=" * 60)
-print("VALIDATION SUMMARY")
-print("=" * 60)
-
-print("""
-The Order by Scale paper predicts that:
-
-1. SAE decoder directions should align with (E_di + P_di) vectors
-   → This determines whether a feature encodes d1-position or d2-position info
-
-2. SAE latent activations should correlate with attention probabilities
-   → Features encoding d1/d2 should activate proportionally to α_s→d1 / α_s→d2
-
-3. Same features active for (a,b) and (b,a) with different magnitudes
-   → CONTRADICTS the binary view of SAE features
-   → Features are GRADED, not binary on/off
-
-4. Relative magnitude encodes sequence order
-   → Can't determine order from WHICH features fire
-   → Must compare activation VALUES between d1-features and d2-features
-
-If these validations pass, it supports the paper's claim that:
-"The binary perspective of SAE latents is insufficient to explain the computation"
-""")
-
-print("See generated plots for visual confirmation.")
-print("=" * 60)
