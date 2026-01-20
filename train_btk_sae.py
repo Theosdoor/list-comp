@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
 from dictionary_learning.trainers import BatchTopKTrainer
+# https://github.com/saprmarks/dictionary_learning/blob/main/dictionary_learning/trainers/batch_top_k.py
 
 from model_utils import make_model, configure_runtime, parse_model_name_safe
 from data import get_dataset
@@ -20,30 +21,33 @@ from data import get_dataset
 # --- Configuration ---
 MODEL_NAME = '2layer_100dig_64d'
 MODEL_CFG = parse_model_name_safe(MODEL_NAME)
-SAVE_PATH = 'sae_models/sae2.pt'
+SAVE_FOLDER = 'sae_models'
 
-class SAEConfig:
-    # Architecture
-    d_model = MODEL_CFG.d_model      # activation_dim
-    d_sae = 256                      # dict_size (~4× expansion)
-    k = 4                            # top_k: activations per sample
-    
-    # Training
-    lr = 3e-4
-    batch_size = 4096
-    n_steps = 10_000
-    warmup_steps = 1000
-    
-    # Base Model Config (derived from model name)
-    n_layers = MODEL_CFG.n_layers
-    n_heads = 1
-    list_len = 2
-    n_digits = MODEL_CFG.n_digits
-    sep_token_index = 2               # [d1, d2, SEP, o1, o2] -> Index 2
-    
-    # Runtime
-    seed = 42
-    device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+
+# Architecture
+D_MODEL = MODEL_CFG.d_model      # activation_dim
+D_SAE = 150                      # dict_size
+TOP_K = 4                            # top_k: activations per sample
+
+# Training
+LR = 3e-4
+BATCH_SIZE = 4096
+N_STEPS = 10_000
+WARMUP_STEPS = 1000
+
+# Base Model Config (derived from model name)
+N_LAYERS = MODEL_CFG.n_layers
+N_HEADS = 1
+LIST_LEN = 2
+N_DIGITS = MODEL_CFG.n_digits
+SEP_TOKEN_INDEX = 2               # [d1, d2, SEP, o1, o2] -> Index 2
+
+# Runtime
+SEED = 42
+DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+
+SAVE_NAME = f'sae_d{D_SAE}_k{TOP_K}_{MODEL_NAME}.pt'
+SAVE_PATH = os.path.join(SAVE_FOLDER, SAVE_NAME)
 
 
 #%%
@@ -73,42 +77,40 @@ def get_sep_activations(model, dataloader, layer_idx=0, sep_idx=2, max_acts=100_
 
 #%%
 def train_sae():
-    cfg = SAEConfig()
-    print(f"Using device: {cfg.device}")
+    print(f"Using device: {DEVICE}")
     
     # 1. Load Base Model
     print("Loading base model...")
     configure_runtime(
-        list_len=cfg.list_len, 
-        seq_len=cfg.list_len * 2 + 1, 
-        vocab=cfg.n_digits + 2, 
-        device=cfg.device
+        list_len=LIST_LEN, 
+        seq_len=LIST_LEN * 2 + 1, 
+        vocab=N_DIGITS + 2, 
+        device=DEVICE
     )
     
     model = make_model(
-        n_layers=cfg.n_layers,
-        n_heads=cfg.n_heads,
-        d_model=cfg.d_model,
+        n_layers=N_LAYERS,
+        n_heads=N_HEADS,
+        d_model=D_MODEL,
         ln=False,
         use_bias=False,
         use_wv=False,
         use_wo=False
     )
     
-    import os
     model_path = "models/" + MODEL_NAME + ".pt"
     if os.path.exists(model_path):
-        model.load_state_dict(torch.load(model_path, map_location=cfg.device))
+        model.load_state_dict(torch.load(model_path, map_location=DEVICE))
         print(f"✓ Loaded model from {model_path}")
     else:
         raise FileNotFoundError(f"Model not found: {model_path}")
     
     # 2. Prepare Data
     train_ds, _ = get_dataset(
-        list_len=cfg.list_len,
-        n_digits=cfg.n_digits,
-        mask_tok=cfg.n_digits,
-        sep_tok=cfg.n_digits + 1
+        list_len=LIST_LEN,
+        n_digits=N_DIGITS,
+        mask_tok=N_DIGITS,
+        sep_tok=N_DIGITS + 1
     )
     train_dl = DataLoader(train_ds, batch_size=512, shuffle=True)
     
@@ -116,9 +118,9 @@ def train_sae():
     all_acts = get_sep_activations(
         model, train_dl, 
         layer_idx=0, 
-        sep_idx=cfg.sep_token_index
+        sep_idx=SEP_TOKEN_INDEX
     )
-    all_acts = all_acts.to(cfg.device)
+    all_acts = all_acts.to(DEVICE)
     
     # Center activations (important for SAE)
     act_mean = all_acts.mean(0)
@@ -126,24 +128,24 @@ def train_sae():
     
     print(f"Collected {len(all_acts)} activations, shape: {all_acts.shape}")
     
-    sae_dl = DataLoader(all_acts_centered, batch_size=cfg.batch_size, shuffle=True)
+    sae_dl = DataLoader(all_acts_centered, batch_size=BATCH_SIZE, shuffle=True)
     
     # 4. Initialize Trainer (handles SAE creation internally)
     trainer = BatchTopKTrainer(
-        steps=cfg.n_steps,
-        activation_dim=cfg.d_model,
-        dict_size=cfg.d_sae,
-        k=cfg.k,
+        steps=N_STEPS,
+        activation_dim=D_MODEL,
+        dict_size=D_SAE,
+        k=TOP_K,
         layer=0,  # Required but we're using custom activations
         lm_name="custom",  # Required but we're using custom activations
-        lr=cfg.lr,
-        warmup_steps=cfg.warmup_steps,
-        seed=cfg.seed,
-        device=cfg.device,
+        lr=LR,
+        warmup_steps=WARMUP_STEPS,
+        seed=SEED,
+        device=DEVICE,
     )
     
-    print(f"\nSAE Config: d_sae={cfg.d_sae}, k={cfg.k}")
-    print(f"Training for {cfg.n_steps} steps...")
+    print(f"\nSAE Config: d_sae={D_SAE}, k={TOP_K}")
+    print(f"Training for {N_STEPS} steps...")
     
     # 5. Training Loop using trainer.update()
     def cycle(iterable):
@@ -152,7 +154,7 @@ def train_sae():
                 yield x
     
     iter_dl = cycle(sae_dl)
-    pbar = tqdm(range(cfg.n_steps))
+    pbar = tqdm(range(N_STEPS))
     
     for step in pbar:
         batch_acts = next(iter_dl)
@@ -174,18 +176,18 @@ def train_sae():
     checkpoint = {
         "state_dict": sae.state_dict(),
         "cfg": {
-            "activation_dim": cfg.d_model,
-            "dict_size": cfg.d_sae,
-            "k": cfg.k,
-            "d_model": cfg.d_model,
-            "d_sae": cfg.d_sae,
+            "activation_dim": D_MODEL,
+            "dict_size": D_SAE,
+            "k": TOP_K,
+            "d_model": D_MODEL,
+            "d_sae": D_SAE,
         },
         "act_mean": act_mean.cpu()
     }
     
     torch.save(checkpoint, SAVE_PATH)
     print(f"\n✓ SAE saved to {SAVE_PATH}")
-    print(f"  Config: d_sae={cfg.d_sae}, k={cfg.k}")
+    print(f"  Config: d_sae={D_SAE}, k={TOP_K}")
 
 #%%
 if __name__ == "__main__":

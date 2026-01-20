@@ -31,7 +31,7 @@ from model_utils import configure_runtime, load_model, parse_model_name_safe
 from data import get_dataset
 
 # Set Device
-device =  "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 print(f"Using device: {device}")
 torch.set_grad_enabled(False) # don't need gradients - analysis only
 
@@ -42,7 +42,7 @@ torch.set_grad_enabled(False) # don't need gradients - analysis only
 # --- Configuration (Must match training) ---
 MODEL_NAME = '2layer_100dig_64d'
 MODEL_CFG = parse_model_name_safe(MODEL_NAME)
-SAE_PATH = "sae_models/sae.pt"
+SAE_PATH = "sae_models/sae2.pt"
 
 class SAEConfig:
     d_model = MODEL_CFG.d_model
@@ -241,7 +241,7 @@ print(f"Firing rate range: [{firing_rate[firing_rate > 0].min():.4f}, {firing_ra
 
 #%%
 print("\n" + "=" * 60)
-print("SANITY CHECK: Max Activating Examples")
+print("Max Activating Examples")
 print("=" * 60)
 
 # Analyze top features by firing rate
@@ -318,22 +318,6 @@ for rank, feat_idx in enumerate(top_feat_indices):
     
     print()
 
-print("=" * 55)
-print("INTERPRETATION GUIDE:")
-print("=" * 55)
-print("""
-• ORDER FEATURES: Encode relative attention (α_d1 - α_d2)
-  → Expected to fire based on which position gets more attention
-  → Paper predicts these encode 'which comes first'
-
-• D1/D2-Position FEATURES: Encode (E_digit + P_position)  
-  → Expected to fire for ONE digit at ONE position
-  → Paper predicts position-specific, NOT position-invariant
-
-• If a feature fires for same digit at BOTH positions equally,
-  it may be polysemantic or encode pure token identity (E only)
-""")
-
 #%% [markdown]
 # ## 4. Validation 1: Decoder-Embedding Alignment
 # 
@@ -375,7 +359,7 @@ max_cos_D2 = cos_D2.abs().max(dim=1).values  # [d_sae]
 best_match = torch.maximum(max_cos_D1, max_cos_D2)
 
 # Analyze top features by firing rate
-top_k_features = 100
+top_k_features = 300
 top_indices = torch.argsort(firing_rate, descending=True)[:top_k_features]
 top_alignments = best_match[top_indices]
 
