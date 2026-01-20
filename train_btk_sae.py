@@ -33,7 +33,7 @@ TOP_K = 4                            # top_k: activations per sample
 # Training
 LR = 3e-4
 BATCH_SIZE = 4096
-N_STEPS = 10_000
+N_STEPS = 50_000
 WARMUP_STEPS = 1000
 
 # Base Model Config (derived from model name)

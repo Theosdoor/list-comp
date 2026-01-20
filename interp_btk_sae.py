@@ -142,8 +142,8 @@ print(f"  - TopK: {TOP_K}")
 #%%
 # Generate ALL (d1, d2) pairs for complete analysis
 val_ds, _ = get_dataset(
-    list_len=cfg.list_len,
-    n_digits=cfg.n_digits,
+    list_len=LIST_LEN,
+    n_digits=N_DIGITS,
     train_split=1.0,  # Get all data
     no_dupes=False    # Include d1 == d2 cases
 )
@@ -179,13 +179,13 @@ with torch.no_grad():
         )
         
         # Get SEP token activations: [batch, d_model]
-        sep_acts = cache[hook_name_resid][:, cfg.sep_token_index, :]
+        sep_acts = cache[hook_name_resid][:, SEP_TOKEN_INDEX, :]
         
         # Get attention pattern: [batch, n_heads, seq, seq]
         # We want attention FROM SEP (query) TO d1 and d2 (keys)
         attn_pattern = cache[hook_name_attn][:, 0, :, :]  # [batch, seq, seq] (single head)
-        alpha_d1 = attn_pattern[:, cfg.sep_token_index, 0]  # SEP attending to d1
-        alpha_d2 = attn_pattern[:, cfg.sep_token_index, 1]  # SEP attending to d2
+        alpha_d1 = attn_pattern[:, SEP_TOKEN_INDEX, 0]  # SEP attending to d1
+        alpha_d2 = attn_pattern[:, SEP_TOKEN_INDEX, 1]  # SEP attending to d2
         
         # Run SAE encoding (with mean centering)
         sep_acts_centered = sep_acts - act_mean
@@ -226,7 +226,7 @@ print(f"Average L0 (active features per sample): {l0:.2f}")
 
 # Dead features
 dead_features = (sae_acts_all.sum(dim=0) == 0).sum().item()
-print(f"Dead features: {dead_features} / {cfg.d_sae} ({100*dead_features/cfg.d_sae:.1f}%)")
+print(f"Dead features: {dead_features} / {D_SAE} ({100*dead_features/D_SAE:.1f}%)")
 
 # Feature firing rates
 firing_rate = (sae_acts_all > 0).float().mean(dim=0)
@@ -270,9 +270,9 @@ for rank, feat_idx in enumerate(top_feat_indices):
     top5_alpha_d2 = alpha_d2_all[top5_indices]
     
     # Compute what digit/position this feature is most selective for
-    d1_selectivity = torch.zeros(cfg.n_digits)
-    d2_selectivity = torch.zeros(cfg.n_digits)
-    for digit in range(cfg.n_digits):
+    d1_selectivity = torch.zeros(N_DIGITS)
+    d2_selectivity = torch.zeros(N_DIGITS)
+    for digit in range(N_DIGITS):
         d1_mask = (d1_all == digit)
         d2_mask = (d2_all == digit)
         if d1_mask.sum() > 0:
@@ -340,8 +340,8 @@ w_pos = model.pos_embed.W_pos.detach()  # [seq_len, d_model] - position embeddin
 # Compute D1 and D2 directions for all possible digit values
 # D_i = E[d_i] + P[position_i]
 # Position 0 = d1, Position 1 = d2
-D1_directions = w_e[:cfg.n_digits] + w_pos[0]  # [100, d_model]
-D2_directions = w_e[:cfg.n_digits] + w_pos[1]  # [100, d_model]
+D1_directions = w_e[:N_DIGITS] + w_pos[0]  # [100, d_model]
+D2_directions = w_e[:N_DIGITS] + w_pos[1]  # [100, d_model]
 
 # Normalize decoder vectors for cosine similarity
 # Library stores decoder.weight as [d_model, d_sae], so transpose to get [d_sae, d_model]
@@ -459,10 +459,10 @@ for feat_idx in top_indices[:50]:  # Analyze top 50 features
     
     # Find which digit value this feature is most selective for
     # by looking at mean activation for each d1 and d2 value
-    d1_selectivity = np.zeros(cfg.n_digits)
-    d2_selectivity = np.zeros(cfg.n_digits)
+    d1_selectivity = np.zeros(N_DIGITS)
+    d2_selectivity = np.zeros(N_DIGITS)
     
-    for digit in range(cfg.n_digits):
+    for digit in range(N_DIGITS):
         d1_mask = (d1_all.numpy() == digit)
         d2_mask = (d2_all.numpy() == digit)
         
@@ -518,17 +518,6 @@ if len(digit_df) > 0:
     
     print(f"\nFeatures with |correlation| > 0.3: {strong_corr}/{len(digit_df)}")
     print(f"Mean |correlation|: {mean_abs_corr:.4f}")
-    
-    # The paper predicts correlation ≈ 1.0 for well-aligned features
-    # because activation should equal α * ||E_d + P_d||
-    if mean_abs_corr > 0.5:
-        print("\n✓ Strong support for Order by Scale prediction. Also suggests features are digit-specific: each feature tracks atnn for one particular digit, not attn in general")
-    elif mean_abs_corr > 0.2:
-        print("\n~ Moderate support for Order by Scale prediction")
-    else:
-        print("\n✗ Weak support - features may encode discrete digits rather than graded attention")
-else:
-    print("No features with sufficient variance for correlation analysis")
 
 #%% [markdown]
 # ## 6. Validation 3: Graded Activations (Same Features, Different Magnitudes)
@@ -647,7 +636,7 @@ for feat_idx in shared_indices:
     
     # Find which digit this feature prefers
     feat_acts = sae_acts_all[:, feat_idx].numpy()
-    d1_means = [feat_acts[d1_all.numpy() == d].mean() for d in range(cfg.n_digits)]
+    d1_means = [feat_acts[d1_all.numpy() == d].mean() for d in range(N_DIGITS)]
     best_digit = np.argmax(d1_means)
     
     print(f"{feat_idx.item():>8} {act_ab:>10.3f} {act_ba:>10.3f} {ratio:>8.2f} {best_digit:>12}")
@@ -668,7 +657,7 @@ targets_ab = val_ds.tensors[1][idx_ab:idx_ab+1].to(device)
 # Get original model output
 with torch.no_grad():
     orig_logits_ab = model(inputs_ab)
-    orig_pred_ab = orig_logits_ab[:, -2:, :cfg.n_digits].argmax(-1)
+    orig_pred_ab = orig_logits_ab[:, -2:, :N_DIGITS].argmax(-1)
 
 print(f"\nInput (d1={a}, d2={b}) → Original output: {orig_pred_ab[0].tolist()}  (target: {targets_ab[0, -2:].tolist()})")
 
@@ -690,7 +679,7 @@ top_feat_val = z_ab[top_feat_idx].item()
 
 # Find which digit this feature encodes
 feat_acts = sae_acts_all[:, top_feat_idx].numpy()
-d1_means = [feat_acts[d1_all.numpy() == d].mean() for d in range(cfg.n_digits)]
+d1_means = [feat_acts[d1_all.numpy() == d].mean() for d in range(N_DIGITS)]
 feat_best_digit = np.argmax(d1_means)
 
 print(f"\nScaling feature {top_feat_idx} (encodes digit {feat_best_digit})")
@@ -713,10 +702,10 @@ with torch.no_grad():
         # Patch into model
         patched_logits = model.run_with_hooks(
             inputs_ab,
-            fwd_hooks=[(hook_name, make_sae_patch_hook(recon_scaled, cfg.sep_token_index))]
+            fwd_hooks=[(hook_name, make_sae_patch_hook(recon_scaled, SEP_TOKEN_INDEX))]
         )
         
-        patched_pred = patched_logits[:, -2:, :cfg.n_digits].argmax(-1)
+        patched_pred = patched_logits[:, -2:, :N_DIGITS].argmax(-1)
         o1, o2 = patched_pred[0].tolist()
         
         marker = " ← original" if scale == 1.0 else ""
@@ -726,31 +715,31 @@ print("\n" + "-" * 45)
 print("Scale=0 zeros out the feature; Scale=2 doubles its contribution.")
 
 # %%
-# --- Validation 3c-ii: Analyze Feature 189 as "Order Feature" ---
-# Testing the hypothesis that feature 189 encodes ordering, not a specific digit
+# --- Validation 3c-ii: Analyze "Order Feature" ---
+# Testing the hypothesis that the order feature encodes ordering, not a specific digit
+
+ORDER_FEATURE_IDX = 10  # The feature we observed causing swaps
 
 print("\n" + "=" * 60)
-print("VALIDATION 3c-ii: Is Feature 189 an 'Order Feature'?")
+print(f"VALIDATION 3c-ii: Is Feature {ORDER_FEATURE_IDX} an 'Order Feature'?")
 print("=" * 60)
 
-ORDER_FEATURE_IDX = 189  # The feature we observed causing swaps
-
-# 1. Correlate feature 189 activation with attention DIFFERENCE (α_d1 - α_d2)
-feat_189_acts = sae_acts_all[:, ORDER_FEATURE_IDX].numpy()
+# 1. Correlate order feature activation with attention DIFFERENCE (α_d1 - α_d2)
+order_feat_acts = sae_acts_all[:, ORDER_FEATURE_IDX].numpy()
 alpha_diff = (alpha_d1_all - alpha_d2_all).numpy()  # Positive = d1 dominant
 
-corr_with_diff, p_val = stats.pearsonr(feat_189_acts, alpha_diff)
-corr_with_d1, _ = stats.pearsonr(feat_189_acts, alpha_d1_all.numpy())
-corr_with_d2, _ = stats.pearsonr(feat_189_acts, alpha_d2_all.numpy())
+corr_with_diff, p_val = stats.pearsonr(order_feat_acts, alpha_diff)
+corr_with_d1, _ = stats.pearsonr(order_feat_acts, alpha_d1_all.numpy())
+corr_with_d2, _ = stats.pearsonr(order_feat_acts, alpha_d2_all.numpy())
 
 print(f"\n1. Correlation with attention patterns:")
-print(f"   Feature 189 vs (α_d1 - α_d2): r = {corr_with_diff:.4f}  (p = {p_val:.2e})")
-print(f"   Feature 189 vs α_d1:          r = {corr_with_d1:.4f}")
-print(f"   Feature 189 vs α_d2:          r = {corr_with_d2:.4f}")
+print(f"   Feature {ORDER_FEATURE_IDX} vs (α_d1 - α_d2): r = {corr_with_diff:.4f}  (p = {p_val:.2e})")
+print(f"   Feature {ORDER_FEATURE_IDX} vs α_d1:          r = {corr_with_d1:.4f}")
+print(f"   Feature {ORDER_FEATURE_IDX} vs α_d2:          r = {corr_with_d2:.4f}")
 
 if corr_with_diff > 0.5:
     print(f"\n   ✓ STRONG correlation with attention difference!")
-    print(f"     → Feature 189 encodes 'd1 is more attended than d2'")
+    print(f"     → Feature {ORDER_FEATURE_IDX} encodes 'd1 is more attended than d2'")
 elif corr_with_diff > 0.2:
     print(f"\n   ~ Moderate correlation with attention difference")
 else:
@@ -762,38 +751,38 @@ P_d2 = w_pos[1]  # Position embedding for d2 position
 pos_diff = P_d1 - P_d2  # "d1 comes first" direction
 
 # Library stores decoder.weight as [d_model, d_sae], we need [d_sae, d_model] indexing
-decoder_189 = sae.decoder.weight[:, ORDER_FEATURE_IDX].detach()
+order_dec = sae.decoder.weight[:, ORDER_FEATURE_IDX].detach()
 
-cos_with_pos_diff = F.cosine_similarity(decoder_189.unsqueeze(0), pos_diff.unsqueeze(0)).item()
+cos_with_pos_diff = F.cosine_similarity(order_dec.unsqueeze(0), pos_diff.unsqueeze(0)).item()
 
 print(f"\n2. Decoder direction alignment:")
-print(f"   cos(decoder_189, P_d1 - P_d2) = {cos_with_pos_diff:.4f}")
+print(f"   cos(decoder_{ORDER_FEATURE_IDX}, P_d1 - P_d2) = {cos_with_pos_diff:.4f}")
 
 if abs(cos_with_pos_diff) > 0.5:
     print(f"\n   ✓ Decoder aligns with positional difference direction!")
-    print(f"     → Feature 189 literally encodes 'position 1 vs position 2'")
+    print(f"     → Feature {ORDER_FEATURE_IDX} literally encodes 'position 1 vs position 2'")
 elif abs(cos_with_pos_diff) > 0.2:
     print(f"\n   ~ Partial alignment with positional difference")
 else:
     print(f"\n   ✗ Weak alignment - may capture different structure")
 
 # 3. Also check alignment with just P_d1 and P_d2 separately
-cos_with_P_d1 = F.cosine_similarity(decoder_189.unsqueeze(0), P_d1.unsqueeze(0)).item()
-cos_with_P_d2 = F.cosine_similarity(decoder_189.unsqueeze(0), P_d2.unsqueeze(0)).item()
+cos_with_P_d1 = F.cosine_similarity(order_dec.unsqueeze(0), P_d1.unsqueeze(0)).item()
+cos_with_P_d2 = F.cosine_similarity(order_dec.unsqueeze(0), P_d2.unsqueeze(0)).item()
 
 print(f"\n3. Decoder alignment with individual position embeddings:")
-print(f"   cos(decoder_189, P_d1) = {cos_with_P_d1:.4f}")
-print(f"   cos(decoder_189, P_d2) = {cos_with_P_d2:.4f}")
+print(f"   cos(decoder_{ORDER_FEATURE_IDX}, P_d1) = {cos_with_P_d1:.4f}")
+print(f"   cos(decoder_{ORDER_FEATURE_IDX}, P_d2) = {cos_with_P_d2:.4f}")
 
 # 4. Visualize: scatter plot of feature 189 vs attention difference
 fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
-# Scatter: Feature 189 vs attention difference
+# Scatter: Order feature vs attention difference
 ax1 = axes[0]
-scatter = ax1.scatter(alpha_diff, feat_189_acts, alpha=0.3, s=10, c=d1_all.numpy(), cmap='viridis')
+scatter = ax1.scatter(alpha_diff, order_feat_acts, alpha=0.3, s=10, c=d1_all.numpy(), cmap='viridis')
 ax1.set_xlabel('α_d1 - α_d2 (attention difference)')
-ax1.set_ylabel('Feature 189 activation')
-ax1.set_title(f'Feature 189 vs Attention Difference\nr = {corr_with_diff:.3f}')
+ax1.set_ylabel(f'Feature {ORDER_FEATURE_IDX} activation')
+ax1.set_title(f'Feature {ORDER_FEATURE_IDX} vs Attention Difference\nr = {corr_with_diff:.3f}')
 ax1.axvline(x=0, color='red', linestyle='--', alpha=0.5, label='Equal attention')
 ax1.legend()
 plt.colorbar(scatter, ax=ax1, label='d1 value')
@@ -801,28 +790,28 @@ plt.colorbar(scatter, ax=ax1, label='d1 value')
 # Histogram: Feature 189 activation when d1>d2 vs d1<d2
 ax2 = axes[1]
 mask_d1_dom = alpha_diff > 0
-ax2.hist(feat_189_acts[mask_d1_dom], bins=50, alpha=0.6, label=f'd1 dominant (α_d1 > α_d2)', density=True)
-ax2.hist(feat_189_acts[~mask_d1_dom], bins=50, alpha=0.6, label=f'd2 dominant (α_d1 < α_d2)', density=True)
-ax2.set_xlabel('Feature 189 activation')
+ax2.hist(order_feat_acts[mask_d1_dom], bins=50, alpha=0.6, label=f'd1 dominant (α_d1 > α_d2)', density=True)
+ax2.hist(order_feat_acts[~mask_d1_dom], bins=50, alpha=0.6, label=f'd2 dominant (α_d1 < α_d2)', density=True)
+ax2.set_xlabel(f'Feature {ORDER_FEATURE_IDX} activation')
 ax2.set_ylabel('Density')
-ax2.set_title('Feature 189 activation by attention dominance')
+ax2.set_title(f'Feature {ORDER_FEATURE_IDX} activation by attention dominance')
 ax2.legend()
 
 plt.tight_layout()
 plt.show()
 
 # %%
-# --- Validation 3c-iii: Feature 189 Logit Steering ---
-# Does scaling Feature 189 change logits PREDICTABLY?
+# --- Validation 3c-iii: Order Feature Logit Steering ---
+# Does scaling the order feature change logits PREDICTABLY?
 # If it encodes "d1 should come first", increasing it should:
 #   - Increase logit for d1 at position o1
 #   - Decrease logit for d2 at position o1 (and vice versa for o2)
 
 print("\n" + "=" * 60)
-print("VALIDATION 3c-iii: Feature 189 Logit Steering")
+print(f"VALIDATION 3c-iii: Feature {ORDER_FEATURE_IDX} Logit Steering")
 print("=" * 60)
-print("\nDoes scaling Feature 189 change logits predictably?")
-print("Prediction: Feature 189 encodes 'd1 should come first'")
+print(f"\nDoes scaling Feature {ORDER_FEATURE_IDX} change logits predictably?")
+print(f"Prediction: Feature {ORDER_FEATURE_IDX} encodes 'd1 should come first'")
 print("  → Increasing it should boost d1 logit at o1, suppress d2")
 print("  → Decreasing it should boost d2 logit at o1, suppress d1")
 
@@ -845,7 +834,7 @@ for d1_val, d2_val in test_pairs:
     
     inputs_i = val_ds.tensors[0][idx:idx+1].to(device)
     z_orig = sae_acts_all[idx].clone().to(device)
-    feat_189_orig = z_orig[189].item()
+    order_feat_orig = z_orig[ORDER_FEATURE_IDX].item()
     
     logit_d1_at_o1 = []
     logit_d2_at_o1 = []
@@ -856,19 +845,19 @@ for d1_val, d2_val in test_pairs:
     
     for scale in scale_factors:
         z_scaled = z_orig.clone()
-        z_scaled[189] = feat_189_orig * scale
+        z_scaled[ORDER_FEATURE_IDX] = order_feat_orig * scale
         
         recon = sae.decode(z_scaled.unsqueeze(0))
         
         with torch.no_grad():
             patched_logits = model.run_with_hooks(
                 inputs_i,
-                fwd_hooks=[(hook_name, make_sae_patch_hook(recon, cfg.sep_token_index))]
+                fwd_hooks=[(hook_name, make_sae_patch_hook(recon, SEP_TOKEN_INDEX))]
             )
         
         # Get logits at o1 (position -2) and o2 (position -1)
-        logits_o1 = patched_logits[0, -2, :cfg.n_digits]
-        logits_o2 = patched_logits[0, -1, :cfg.n_digits]
+        logits_o1 = patched_logits[0, -2, :N_DIGITS]
+        logits_o2 = patched_logits[0, -1, :N_DIGITS]
         
         logit_d1_at_o1.append(logits_o1[d1_val].item())
         logit_d2_at_o1.append(logits_o1[d2_val].item())
@@ -886,7 +875,7 @@ for d1_val, d2_val in test_pairs:
         'logit_d2_o2': logit_d2_at_o2,
         'output_o1': output_o1,
         'output_o2': output_o2,
-        'feat_189_orig': feat_189_orig,
+        'order_feat_orig': order_feat_orig,
     })
 
 # Plot results
@@ -902,9 +891,9 @@ for col, result in enumerate(all_results):
     ax1.plot(scales, result['logit_d2_o1'], 'r-s', label=f'd2={d2} logit', markersize=4)
     ax1.axvline(x=1.0, color='gray', linestyle='--', alpha=0.5, label='Original')
     ax1.axvline(x=0.0, color='red', linestyle=':', alpha=0.5)
-    ax1.set_xlabel('Feature 189 Scale')
+    ax1.set_xlabel(f'Feature {ORDER_FEATURE_IDX} Scale')
     ax1.set_ylabel('Logit at o1')
-    ax1.set_title(f'Input ({d1}, {d2})\nf189_orig={result["feat_189_orig"]:.2f}')
+    ax1.set_title(f'Input ({d1}, {d2})\nf{ORDER_FEATURE_IDX}_orig={result["order_feat_orig"]:.2f}')
     ax1.legend(fontsize=8)
     ax1.grid(True, alpha=0.3)
     
@@ -914,14 +903,14 @@ for col, result in enumerate(all_results):
     ax2.plot(scales, result['logit_d2_o2'], 'r-s', label=f'd2={d2} logit', markersize=4)
     ax2.axvline(x=1.0, color='gray', linestyle='--', alpha=0.5, label='Original')
     ax2.axvline(x=0.0, color='red', linestyle=':', alpha=0.5)
-    ax2.set_xlabel('Feature 189 Scale')
+    ax2.set_xlabel(f'Feature {ORDER_FEATURE_IDX} Scale')
     ax2.set_ylabel('Logit at o2')
     ax2.set_title(f'Logits at Output Position 2')
     ax2.legend(fontsize=8)
     ax2.grid(True, alpha=0.3)
 
 plt.tight_layout()
-if cfg.save_dir: plt.savefig(os.path.join(cfg.save_dir,'feature_189_logit_steering.png'), dpi=150, bbox_inches='tight')
+if SAVE_DIR: plt.savefig(os.path.join(SAVE_DIR, f'feature_{ORDER_FEATURE_IDX}_logit_steering.png'), dpi=150, bbox_inches='tight')
 plt.show()
 
 # Print summary table with CORRECT indexing
@@ -931,25 +920,25 @@ print("\n" + "=" * 85)
 print("LOGIT STEERING SUMMARY")
 print("=" * 85)
 print("\nFor each input, showing logit difference (d1 - d2) at o1 position:")
-print(f"{'Input':<12} {'f189_orig':<10} {'S=-1':<8} {'S=-0.5':<8} {'S=0':<8} {'S=0.5':<8} {'S=1.0':<8} {'S=1.5':<8} {'S=2.0':<8}")
+print(f"{'Input':<12} {'feat_orig':<10} {'S=-1':<8} {'S=-0.5':<8} {'S=0':<8} {'S=0.5':<8} {'S=1.0':<8} {'S=1.5':<8} {'S=2.0':<8}")
 print("-" * 85)
 
 for result in all_results:
     d1, d2 = result['d1'], result['d2']
-    f189 = result['feat_189_orig']
+    order_feat = result['order_feat_orig']
     # Logit diff = logit(d1) - logit(d2) at o1 position
     diffs = [result['logit_d1_o1'][i] - result['logit_d2_o1'][i] for i in range(len(result['scales']))]
     
     # Now correctly indexed: 0=-1, 1=-0.5, 2=0, 3=0.5, 4=1.0, 5=1.5, 6=2.0
-    print(f"({d1:>2}, {d2:>2})    {f189:>8.2f}  {diffs[0]:>+6.1f}  {diffs[1]:>+6.1f}  {diffs[2]:>+6.1f}  {diffs[3]:>+6.1f}  {diffs[4]:>+6.1f}  {diffs[5]:>+6.1f}  {diffs[6]:>+6.1f}")
+    print(f"({d1:>2}, {d2:>2})    {order_feat:>8.2f}  {diffs[0]:>+6.1f}  {diffs[1]:>+6.1f}  {diffs[2]:>+6.1f}  {diffs[3]:>+6.1f}  {diffs[4]:>+6.1f}  {diffs[5]:>+6.1f}  {diffs[6]:>+6.1f}")
 
 print("\n" + "-" * 70)
 print("Interpretation:")
 print("  • Positive diff = d1 winning at o1 (correct order)")
 print("  • Negative diff = d2 winning at o1 (swapped order)")
-print("  • Scale=0: Feature 189 ablated → should flip to negative (swapped)")
+print(f"  • Scale=0: Feature {ORDER_FEATURE_IDX} ablated → should flip to negative (swapped)")
 print("  • Scale=1: Original → should be positive (correct)")
-print("  • Scale=2: Feature 189 amplified → should be even more positive")
+print(f"  • Scale=2: Feature {ORDER_FEATURE_IDX} amplified → should be even more positive")
 
 # Check if behavior is consistent
 all_flip_at_zero = all(
@@ -979,17 +968,17 @@ print("\nStep 1: Precomputing feature → digit mapping...")
 
 feature_to_digit = {}  # Maps feature_idx → best_digit
 
-for feat_idx in range(cfg.d_sae):
+for feat_idx in range(D_SAE):
     feat_acts = sae_acts_all[:, feat_idx].numpy()
     
     if feat_acts.sum() == 0:  # Skip dead features
         continue
     
     # Mean activation for each digit value (considering both d1 and d2 positions)
-    d1_selectivity = np.zeros(cfg.n_digits)
-    d2_selectivity = np.zeros(cfg.n_digits)
+    d1_selectivity = np.zeros(N_DIGITS)
+    d2_selectivity = np.zeros(N_DIGITS)
     
-    for digit in range(cfg.n_digits):
+    for digit in range(N_DIGITS):
         d1_mask = (d1_all.numpy() == digit)
         d2_mask = (d2_all.numpy() == digit)
         
@@ -1045,7 +1034,7 @@ with torch.no_grad():
         # Get original output
         inputs_i = val_ds.tensors[0][idx:idx+1].to(device)
         orig_logits = model(inputs_i)
-        orig_pred = orig_logits[:, -2:, :cfg.n_digits].argmax(-1)
+        orig_pred = orig_logits[:, -2:, :N_DIGITS].argmax(-1)
         orig_o1, orig_o2 = orig_pred[0].tolist()
         
         # Get SAE activations
@@ -1066,9 +1055,9 @@ with torch.no_grad():
         recon_ablated = sae.decode(z_ablated.unsqueeze(0))
         patched_logits = model.run_with_hooks(
             inputs_i,
-            fwd_hooks=[(hook_name, make_sae_patch_hook(recon_ablated, cfg.sep_token_index))]
+            fwd_hooks=[(hook_name, make_sae_patch_hook(recon_ablated, SEP_TOKEN_INDEX))]
         )
-        patched_pred = patched_logits[:, -2:, :cfg.n_digits].argmax(-1)
+        patched_pred = patched_logits[:, -2:, :N_DIGITS].argmax(-1)
         patched_o1, patched_o2 = patched_pred[0].tolist()
         
         # Check results
@@ -1125,9 +1114,9 @@ axes[1].pie([o1_change_rate, 100-o1_change_rate],
 axes[1].set_title('Does Removing D1-Feature\nChange Output Position 1?', fontsize=13)
 
 plt.tight_layout()
-if cfg.save_dir is not None:
-    os.makedirs(cfg.save_dir, exist_ok=True)
-    plt.savefig(os.path.join(cfg.save_dir, "targeted_ablation.png"), dpi=150)
+if SAVE_DIR is not None:
+    os.makedirs(SAVE_DIR, exist_ok=True)
+    plt.savefig(os.path.join(SAVE_DIR, "targeted_ablation.png"), dpi=150)
 plt.show()
 
 #%% [markdown]
@@ -1221,9 +1210,9 @@ def plot_feature_heatmap(feature_idx, title_suffix=""):
     ax.set_xlabel("d2")
     ax.set_ylabel("d1")
     plt.tight_layout()
-    if cfg.save_dir is not None:
-        os.makedirs(cfg.save_dir, exist_ok=True)
-        plt.savefig(os.path.join(cfg.save_dir, f"feature_{feature_idx}_heatmap.png"), dpi=150)
+    if SAVE_DIR is not None:
+        os.makedirs(SAVE_DIR, exist_ok=True)
+        plt.savefig(os.path.join(SAVE_DIR, f"feature_{feature_idx}_heatmap.png"), dpi=150)
     plt.show()
     
     # Analyze pattern
@@ -1267,7 +1256,7 @@ axes[1].set_ylabel(f"Feature {best_feat_idx} Activation")
 axes[1].set_title(f"Feature Activation vs Attention to d2")
 
 plt.tight_layout()
-if cfg.save_dir is not None:
-    os.makedirs(cfg.save_dir, exist_ok=True)
-    plt.savefig(os.path.join(cfg.save_dir, "activation_vs_attention.png"), dpi=150)
+if SAVE_DIR is not None:
+    os.makedirs(SAVE_DIR, exist_ok=True)
+    plt.savefig(os.path.join(SAVE_DIR, "activation_vs_attention.png"), dpi=150)
 plt.show()
