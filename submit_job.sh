@@ -22,15 +22,15 @@ echo "------------------------------------------------------"
 
 # 4. Run the experiments
 
-# Sweep over dictionary sizes
-python train_btk_sae.py --d_sae 100
-python train_btk_sae.py --d_sae 150
-python train_btk_sae.py --d_sae 200
-python train_btk_sae.py --d_sae 256
+python model_scripts/train.py
 
-# Or try different k values
-python train_btk_sae.py --d_sae 150 --top_k 2
-python train_btk_sae.py --d_sae 150 --top_k 4
-python train_btk_sae.py --d_sae 150 --top_k 8
+# # Sweep over dictionary sizes
+# python train_btk_sae.py --d_sae 100
+# python train_btk_sae.py --d_sae 150
+# python train_btk_sae.py --d_sae 200
+# python train_btk_sae.py --d_sae 256
 
-python compare_saes.py
+# # Or try different k values
+# python train_btk_sae.py --d_sae 150 --top_k 2
+# python train_btk_sae.py --d_sae 150 --top_k 4
+# python train_btk_sae.py --d_sae 150 --top_k 8
