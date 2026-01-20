@@ -1,17 +1,7 @@
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-new_grid_search.py
-
-Runs the ablation grid described in train.py (LN, Bias, use_wv, use_wo
-at d_model=64, n_heads=1, n_layers=2) plus the extra fixed configs over
-d_model in [128, 32, 8] with LN=False, Bias=False, use_wv=False, use_wo=False.
-
-Training/eval pipeline follows listlen_grid_search.py (synthetic batches), and
-results are appended to a CSV (default: ablation_res.csv) with POSIX file locks
-and skip-existing behavior.
-"""
-
+# grid_search.py
 import os
 import time
 import csv
@@ -19,6 +9,7 @@ import argparse
 import hashlib
 import random
 from dataclasses import dataclass, asdict
+from itertools import product
 from typing import Dict, List, Tuple
 from pathlib import Path
 
@@ -29,12 +20,10 @@ from tqdm.auto import tqdm
 
 import fcntl  # POSIX file locking
 
-from model_utils import configure_runtime, make_model
-from model_utils import accuracy as eval_accuracy_dataset
-from data import get_dataset
-from torch.utils.data import DataLoader
-import itertools
-
+import sys
+sys.path.insert(0, '../..')
+from transformer_lens import HookedTransformer
+from model_scripts.model_utils import configure_runtime, make_model
 
 # -----------------------------
 # Device, seeds, utils
@@ -43,19 +32,11 @@ import itertools
 
 def pick_device(explicit: str = "auto") -> torch.device:
     if explicit != "auto":
-        dev = torch.device(explicit)
-        # Gracefully fall back if unavailable
-        if dev.type == "cuda" and not torch.cuda.is_available():
-            return torch.device("cpu")
-        if dev.type == "mps":
-            has_mps = getattr(torch.backends, "mps", None)
-            if not has_mps or not torch.backends.mps.is_available():
-                return torch.device("cpu")
-        return dev
+        return torch.device(explicit)
     if torch.cuda.is_available():
         return torch.device("cuda")
-    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
-        return torch.device("mps")
+    # if torch.backends.mps.is_available():
+    #     return torch.device("mps")
     return torch.device("cpu")
 
 
@@ -137,7 +118,7 @@ class Config:
 
 
 def eval_accuracy(
-    model: nn.Module,
+    model: HookedTransformer,
     val_inputs: torch.Tensor,
     val_targets: torch.Tensor,
     list_len: int,
@@ -159,7 +140,7 @@ def eval_accuracy(
     return hits / max(1, tots)
 
 
-def build_model_from_config(cfg: Config, device: torch.device) -> nn.Module:
+def build_model_from_config(cfg: Config, device: torch.device) -> HookedTransformer:
     assert cfg.D_MODEL % cfg.N_HEAD == 0, "d_model must be divisible by n_heads"
     vocab = cfg.N_DIGITS + 2
     seq_len = 2 * cfg.LIST_LEN + 1
@@ -190,9 +171,7 @@ def train_and_return_model(
     lr: float,
     eval_batch_size: int,
     grad_clip: float,
-    dataset_mode: bool,
-    train_split: float,
-) -> Tuple[nn.Module, Dict]:
+) -> Tuple[HookedTransformer, Dict]:
     seed_material = (str(asdict(cfg)) + str(base_seed)).encode("utf-8")
     seed = int.from_bytes(hashlib.sha256(seed_material).digest()[:4], "big")
     set_global_seed(seed + cfg.run_idx)
@@ -203,36 +182,13 @@ def train_and_return_model(
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=cfg.WEIGHT_DECAY)
     ce = nn.CrossEntropyLoss()
 
-    # Build validation data depending on mode
-    val_inputs = None
-    val_targets = None
-    val_dl = None
-    train_iter = None
-    val_examples_count = 0
-    train_bs = batch_size
-    if dataset_mode:
-        # Build enumerated dataset and DataLoaders like train.py
-        train_ds, val_ds = get_dataset(
-            list_len=cfg.LIST_LEN,
-            n_digits=cfg.N_DIGITS,
-            train_split=train_split,
-            mask_tok=cfg.N_DIGITS,
-            sep_tok=cfg.N_DIGITS + 1,
-        )
-        train_bs = min(batch_size, len(train_ds)) if len(train_ds) > 0 else batch_size
-        val_bs = min(eval_batch_size, len(val_ds)) if len(val_ds) > 0 else eval_batch_size
-        train_dl = DataLoader(train_ds, batch_size=train_bs, shuffle=True, drop_last=True)
-        val_dl = DataLoader(val_ds, batch_size=val_bs, shuffle=False, drop_last=False)
-        val_examples_count = len(val_ds)
-        train_iter = itertools.cycle(train_dl)
-    else:
-        val_inputs, val_targets = make_validation_set(
-            n_examples=val_size,
-            n_digits=cfg.N_DIGITS,
-            list_len=cfg.LIST_LEN,
-            device=device,
-            seed=seed + 123456,
-        )
+    val_inputs, val_targets = make_validation_set(
+        n_examples=val_size,
+        n_digits=cfg.N_DIGITS,
+        list_len=cfg.LIST_LEN,
+        device=device,
+        seed=seed + 123456,
+    )
 
     model.train()
     g = torch.Generator(device=device).manual_seed(seed + 999)
@@ -243,13 +199,7 @@ def train_and_return_model(
 
     pbar = tqdm(total=train_steps, desc="train", leave=False, ncols=120)
     for step in range(1, train_steps + 1):
-        if dataset_mode:
-            assert train_iter is not None
-            xb, yb = next(train_iter)
-            xb = xb.to(device)
-            yb = yb.to(device)
-        else:
-            xb, yb = make_batch(batch_size, cfg.N_DIGITS, cfg.LIST_LEN, device, g)
+        xb, yb = make_batch(batch_size, cfg.N_DIGITS, cfg.LIST_LEN, device, g)
         logits = model(xb)[:, cfg.LIST_LEN + 1 :]
         gold = yb[:, cfg.LIST_LEN + 1 :]
 
@@ -261,13 +211,9 @@ def train_and_return_model(
         opt.zero_grad()
 
         if step % eval_every == 0 or step == train_steps:
-            if dataset_mode:
-                last_eval = eval_accuracy_dataset(model, val_dl, list_len=cfg.LIST_LEN, device=device)
-            else:
-                assert val_inputs is not None and val_targets is not None
-                last_eval = eval_accuracy(
-                    model, val_inputs, val_targets, cfg.LIST_LEN, batch_size=eval_batch_size
-                )
+            last_eval = eval_accuracy(
+                model, val_inputs, val_targets, cfg.LIST_LEN, batch_size=eval_batch_size
+            )
             with torch.no_grad():
                 preds = logits.argmax(dim=-1)
                 train_acc = (preds == gold).float().mean().item()
@@ -286,22 +232,9 @@ def train_and_return_model(
 
     train_time_sec = time.time() - start
     if last_eval == 0.0:
-        if dataset_mode:
-            last_eval = eval_accuracy_dataset(model, val_dl, list_len=cfg.LIST_LEN, device=device)
-        else:
-            assert val_inputs is not None and val_targets is not None
-            last_eval = eval_accuracy(
-                model, val_inputs, val_targets, cfg.LIST_LEN, batch_size=eval_batch_size
-            )
-
-    # Prepare metric fields based on mode
-    if dataset_mode:
-        val_examples_field = val_examples_count
-        batch_size_field = train_bs
-    else:
-        assert val_inputs is not None
-        val_examples_field = val_inputs.size(0)
-        batch_size_field = batch_size
+        last_eval = eval_accuracy(
+            model, val_inputs, val_targets, cfg.LIST_LEN, batch_size=eval_batch_size
+        )
 
     metrics = {
         "val_acc": last_eval,
@@ -309,8 +242,8 @@ def train_and_return_model(
         "train_time_sec": train_time_sec,
         "params_total": total_params,
         "params_trainable": trainable_params,
-        "val_examples": val_examples_field,
-        "batch_size": batch_size_field,
+        "val_examples": val_inputs.size(0),
+        "batch_size": batch_size,
     }
     return model, metrics
 
@@ -327,8 +260,6 @@ def train_one(
     lr: float,
     eval_batch_size: int,
     grad_clip: float,
-    dataset_mode: bool,
-    train_split: float,
 ) -> Dict:
     _model, metrics = train_and_return_model(
         cfg=cfg,
@@ -342,99 +273,95 @@ def train_one(
         lr=lr,
         eval_batch_size=eval_batch_size,
         grad_clip=grad_clip,
-        dataset_mode=dataset_mode,
-        train_split=train_split,
     )
     return metrics
 
 
 # -----------------------------
-# Ablation grids
+# Grid (exact values requested)
 # -----------------------------
 
 
-def build_ablation_grid(n_runs: int) -> List[Config]:
-    """Grid over LN, Bias, use_wv, use_wo at fixed d/h/L.
-
-    Mirrors the section in train.py with defaults:
-      d_model=64, n_heads=1, n_layers=2, LIST_LEN=2, N_DIGITS=100.
-    """
-    GRID_D_MODEL = 64
-    GRID_N_HEADS = 1
-    GRID_N_LAYERS = 2
-    LIST_LEN = 2
-    N_DIGITS = 100
-    WEIGHT_DECAY = 0.01
-
-    grid_lns = [False, True]
-    grid_biases = [False, True]
-    grid_use_wv = [False, True]
-    grid_use_wo = [False, True]
+def build_grid() -> List[Config]:
+    LIST_LEN = list(range(1, 11))
+    N_DIGITS = [100]
+    D_MODEL = [64]
+    N_HEAD = [1]
+    N_LAYERS = list(range(1, 11))
+    USE_LN = [False]
+    USE_BIAS = [False]
+    USE_WV = [False]
+    USE_WO = [False]
+    WEIGHT_DECAY = [0.01]
+    RUNS = [0, 1, 2]
 
     cfgs: List[Config] = []
-    for ln in grid_lns:
-        for bias in grid_biases:
-            for fwv in grid_use_wv:
-                for fwo in grid_use_wo:
-                    for run_idx in range(1, n_runs + 1):
-                        cfgs.append(
-                            Config(
-                                LIST_LEN=LIST_LEN,
-                                N_DIGITS=N_DIGITS,
-                                D_MODEL=GRID_D_MODEL,
-                                N_HEAD=GRID_N_HEADS,
-                                N_LAYERS=GRID_N_LAYERS,
-                                USE_LN=ln,
-                                USE_BIAS=bias,
-                                USE_WV=fwv,
-                                USE_WO=fwo,
-                                WEIGHT_DECAY=0.01,
-                                run_idx=run_idx,
-                            )
-                        )
-    return cfgs
-
-
-def build_extra_grid(
-    n_runs: int,
-    d_models: List[int],
-    *,
-    use_ln: bool = False,
-    use_bias: bool = False,
-    use_wv: bool = False,
-    use_wo: bool = False,
-) -> List[Config]:
-    """Fixed configs over d_model with selectable LN/Bias and WV/WO flags."""
-    LIST_LEN = 2
-    N_DIGITS = 100
-    GRID_N_HEADS = 1
-    GRID_N_LAYERS = 2
-    WEIGHT_DECAY = 0.01
-
-    cfgs: List[Config] = []
-    for d in d_models:
-        for run_idx in range(1, n_runs + 1):
-            cfgs.append(
-                Config(
-                    LIST_LEN=LIST_LEN,
-                    N_DIGITS=N_DIGITS,
-                    D_MODEL=d,
-                    N_HEAD=GRID_N_HEADS,
-                    N_LAYERS=GRID_N_LAYERS,
-                    USE_LN=use_ln,
-                    USE_BIAS=use_bias,
-                    USE_WV=use_wv,
-                    USE_WO=use_wo,
-                    WEIGHT_DECAY=WEIGHT_DECAY,
-                    run_idx=run_idx,
-                )
+    for L, ND, DM, NH, NL, LN, UB, FWV, FWO, WD, R in product(
+        LIST_LEN,
+        N_DIGITS,
+        D_MODEL,
+        N_HEAD,
+        N_LAYERS,
+        USE_LN,
+        USE_BIAS,
+        USE_WV,
+        USE_WO,
+        WEIGHT_DECAY,
+        RUNS,
+    ):
+        if DM % NH != 0:
+            continue
+        cfgs.append(
+            Config(
+                LIST_LEN=L,
+                N_DIGITS=ND,
+                D_MODEL=DM,
+                N_HEAD=NH,
+                N_LAYERS=NL,
+                USE_LN=LN,
+                USE_BIAS=UB,
+                USE_WV=FWV,
+                USE_WO=FWO,
+                WEIGHT_DECAY=WD,
+                run_idx=R,
             )
+        )
     return cfgs
 
 
 # -----------------------------
-# CSV helpers
+# Sharding helpers
 # -----------------------------
+
+
+def detect_shard_from_env() -> Tuple[int, int]:
+    """Infer (shard_index, shard_count) from SLURM variables if present."""
+    env = os.environ
+    sid = env.get("SLURM_ARRAY_TASK_ID")
+    if sid is None:
+        return 0, 1
+    # Prefer explicit count if available
+    scount = env.get("SLURM_ARRAY_TASK_COUNT")
+    if scount is not None:
+        return int(sid), int(scount)
+    # Fall back to min/max/step
+    smin = env.get("SLURM_ARRAY_TASK_MIN")
+    smax = env.get("SLURM_ARRAY_TASK_MAX")
+    sstep = env.get("SLURM_ARRAY_TASK_STEP", "1")
+    if smin is not None and smax is not None:
+        amin = int(smin)
+        amax = int(smax)
+        step = int(sstep)
+        count = (amax - amin) // step + 1
+        idx = (int(sid) - amin) // step
+        return idx, count
+    return 0, 1
+
+
+def shard_items(items: List, shard_index: int, shard_count: int) -> List:
+    if shard_count <= 1:
+        return items
+    return [x for i, x in enumerate(items) if (i % shard_count) == shard_index]
 
 
 def ensure_csv_header(path: str, fields: List[str]) -> None:
@@ -468,9 +395,8 @@ def append_row_locked(path: str, fields: List[str], row: Dict) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Ablation Grid Search for Copy Task")
-    # default resolves later to CWD/ablation_res.csv
-    p.add_argument("--output", type=str, default=None, help="CSV file path (defaults to ./ablation_res.csv)")
+    p = argparse.ArgumentParser(description="Copy-Task Transformer Grid Search")
+    p.add_argument("--output", type=str, default="results.csv", help="CSV file path")
     p.add_argument("--device", type=str, default="auto", help="cuda|mps|cpu|auto")
     p.add_argument("--seed", type=int, default=42, help="base seed")
     p.add_argument("--train-steps", type=int, default=50000, help="max steps per run")
@@ -481,23 +407,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lr", type=float, default=1e-3, help="AdamW learning rate")
     p.add_argument("--eval-batch-size", type=int, default=1024, help="evaluation batch size")
     p.add_argument("--grad-clip", type=float, default=0.0, help="max grad-norm clipping (0 disables)")
-    p.add_argument("--dataset-mode", default=True, help="use enumerated dataset + DataLoaders like train.py")
-    p.add_argument("--train-split", type=float, default=0.8, help="train/val split for dataset mode")
     p.add_argument("--skip-existing", action="store_true", default=True, help="skip configs already present in output CSV")
-    p.add_argument("--runs", type=int, default=30, help="number of runs per config")
-    p.add_argument(
-        "--extra-d-models",
-        type=str,
-        default="128,32,8",
-        help="comma-separated list of extra d_model values (with LN/Bias False and WV/WO True)",
-    )
-    p.add_argument(
-        "--extras-flags",
-        type=str,
-        default="F,F,T,T",
-        help="flags for extras as LN,Bias,WV,WO using T/F (e.g., 'F,F,F,F')",
-    )
-    p.add_argument("--no-extra", action="store_true", help="disable running the extra d_model configs")
+    # sharding (overridden by SLURM env if not set)
+    p.add_argument("--shard-index", type=int, default=None, help="0-based shard index")
+    p.add_argument("--shard-count", type=int, default=None, help="total shards")
     return p.parse_args()
 
 
@@ -506,40 +419,19 @@ def main():
     device = pick_device(args.device)
     set_global_seed(args.seed)
 
-    # Resolve output to the script directory by default (robust to scheduler CWD)
-    script_dir = Path(__file__).parent
-    if args.output is None or args.output.strip() == "":
-        output_path = str((script_dir / "ablation_res.csv").resolve())
+    # Build and shard the config list
+    full_cfgs = build_grid()
+    if args.shard_index is None or args.shard_count is None:
+        env_idx, env_cnt = detect_shard_from_env()
+        shard_index = env_idx if args.shard_index is None else args.shard_index
+        shard_count = env_cnt if args.shard_count is None else args.shard_count
     else:
-        output_path = args.output
-        if not os.path.isabs(output_path):
-            output_path = str((script_dir / output_path).resolve())
+        shard_index, shard_count = args.shard_index, args.shard_count
 
-    # Build config list
-    cfgs = build_ablation_grid(n_runs=args.runs)
-    if not args.no_extra:
-        extra_dims = [int(x) for x in args.extra_d_models.split(",") if x.strip()]
-        def _parse_tf(s: str) -> bool:
-            s = s.strip().lower()
-            if s in {"t", "true", "1", "y", "yes"}: return True
-            if s in {"f", "false", "0", "n", "no"}: return False
-            raise ValueError(f"Invalid T/F flag: {s}")
-        try:
-            ln_s, bias_s, wv_s, wo_s = [x.strip() for x in args.extras_flags.split(",")]
-            ln_b, bias_b, wv_b, wo_b = map(_parse_tf, (ln_s, bias_s, wv_s, wo_s))
-        except Exception:
-            raise SystemExit("--extras-flags must be like 'F,F,T,T' for LN,Bias,WV,WO")
-        cfgs += build_extra_grid(
-            n_runs=args.runs,
-            d_models=extra_dims,
-            use_ln=ln_b,
-            use_bias=bias_b,
-            use_wv=wv_b,
-            use_wo=wo_b,
-        )
-
+    cfgs = shard_items(full_cfgs, shard_index, shard_count)
     total = len(cfgs)
 
+    # CSV fields unchanged
     fields = [
         "LIST_LEN",
         "N_DIGITS",
@@ -561,13 +453,14 @@ def main():
         "batch_size",
         "device",
     ]
-    ensure_csv_header(output_path, fields)
+    # Header-once init with lock
+    ensure_csv_header(args.output, fields)
 
     # Optionally load existing rows to skip duplicates
     existing_keys = set()
-    if args.skip_existing and os.path.exists(output_path):
+    if args.skip_existing and os.path.exists(args.output):
         try:
-            with open(output_path, "r", newline="") as f:
+            with open(args.output, "r", newline="") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     key = (
@@ -587,7 +480,7 @@ def main():
         except Exception:
             pass
 
-    outer = tqdm(total=total, desc="ablation", ncols=100)
+    outer = tqdm(total=total, desc=f"grid[{shard_index}/{shard_count}]", ncols=100)
     for cfg in cfgs:
         if args.skip_existing:
             key = (
@@ -619,8 +512,6 @@ def main():
                 lr=args.lr,
                 eval_batch_size=args.eval_batch_size,
                 grad_clip=args.grad_clip,
-                dataset_mode=args.dataset_mode,
-                train_split=args.train_split,
             )
         except RuntimeError:
             metrics = {
@@ -634,11 +525,11 @@ def main():
             }
 
         row = {**asdict(cfg), **metrics, "device": str(device)}
-        append_row_locked(output_path, fields, row)
+        append_row_locked(args.output, fields, row)
         outer.update(1)
     outer.close()
 
-    print(f"Wrote {total} rows to {output_path}")
+    print(f"Wrote {total} rows for shard {shard_index}/{shard_count} to {args.output}")
 
 
 if __name__ == "__main__":

@@ -15,14 +15,14 @@ from tqdm.auto import tqdm
 from dictionary_learning.trainers import BatchTopKTrainer
 # https://github.com/saprmarks/dictionary_learning/blob/main/dictionary_learning/trainers/batch_top_k.py
 
-from model_utils import make_model, configure_runtime, parse_model_name_safe
-from data import get_dataset
+from model_scripts.model_utils import make_model, configure_runtime, parse_model_name_safe
+from model_scripts.data import get_dataset
 
 #%%
 # --- Configuration ---
 MODEL_NAME = '2layer_100dig_64d'
 MODEL_CFG = parse_model_name_safe(MODEL_NAME)
-SAVE_FOLDER = 'sae_models'
+SAVE_FOLDER = 'results/sae_models'
 
 
 # Architecture

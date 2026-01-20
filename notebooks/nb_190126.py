@@ -26,9 +26,11 @@ from scipy import stats
 # Use BatchTopKSAE from dictionary_learning library
 from dictionary_learning.trainers.batch_top_k import BatchTopKSAE
 
-# Import project utilities
-from model_utils import configure_runtime, load_model, parse_model_name_safe
-from data import get_dataset
+# Import project utilities (add parent to path for imports)
+import sys
+sys.path.insert(0, '..')
+from model_scripts.model_utils import configure_runtime, load_model, parse_model_name_safe
+from model_scripts.data import get_dataset
 
 # Set Device
 device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
@@ -42,7 +44,7 @@ torch.set_grad_enabled(False) # don't need gradients - analysis only
 # --- Configuration (Must match training) ---
 MODEL_NAME = '2layer_100dig_64d'
 MODEL_CFG = parse_model_name_safe(MODEL_NAME)
-SAVE_FOLDER = 'sae_models'
+SAVE_FOLDER = '../results/sae_models'
 
 SAVE_NAME = 'sae_d100_k4_50ksteps_2layer_100dig_64d.pt'
 SAE_PATH = os.path.join(SAVE_FOLDER, SAVE_NAME)
@@ -58,11 +60,11 @@ N_DIGITS = MODEL_CFG.n_digits
 SEP_TOKEN_INDEX = 2  # Position of SEP in [d1, d2, SEP, o1, o2]
 
 # Output Config
-SAVE_DIR = None  # Set to "sae_results/" to enable saving plots
+SAVE_DIR = None  # Set to "../results/sae_results/" to enable saving plots
 
 #%%
 # --- Load Models ---
-MODEL_PATH = "models/" + MODEL_NAME + ".pt"
+MODEL_PATH = "../models/" + MODEL_NAME + ".pt"
 
 # Setup Runtime (required by model_utils)
 configure_runtime(

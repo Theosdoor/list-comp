@@ -15,14 +15,14 @@ from tqdm.auto import tqdm
 
 from dictionary_learning.trainers.batch_top_k import BatchTopKSAE
 
-from model_utils import configure_runtime, load_model, parse_model_name_safe
-from data import get_dataset
+from model_scripts.model_utils import configure_runtime, load_model, parse_model_name_safe
+from model_scripts.data import get_dataset
 
 #%%
 # --- Configuration ---
 MODEL_NAME = '2layer_100dig_64d'
 MODEL_CFG = parse_model_name_safe(MODEL_NAME)
-SAE_FOLDER = 'sae_models'
+SAE_FOLDER = 'results/sae_models'
 OUTPUT_FILE = 'sae_comparison.md'
 
 # Model config
