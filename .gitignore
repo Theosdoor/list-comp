@@ -1,5 +1,6 @@
 *.err
 submit_job.sh
+logs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
