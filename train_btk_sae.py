@@ -5,6 +5,7 @@
 # Trains an SAE with config optimized for the Order by Scale paper predictions.
 
 #%%
+import argparse
 import os
 
 import torch
@@ -45,6 +46,7 @@ SEP_TOKEN_INDEX = 2               # [d1, d2, SEP, o1, o2] -> Index 2
 # Runtime
 SEED = 42
 DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+print(f"Using device: {DEVICE}")
 
 SAVE_NAME = f'sae_d{D_SAE}_k{TOP_K}_{MODEL_NAME}.pt'
 SAVE_PATH = os.path.join(SAVE_FOLDER, SAVE_NAME)
@@ -191,4 +193,23 @@ def train_sae():
 
 #%%
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train BatchTopK SAE")
+    parser.add_argument("--d_sae", type=int, default=D_SAE, help=f"Dictionary size (default: {D_SAE})")
+    parser.add_argument("--top_k", type=int, default=TOP_K, help=f"TopK sparsity (default: {TOP_K})")
+    parser.add_argument("--lr", type=float, default=LR, help=f"Learning rate (default: {LR})")
+    parser.add_argument("--n_steps", type=int, default=N_STEPS, help=f"Training steps (default: {N_STEPS})")
+    parser.add_argument("--warmup_steps", type=int, default=WARMUP_STEPS, help=f"Warmup steps (default: {WARMUP_STEPS})")
+    args = parser.parse_args()
+    
+    # Update globals with command-line overrides
+    D_SAE = args.d_sae
+    TOP_K = args.top_k
+    LR = args.lr
+    N_STEPS = args.n_steps
+    WARMUP_STEPS = args.warmup_steps
+    
+    # Update save path with new config
+    SAVE_NAME = f'sae_d{D_SAE}_k{TOP_K}_{MODEL_NAME}.pt'
+    SAVE_PATH = os.path.join(SAVE_FOLDER, SAVE_NAME)
+    
     train_sae()
