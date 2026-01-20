@@ -24,8 +24,10 @@ def get_dataset(
     all_data = list(itertools.product(digits, repeat=list_len))
     all_data = torch.tensor(all_data, dtype=torch.int64)
 
-    # Split into dupes (d1 == d2) and non-dupes
-    dupes_mask = all_data[:, 0] == all_data[:, 1]
+    # Split into dupes (all elements equal) and non-dupes
+    # For list_len=2: [d1,d2] is dupe if d1==d2
+    # For list_len=3: [d1,d2,d3] is dupe if d1==d2==d3
+    dupes_mask = (all_data == all_data[:, 0:1]).all(dim=1)
     dupes = all_data[dupes_mask]
     non_dupes = all_data[~dupes_mask]
 
