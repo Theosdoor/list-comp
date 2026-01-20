@@ -207,6 +207,7 @@ def make_model(
 		n_ctx=seq_len,
 		d_vocab=vocab,
 		attn_only=attn_only,
+		act_fn="gelu" if not attn_only else None, # [‘relu’, ‘gelu’, ‘silu’, ‘gelu_new’, ‘solu_ln’, ‘gelu_fast’]
 		normalization_type=("LN" if ln else None),
 	)
 	model = HookedTransformer(cfg).to(dev)
