@@ -336,9 +336,9 @@ class ModelConfig(NamedTuple):
 def parse_model_name(name: str) -> ModelConfig:
 	"""Parse model naming convention to extract configuration.
 
-	Supports forms like:
-	    '2layer_100dig_64d'
-	    '2layer_100dig_64d_20241014-153012'
+	Supports both old and new naming formats:
+	    Old: '2layer_100dig_64d' or '2layer_100dig_64d_LBVO-TTTT_20241014-153012'
+	    New: 'L2_H1_D64_V100' or 'L2_H1_D64_V100_ln-bias_250120-180326'
 
 	Returns:
 	    ModelConfig(n_digits, d_model, n_layers)
@@ -348,18 +348,33 @@ def parse_model_name(name: str) -> ModelConfig:
 	"""
 	import re
 	base = name.split('.pt')[0]  # strip accidental file extension
-	pattern = r"^(?P<layers>\d+)layer_(?P<digits>\d+)dig_(?P<dmodel>\d+)d(?:_.+)?$"
-	m = re.match(pattern, base)
-	if not m:
-		raise ValueError(f"Model name '{name}' does not match expected pattern '<L>layer_<D>dig_<M>d[_...]'")
 	
-	config = ModelConfig(
-		n_digits=int(m.group('digits')),
-		d_model=int(m.group('dmodel')),
-		n_layers=int(m.group('layers'))
-	)
-	print(f"Parsed model config: {config.n_layers} layers, {config.n_digits} digits, {config.d_model} d_model")
-	return config
+	# Try new format first: L{layers}_H{heads}_D{d_model}_V{digits}[_flags][_timestamp]
+	new_pattern = r"^L(?P<layers>\d+)_H(?P<heads>\d+)_D(?P<dmodel>\d+)_V(?P<digits>\d+)(?:_.+)?$"
+	m = re.match(new_pattern, base)
+	if m:
+		config = ModelConfig(
+			n_digits=int(m.group('digits')),
+			d_model=int(m.group('dmodel')),
+			n_layers=int(m.group('layers'))
+		)
+		print(f"Parsed model config (new format): {config.n_layers} layers, {config.n_digits} digits, {config.d_model} d_model")
+		return config
+	
+	# Try old format: {layers}layer_{digits}dig_{d_model}d[_...]
+	old_pattern = r"^(?P<layers>\d+)layer_(?P<digits>\d+)dig_(?P<dmodel>\d+)d(?:_.+)?$"
+	m = re.match(old_pattern, base)
+	if m:
+		config = ModelConfig(
+			n_digits=int(m.group('digits')),
+			d_model=int(m.group('dmodel')),
+			n_layers=int(m.group('layers'))
+		)
+		print(f"Parsed model config (old format): {config.n_layers} layers, {config.n_digits} digits, {config.d_model} d_model")
+		return config
+	
+	raise ValueError(f"Model name '{name}' does not match expected patterns. "
+		f"Expected: 'L<L>_H<H>_D<D>_V<V>[_...]' (new) or '<L>layer_<D>dig_<M>d[_...]' (old)")
 
 def parse_model_name_safe(name: str, fallback: ModelConfig = ModelConfig(100, 64, 2)) -> ModelConfig:
 	"""Parse model name with fallback on failure.

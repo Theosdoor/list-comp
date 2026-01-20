@@ -39,50 +39,94 @@ np.set_printoptions(formatter={'float_kind':float_formatter})
 
 # %%
 # ---------- parameters ----------
-LIST_LEN = 2 # [d1, d2]
-SEQ_LEN = LIST_LEN * 2 + 1 # [d1, d2, SEP, o1, o2]
+import argparse
 
-N_DIGITS = 100
-DIGITS = list(range(N_DIGITS)) # 100 digits from 0 to 99
-MASK = N_DIGITS # special masking token for o1 and o2
-SEP = N_DIGITS+1 # special seperator token for the model to think about the input (+1 to avoid confusion with the last digit)
-VOCAB = len(DIGITS) + 2  # + the special tokens
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train a list comparison transformer model")
+    
+    # Model architecture
+    parser.add_argument("--n-layers", type=int, default=2, help="Number of transformer layers")
+    parser.add_argument("--n-heads", type=int, default=1, help="Number of attention heads")
+    parser.add_argument("--d-model", type=int, default=64, help="Model dimension")
+    parser.add_argument("--n-digits", type=int, default=100, help="Number of digits (vocabulary size - 2)")
+    
+    # Model features (flags)
+    parser.add_argument("--ln", action="store_true", default=False, help="Use layer normalization")
+    parser.add_argument("--bias", action="store_true", default=False, help="Use bias terms")
+    parser.add_argument("--wv", action="store_true", default=False, help="Learn W_V (else freeze to identity)")
+    parser.add_argument("--wo", action="store_true", default=False, help="Learn W_O (else freeze to identity)")
+    parser.add_argument("--mlp", action="store_true", default=False, help="Include MLP layers")
+    
+    # Training
+    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
+    parser.add_argument("--weight-decay", type=float, default=0.01, help="Weight decay")
+    parser.add_argument("--max-steps", type=int, default=50_000, help="Max training steps")
+    parser.add_argument("--seed", type=int, default=0, help="Random seed")
+    parser.add_argument("--checkpoint", action="store_true", help="Save checkpoints during training")
+    
+    # Output
+    parser.add_argument("--name", type=str, default=None, help="Custom model name (overrides auto-generated)")
+    
+    return parser.parse_args()
 
-D_MODEL = 64
-N_HEAD = 1
-N_LAYER = 2
-USE_LN = True # use layer norm in model
-USE_BIAS = True # use bias in model
-USE_WV = True # use value matrix in attn (False = freeze to identity)
-USE_WO = True # use output matrix in attn (False = freeze to identity)
-ATTN_ONLY = True # attention-only model (no MLP)
+# Parse arguments (use defaults if running as notebook)
+try:
+    args = parse_args()
+except SystemExit:
+    # Running in notebook/interactive mode, use defaults
+    args = argparse.Namespace(
+        n_layers=2, n_heads=1, d_model=64, n_digits=100,
+        ln=False, bias=False, wv=False, wo=False, mlp=False,
+        lr=1e-3, weight_decay=0.01, max_steps=50_000, seed=0,
+        checkpoint=False, name=None
+    )
 
-LEARNING_RATE = 1e-3 # default 1e-3
-WEIGHT_DECAY = 0.01 # default 0.01
-MAX_TRAIN_STEPS = 50_000 # max training steps
-USE_CHECKPOINTING = False # whether to use checkpointing for training
+# Extract to module-level variables for compatibility
+LIST_LEN = 2  # [d1, d2]
+SEQ_LEN = LIST_LEN * 2 + 1  # [d1, d2, SEP, o1, o2]
 
-RUN_TS = datetime.now().strftime("%Y%m%d-%H%M%S")
-tf_string = ''.join('T' if b else 'F' for b in [USE_LN, USE_BIAS, USE_WV, USE_WO])
-MODEL_NAME = f'{N_LAYER}layer_{N_DIGITS}dig_{D_MODEL}d_LBVO-{tf_string}_{RUN_TS}'
+N_DIGITS = args.n_digits
+DIGITS = list(range(N_DIGITS))
+MASK = N_DIGITS
+SEP = N_DIGITS + 1
+VOCAB = len(DIGITS) + 2
+
+D_MODEL = args.d_model
+N_HEAD = args.n_heads
+N_LAYER = args.n_layers
+USE_LN = args.ln
+USE_BIAS = args.bias
+USE_WV = args.wv
+USE_WO = args.wo
+ATTN_ONLY = not args.mlp
+
+LEARNING_RATE = args.lr
+WEIGHT_DECAY = args.weight_decay
+MAX_TRAIN_STEPS = args.max_steps
+USE_CHECKPOINTING = args.checkpoint
+SEED = args.seed
+
+# Generate model name: L{layers}_H{heads}_D{d_model}_V{digits}[_flags]_timestamp
+# Flags are only included if non-default (ln, bias, wv, wo, mlp)
+RUN_TS = datetime.now().strftime("%y%m%d-%H%M%S")
+base_name = f"L{N_LAYER}_H{N_HEAD}_D{D_MODEL}_V{N_DIGITS}"
+
+# Add flags suffix only for non-default settings
+flags = []
+if USE_LN: flags.append("ln")
+if USE_BIAS: flags.append("bias")
+if USE_WV: flags.append("wv")
+if USE_WO: flags.append("wo")
+if not ATTN_ONLY: flags.append("mlp")
+flags_suffix = "_" + "-".join(flags) if flags else ""
+
+MODEL_NAME = args.name if args.name else f"{base_name}{flags_suffix}_{RUN_TS}"
+
 # Construct path relative to project root (parent of model_scripts/)
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_PATH = os.path.join(_PROJECT_ROOT, "models", MODEL_NAME + ".pt")
 
-# --- dataset --- (not necessary as we fix seed?)
-# DATASET_NAME = None # None ==> generate new one
-# listlen2_digits10_dupes
-# listlen2_digits10_nodupes
-# listlen2_digits100_dupes_traindupesonly
-# listlen2_digits100_dupes
-# listlen2_digits100_nodupes
-
-DEV = (
-    "cuda"
-    if torch.cuda.is_available()
-    else "cpu"
-)
-SEED = 0
+DEV = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Provide runtime config so we don't need to thread constants everywhere
 configure_runtime(list_len=LIST_LEN, seq_len=SEQ_LEN, vocab=VOCAB, device=DEV, seed=SEED)
