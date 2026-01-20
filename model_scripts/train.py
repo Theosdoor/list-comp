@@ -64,6 +64,8 @@ def parse_args():
     parser.add_argument("--max-steps", type=int, default=50_000, help="Max training steps")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("--checkpoint", action="store_true", help="Save checkpoints during training")
+    parser.add_argument("--min-acc", type=float, default=0.9, help="Minimum accuracy to stop training")
+    parser.add_argument("--max-retries", type=int, default=3, help="Max training retries if min-acc not reached")
     
     # Output
     parser.add_argument("--name", type=str, default=None, help="Custom model name (overrides auto-generated)")
@@ -79,7 +81,7 @@ except SystemExit:
         n_layers=2, n_heads=1, d_model=64, n_digits=100, list_len=2,
         ln=False, bias=False, wv=False, wo=False, mlp=False,
         lr=1e-3, weight_decay=0.01, max_steps=50_000, seed=0,
-        checkpoint=False, name=None
+        checkpoint=False, name=None, min_acc=0.9, max_retries=3
     )
 
 # Extract to module-level variables for compatibility
@@ -200,10 +202,17 @@ def train(m, max_steps=10_000, early_stop_acc=0.999, checkpoints=False, lr=LEARN
 
 # %%
 # train and SAVE new model
-acc = 0
-while acc < 0.9:
-    print(f"Training {MODEL_NAME}")
-    print(f"  Config: {N_LAYER} layers, {N_HEAD} heads, d_model={D_MODEL}, LN={USE_LN}, bias={USE_BIAS}, WV={USE_WV}, WO={USE_WO}, attn_only={ATTN_ONLY}")
+MIN_ACC = args.min_acc
+MAX_RETRIES = args.max_retries
+
+print(f"Training {MODEL_NAME}")
+print(f"  Config: {N_LAYER} layers, {N_HEAD} heads, d_model={D_MODEL}, LN={USE_LN}, bias={USE_BIAS}, WV={USE_WV}, WO={USE_WO}, attn_only={ATTN_ONLY}")
+print(f"  Target: min_acc={MIN_ACC:.1%}, max_retries={MAX_RETRIES}")
+
+best_acc = 0
+best_model = None
+
+for attempt in range(MAX_RETRIES):
     model = make_model(
         n_layers=N_LAYER,
         n_heads=N_HEAD,
@@ -216,10 +225,23 @@ while acc < 0.9:
     )
     train(model, max_steps=MAX_TRAIN_STEPS, checkpoints=USE_CHECKPOINTING)
     acc = accuracy(model, val_dl)
-    if acc > 0.8:
-        MODEL_NAME_WITH_ACC = f'{MODEL_NAME}_acc{acc:.4f}'
-        MODEL_PATH_WITH_ACC = os.path.join(_PROJECT_ROOT, "models", f"{MODEL_NAME_WITH_ACC}.pt")
-        save_model(model, MODEL_PATH_WITH_ACC)
+    
+    if acc > best_acc:
+        best_acc = acc
+        best_model = model
+    
+    if acc >= MIN_ACC:
+        print(f"Achieved {acc:.2%} >= {MIN_ACC:.1%} on attempt {attempt+1}")
+        break
+    else:
+        print(f"Attempt {attempt+1}/{MAX_RETRIES}: acc={acc:.2%} < {MIN_ACC:.1%}, retrying...")
+else:
+    print(f"Warning: Best accuracy {best_acc:.2%} after {MAX_RETRIES} attempts (target: {MIN_ACC:.1%})")
+
+# Always save the best model
+MODEL_NAME_WITH_ACC = f'{MODEL_NAME}_acc{best_acc:.4f}'
+MODEL_PATH_WITH_ACC = os.path.join(_PROJECT_ROOT, "models", f"{MODEL_NAME_WITH_ACC}.pt")
+save_model(best_model, MODEL_PATH_WITH_ACC)
 
 # %%
 # --- Model Parameters Overview ---
