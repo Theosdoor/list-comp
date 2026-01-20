@@ -14,6 +14,7 @@ __all__ = [
 	"accuracy",
 	"save_model",
 	"load_model",
+	"infer_model_config",
 	"parse_model_name",
 	"parse_model_name_safe",
 	"ModelConfig",
@@ -28,16 +29,19 @@ class _RuntimeConfig:
 	seq_len = None
 	vocab = None
 	device = None
+	seed = None
 
 _RUNTIME = _RuntimeConfig()
 
-def configure_runtime(*, list_len, seq_len, vocab, device):
+def configure_runtime(*, list_len, seq_len, vocab, device, seed=0):
 	"""Set module-level runtime configuration so callers can omit repeating constants.
 	"""
 	_RUNTIME.list_len = list_len
 	_RUNTIME.seq_len = seq_len
 	_RUNTIME.vocab = vocab
 	_RUNTIME.device = device
+	_RUNTIME.seed = seed
+	torch.manual_seed(seed)
 
 # ---------- mask ----------
 # attention mask for [d1, d2, SEP, o1, o2] looks like this:
@@ -168,6 +172,7 @@ def make_model(
 	use_bias = False,
 	use_wv = False,
 	use_wo = False,
+	attn_only = True,
 	seq_len = None,
 	vocab = None,
 	list_len = None,
@@ -182,6 +187,7 @@ def make_model(
 		device: device to place model on (defaults to DEV)
 		use_wv: if False, freeze W_V to identity (default: False)
 		use_wo: if False, freeze W_O to identity (default: False)
+		attn_only: if True, no MLP (default: True)
 	"""
 	# Resolve from explicit args or runtime config
 	if seq_len is None:
@@ -200,7 +206,7 @@ def make_model(
 		d_head=d_model // n_heads,
 		n_ctx=seq_len,
 		d_vocab=vocab,
-		attn_only=True,  # no MLP!
+		attn_only=attn_only,
 		normalization_type=("LN" if ln else None),
 	)
 	model = HookedTransformer(cfg).to(dev)
@@ -252,6 +258,71 @@ def load_model(path, **model_kwargs):
 	)  # map weights to target device
 	model.eval()
 	return model
+
+def infer_model_config(path, device=None):
+	"""Infer model configuration from a checkpoint file.
+	
+	Args:
+		path: Path to the checkpoint file
+		device: Device to load checkpoint on
+		
+	Returns:
+		dict with keys: d_model, n_layers, n_heads, d_vocab, n_ctx, attn_only,
+		                use_ln, use_bias, use_wv, use_wo
+	"""
+	if device is None:
+		device = _RUNTIME.device or "cpu"
+	
+	checkpoint = torch.load(path, map_location=device)
+	
+	# Infer d_model from W_Q shape: (n_heads, d_model, d_head)
+	d_model = checkpoint['blocks.0.attn.W_Q'].shape[1]
+	
+	# Infer n_heads from W_Q shape: (n_heads, d_model, d_head)
+	n_heads = checkpoint['blocks.0.attn.W_Q'].shape[0]
+	
+	# Infer n_layers by counting block keys
+	n_layers = sum(1 for k in checkpoint.keys() if k.endswith('.attn.W_Q'))
+	
+	# Infer d_vocab from embed.W_E shape: (d_vocab, d_model)
+	d_vocab = checkpoint['embed.W_E'].shape[0]
+	
+	# Infer n_ctx from pos_embed.W_pos shape: (n_ctx, d_model)
+	n_ctx = checkpoint['pos_embed.W_pos'].shape[0]
+	
+	# Infer attn_only: check if MLP weights exist
+	attn_only = 'blocks.0.mlp.W_in' not in checkpoint
+	
+	# Infer use_ln from presence of non-zero layer norm weights
+	use_ln = 'blocks.0.ln1.w' in checkpoint and (checkpoint['blocks.0.ln1.w'].abs().sum() > 0).item()
+	
+	# Infer use_bias from whether attention biases are non-zero
+	use_bias = 'blocks.0.attn.b_Q' in checkpoint and (checkpoint['blocks.0.attn.b_Q'].abs().sum() > 0).item()
+	
+	# Infer use_wv: check if W_V differs from identity-like pattern
+	W_V = checkpoint['blocks.0.attn.W_V']  # (n_heads, d_model, d_head)
+	identity_slice = torch.eye(d_model, d_model // n_heads).unsqueeze(0).expand(n_heads, -1, -1)
+	use_wv = not torch.allclose(W_V, identity_slice.to(W_V.device), atol=1e-5)
+	
+	# Infer use_wo: check if W_O differs from identity-like pattern
+	W_O = checkpoint['blocks.0.attn.W_O']  # (n_heads, d_head, d_model)
+	identity_slice_o = torch.eye(d_model // n_heads, d_model).unsqueeze(0).expand(n_heads, -1, -1)
+	use_wo = not torch.allclose(W_O, identity_slice_o.to(W_O.device), atol=1e-5)
+	
+	config = {
+		'd_model': d_model,
+		'n_layers': n_layers,
+		'n_heads': n_heads,
+		'd_vocab': d_vocab,
+		'n_ctx': n_ctx,
+		'attn_only': attn_only,
+		'use_ln': use_ln,
+		'use_bias': use_bias,
+		'use_wv': use_wv,
+		'use_wo': use_wo,
+	}
+	print(f"Inferred config: {config}")
+	return config
 
 # ----- Model name parsing helper ------
 from typing import NamedTuple

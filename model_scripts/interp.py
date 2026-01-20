@@ -20,7 +20,7 @@ from model_utils import (
     build_attention_mask,
     load_model,
     accuracy,
-    parse_model_name_safe,
+    infer_model_config,
 )
 
 from data import get_dataset
@@ -42,35 +42,39 @@ MODEL_NAME = '2layer_100dig_64d'
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_PATH = os.path.join(_PROJECT_ROOT, "models", MODEL_NAME + ".pt")
 
-# Derive architectural hyperparameters from model name
-MODEL_CFG = parse_model_name_safe(MODEL_NAME)
-N_DIGITS = MODEL_CFG.n_digits
-D_MODEL = MODEL_CFG.d_model
-N_LAYER = MODEL_CFG.n_layers
+# Check model exists before proceeding
+if not os.path.exists(MODEL_PATH):
+    raise FileNotFoundError(f"Model file {MODEL_PATH} does not exist. Please train the model first.")
 
+# Infer model config from checkpoint
+inferred = infer_model_config(MODEL_PATH)
+D_MODEL = inferred['d_model']
+N_LAYER = inferred['n_layers']
+N_HEAD = inferred['n_heads']
+VOCAB = inferred['d_vocab']
+USE_LN = inferred['use_ln']
+USE_BIAS = inferred['use_bias']
+USE_WV = inferred['use_wv']
+USE_WO = inferred['use_wo']
+
+# Derive data parameters from inferred vocab size
+N_DIGITS = VOCAB - 2  # vocab = digits + MASK + SEP
 LIST_LEN = 2  # [d1, d2]
 SEQ_LEN = LIST_LEN * 2 + 1  # [d1, d2, SEP, o1, o2]
 
 DIGITS = list(range(N_DIGITS))  # 0 .. N_DIGITS-1
 MASK = N_DIGITS  # special masking token for o1 and o2
 SEP = N_DIGITS + 1  # special separator token
-VOCAB = len(DIGITS) + 2  # + special tokens
-
-N_HEAD = 1
-USE_LN = False # use layer norm in model
-USE_BIAS = False # use bias in model
-USE_WV = False # use value matrix in attn (False = freeze to identity)
-USE_WO = False # use output matrix in attn (False = freeze to identity)
 
 DEV = (
     "cuda"
     if torch.cuda.is_available()
     else "cpu"
 )
-torch.manual_seed(0)
+SEED = 0
 
 # Provide runtime config so we don't need to thread constants everywhere
-configure_runtime(list_len=LIST_LEN, seq_len=SEQ_LEN, vocab=VOCAB, device=DEV)
+configure_runtime(list_len=LIST_LEN, seq_len=SEQ_LEN, vocab=VOCAB, device=DEV, seed=SEED)
 
 
 # %%
@@ -106,21 +110,18 @@ print("Target:", train_ds[0][1])
 print(f"Train dataset size: {len(train_ds)}, Validation dataset size: {len(val_ds)}")
 
 # %%
-# LOAD existing model
-if os.path.exists(MODEL_PATH):
-    model = load_model(
-        MODEL_PATH,
-        n_layers=N_LAYER,
-        n_heads=N_HEAD,
-        d_model=D_MODEL,
-        ln=USE_LN,
-        use_bias=USE_BIAS,
-        use_wv=USE_WV,
-        use_wo=USE_WO,
-        device=DEV,
-    )
-else:
-    raise FileNotFoundError(f"Model file {MODEL_PATH} does not exist. Please train the model first.")
+# LOAD existing model (config already inferred at top of file)
+model = load_model(
+    MODEL_PATH,
+    n_layers=N_LAYER,
+    n_heads=N_HEAD,
+    d_model=D_MODEL,
+    ln=USE_LN,
+    use_bias=USE_BIAS,
+    use_wv=USE_WV,
+    use_wo=USE_WO,
+    device=DEV,
+)
 
 accuracy(model, val_dl)
 

@@ -55,6 +55,7 @@ USE_LN = True # use layer norm in model
 USE_BIAS = True # use bias in model
 USE_WV = True # use value matrix in attn (False = freeze to identity)
 USE_WO = True # use output matrix in attn (False = freeze to identity)
+ATTN_ONLY = True # attention-only model (no MLP)
 
 LEARNING_RATE = 1e-3 # default 1e-3
 WEIGHT_DECAY = 0.01 # default 0.01
@@ -81,10 +82,10 @@ DEV = (
     if torch.cuda.is_available()
     else "cpu"
 )
-torch.manual_seed(0)
+SEED = 0
 
 # Provide runtime config so we don't need to thread constants everywhere
-configure_runtime(list_len=LIST_LEN, seq_len=SEQ_LEN, vocab=VOCAB, device=DEV)
+configure_runtime(list_len=LIST_LEN, seq_len=SEQ_LEN, vocab=VOCAB, device=DEV, seed=SEED)
 
 # %%
 # ---------- mask ----------
@@ -156,6 +157,7 @@ def train(m, max_steps=10_000, early_stop_acc=0.999, checkpoints=False, lr=LEARN
 acc = 0
 while acc < 0.9:
     print(f"Training {MODEL_NAME}")
+    print(f"  Config: {N_LAYER} layers, {N_HEAD} heads, d_model={D_MODEL}, LN={USE_LN}, bias={USE_BIAS}, WV={USE_WV}, WO={USE_WO}, attn_only={ATTN_ONLY}")
     model = make_model(
         n_layers=N_LAYER,
         n_heads=N_HEAD,
@@ -164,6 +166,7 @@ while acc < 0.9:
         use_bias=USE_BIAS,
         use_wv=USE_WV,
         use_wo=USE_WO,
+        attn_only=ATTN_ONLY,
     )
     train(model, max_steps=MAX_TRAIN_STEPS, checkpoints=USE_CHECKPOINTING)
     acc = accuracy(model, val_dl)
