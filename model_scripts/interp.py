@@ -38,7 +38,9 @@ np.set_printoptions(formatter={'float_kind':float_formatter})
 # %%
 # ---------- parameters ----------
 MODEL_NAME = '2layer_100dig_64d'
-MODEL_PATH = "models/" + MODEL_NAME + ".pt"
+# Construct path relative to project root (parent of model_scripts/)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODEL_PATH = os.path.join(_PROJECT_ROOT, "models", MODEL_NAME + ".pt")
 
 # Derive architectural hyperparameters from model name
 MODEL_CFG = parse_model_name_safe(MODEL_NAME)
@@ -123,7 +125,33 @@ else:
 accuracy(model, val_dl)
 
 
+# %%
+# --- Model Parameters Overview ---
+m_for_overview = globals().get('model', None)
+if m_for_overview is not None:
+    print("--- Overview of Model Parameters ---")   
+    total_params = 0
+    trainable_params = 0
 
+    # Use a formatted string for better alignment
+    print(f"{'Parameter Name':<40} | {'Shape':<20} | {'Trainable':<10}")
+    print("-" * 80)
+
+    for name, param in m_for_overview.named_parameters():
+        shape_str = str(tuple(param.shape))
+        is_trainable = "Yes" if param.requires_grad else "No"
+        total_params += param.numel()
+
+        if not param.requires_grad:
+            continue
+        # Print only trainable parameters
+        print(f"{name:<40} | {shape_str:<20} | {is_trainable:<10}")
+        trainable_params += param.numel()
+
+    print("-" * 80)
+    print(f"Total parameters: {total_params}")
+    print(f"Trainable parameters: {trainable_params}")
+    print("-" * 80)
 
 
 

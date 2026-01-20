@@ -64,7 +64,9 @@ USE_CHECKPOINTING = False # whether to use checkpointing for training
 RUN_TS = datetime.now().strftime("%Y%m%d-%H%M%S")
 tf_string = ''.join('T' if b else 'F' for b in [USE_LN, USE_BIAS, USE_WV, USE_WO])
 MODEL_NAME = f'{N_LAYER}layer_{N_DIGITS}dig_{D_MODEL}d_LBVO-{tf_string}_{RUN_TS}'
-MODEL_PATH = "models/" + MODEL_NAME + ".pt"
+# Construct path relative to project root (parent of model_scripts/)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODEL_PATH = os.path.join(_PROJECT_ROOT, "models", MODEL_NAME + ".pt")
 
 # --- dataset --- (not necessary as we fix seed?)
 # DATASET_NAME = None # None ==> generate new one
@@ -150,103 +152,6 @@ def train(m, max_steps=10_000, early_stop_acc=0.999, checkpoints=False, lr=LEARN
 
 
 # %%
-# Check train set
-train_ds[:5]
-
-# %%
-# ---------- experiment grid ----------
-def make_name(d_model, n_layers, ln, use_bias, use_wv, use_wo):
-    parts = [
-        f"d{d_model}",
-        f"{n_layers}L",
-        ("LN" if ln else "noLN"),
-        ("Bias" if use_bias else "noBias"),
-        ("WV" if use_wv else "noWV"),
-        ("WO" if use_wo else "noWO"),
-    ]
-    return "_".join(parts)
-
-specs = [
-    # {'name': 'd256', 'd_model': 256},
-    # {'name': 'd128', 'd_model': 128},
-    # {'name': 'd64', 'd_model': 64},
-    
-    # {'name': 'd32', 'd_model': 32},
-    # {'name': 'd32_ln_bias', 'd_model': 32, 'ln': True, 'use_bias': True},
-    # {'name': 'd32_noLN', 'd_model': 32, 'ln': False, 'use_bias': True},
-    # {'name': 'd32_noBias', 'd_model': 32, 'ln': True, 'use_bias': False},
-    # {'name': 'd32_noLNnoBias', 'd_model': 32, 'ln': False, 'use_bias': False},
-    # {'name': 'd32_fwo', 'd_model': 32, 'freeze_wo': True},
-    # {'name': 'd32_unfwo', 'd_model': 32, 'freeze_wo': False},
-
-    # {'name': 'd16', 'd_model': 16},
-    # {'name': 'd16_ln_bias', 'd_model': 16, 'ln': True, 'use_bias': True},
-    # {'name': 'd16_noLN', 'd_model': 16, 'ln': False, 'use_bias': True},
-    # {'name': 'd16_noBias', 'd_model': 16, 'ln': True, 'use_bias': False},
-    # {'name': 'd16_noLNnoBias', 'd_model': 16, 'ln': False, 'use_bias': False},
-    # {'name': 'd16_fwo', 'd_model': 16, 'freeze_wo': True},
-    # {'name': 'd16_unfwo', 'd_model': 16, 'freeze_wo': False},
-
-    # {'name': 'd8', 'd_model': 8},
-    # {'name': 'd8_ln_bias', 'd_model': 8, 'ln': True, 'use_bias': True},
-    # {'name': 'd8_noLN', 'd_model': 8, 'ln': False, 'use_bias': True},
-    # {'name': 'd8_noBias', 'd_model': 8, 'ln': True, 'use_bias': False},
-    # {'name': 'd8_noLNnoBias', 'd_model': 8, 'ln': False, 'use_bias': False},
-    # {'name': 'd8_fwo', 'd_model': 8, 'freeze_wo': True},
-    # {'name': 'd8_unfwo', 'd_model': 8, 'freeze_wo': False},
-
-    # {'name': 'd4', 'd_model': 4},
-]
-
-# -----------------------
-rows = []
-for spec in specs:
-    # Create a full spec by starting with defaults and updating with the current spec
-    full_spec = {
-        'n_layers': N_LAYER,
-        'n_heads': N_HEAD,
-        'd_model': D_MODEL,
-        'ln': USE_LN,
-        'bias': USE_BIAS,
-        'use_wv': USE_WV,
-        'use_wo': USE_WO,
-        'lr': LEARNING_RATE,
-        'weight_decay': WEIGHT_DECAY,
-    }
-    full_spec.update(spec) # Overwrite defaults with provided spec values
-
-    print(f"--- Training model: {full_spec['name']} ---")
-    model = make_model(
-        n_layers=full_spec['n_layers'],
-        n_heads=full_spec['n_heads'],
-        d_model=full_spec['d_model'],
-        ln=full_spec['ln'],
-        use_bias=full_spec['bias'],
-        use_wv=full_spec['use_wv'],
-        use_wo=full_spec['use_wo'],
-    )
-
-    train(model, max_steps=50_000, lr=full_spec['lr'], weight_decay=full_spec['weight_decay'])
-    
-    # Add all spec parameters to the results
-    result = full_spec.copy()
-    result['val_acc'] = round(accuracy(model, val_dl), 4)
-    rows.append(result)
-
-df = pd.DataFrame(rows)
-
-# Move 'name' column to the front for better readability
-if 'name' in df.columns:
-    cols = ['name'] + [col for col in df.columns if col != 'name']
-    df = df[cols]
-
-print(df.to_markdown(index=False))
-
-# %% [markdown]
-# **RESULTS**
-# 
-
-# %%
 # train and SAVE new model
 acc = 0
 while acc < 0.9:
@@ -264,7 +169,7 @@ while acc < 0.9:
     acc = accuracy(model, val_dl)
     if acc > 0.8:
         MODEL_NAME_WITH_ACC = f'{MODEL_NAME}_acc{acc:.4f}'
-        MODEL_PATH_WITH_ACC = f"models/{MODEL_NAME_WITH_ACC}.pt"
+        MODEL_PATH_WITH_ACC = os.path.join(_PROJECT_ROOT, "models", f"{MODEL_NAME_WITH_ACC}.pt")
         save_model(model, MODEL_PATH_WITH_ACC)
 
 # %%
