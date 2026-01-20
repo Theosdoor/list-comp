@@ -1,3 +1,2 @@
 old_sae was made with a different train script - it worked though, interesting feature was 189
-^ see https://raw.githubusercontent.com/Theosdoor/list-comp-priv/324ac2906188a8c29309e66df20ae0c97ac6dcb7/train_btk_sae.py?token=GHSAT0AAAAAADMXCD2CTJ73UGJXWD7SQEJC2LPP7LQ
-other ones use dictionary_learning
+^ see reference/[ref] OLD_train_btk_sae.py
