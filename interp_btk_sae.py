@@ -42,25 +42,23 @@ torch.set_grad_enabled(False) # don't need gradients - analysis only
 # --- Configuration (Must match training) ---
 MODEL_NAME = '2layer_100dig_64d'
 MODEL_CFG = parse_model_name_safe(MODEL_NAME)
-SAE_PATH = "sae_models/sae2.pt"
+SAVE_FOLDER = 'sae_models'
 
-class SAEConfig:
-    d_model = MODEL_CFG.d_model
-    d_sae = 256  # ~4× expansion (100 D1 + 100 D2 + buffer)
-    k = 4  # TopK sparsity
-    
-    # Model Config (derived from model name)
-    n_layers = MODEL_CFG.n_layers
-    n_heads = 1
-    list_len = 2
-    n_digits = MODEL_CFG.n_digits
-    sep_token_index = 2  # Position of SEP in [d1, d2, SEP, o1, o2]
-    
-    # Output Config
-    save_dir = None
-    # save_dir = "sae_results/"  # Set to None to disable saving plots
+SAVE_NAME = 'sae_d100_k4_50ksteps_2layer_100dig_64d.pt'
+SAE_PATH = os.path.join(SAVE_FOLDER, SAVE_NAME)
 
-cfg = SAEConfig()
+# Architecture (will be overridden by checkpoint config)
+D_MODEL = MODEL_CFG.d_model
+
+# Model Config (derived from model name)
+N_LAYERS = MODEL_CFG.n_layers
+N_HEADS = 1
+LIST_LEN = 2
+N_DIGITS = MODEL_CFG.n_digits
+SEP_TOKEN_INDEX = 2  # Position of SEP in [d1, d2, SEP, o1, o2]
+
+# Output Config
+SAVE_DIR = None  # Set to "sae_results/" to enable saving plots
 
 #%%
 # --- Load Models ---
@@ -68,9 +66,9 @@ MODEL_PATH = "models/" + MODEL_NAME + ".pt"
 
 # Setup Runtime (required by model_utils)
 configure_runtime(
-    list_len=cfg.list_len,
-    seq_len=2 * cfg.list_len + 1,  # [d1, d2, SEP, o1, o2] = 5
-    vocab=cfg.n_digits + 2,  # digits + MASK + SEP
+    list_len=LIST_LEN,
+    seq_len=2 * LIST_LEN + 1,  # [d1, d2, SEP, o1, o2] = 5
+    vocab=N_DIGITS + 2,  # digits + MASK + SEP
     device=device
 )
 
@@ -78,9 +76,9 @@ configure_runtime(
 try:
     model = load_model(
         MODEL_PATH,
-        n_layers=cfg.n_layers,
-        n_heads=cfg.n_heads,
-        d_model=cfg.d_model,
+        n_layers=N_LAYERS,
+        n_heads=N_HEADS,
+        d_model=D_MODEL,
         ln=False,
         use_bias=False,
         use_wv=False,
@@ -94,11 +92,16 @@ except Exception as e:
 # Load SAE using library's BatchTopKSAE
 sae_checkpoint = torch.load(SAE_PATH, map_location=device, weights_only=False)
 
+# Extract config from checkpoint
+sae_cfg = sae_checkpoint.get("cfg", {})
+D_SAE = sae_cfg.get("dict_size", sae_cfg.get("d_sae", 256))
+TOP_K = sae_cfg.get("k", 4)
+
 # Library's BatchTopKSAE uses (activation_dim, dict_size, k) constructor
 sae = BatchTopKSAE(
-    activation_dim=cfg.d_model,
-    dict_size=cfg.d_sae,
-    k=cfg.k
+    activation_dim=D_MODEL,
+    dict_size=D_SAE,
+    k=TOP_K
 ).to(device)
 
 # Load state dict (handles both old and new formats)
@@ -121,8 +124,8 @@ else:
 act_mean = sae_checkpoint["act_mean"].to(device)
 
 print(f"✓ Loaded SAE from {SAE_PATH}")
-print(f"  - Latent dim: {cfg.d_sae}")
-print(f"  - TopK: {cfg.k}")
+print(f"  - Latent dim: {D_SAE}")
+print(f"  - TopK: {TOP_K}")
 
 #%% [markdown]
 # ## 2. Collect Activations and Attention Patterns

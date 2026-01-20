@@ -36,7 +36,11 @@ DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is
 
 #%%
 def load_sae(sae_path):
-    """Load SAE checkpoint and return (sae, act_mean, cfg)."""
+    """Load SAE checkpoint and return (sae, act_mean, cfg, is_legacy).
+    
+    is_legacy=True means the SAE was trained with the old BatchTopK script
+    that doesn't use a learned threshold.
+    """
     checkpoint = torch.load(sae_path, map_location=DEVICE, weights_only=False)
     cfg = checkpoint.get("cfg", {})
     
@@ -49,9 +53,11 @@ def load_sae(sae_path):
         k=k
     ).to(DEVICE)
     
-    # Handle legacy format
+    # Handle legacy format (old_sae uses W_enc/W_dec naming)
     old_state_dict = checkpoint["state_dict"]
-    if "W_enc" in old_state_dict:
+    is_legacy = "W_enc" in old_state_dict
+    
+    if is_legacy:
         new_state_dict = {
             "encoder.weight": old_state_dict["W_enc"].T,
             "encoder.bias": old_state_dict["b_enc"],
@@ -64,7 +70,7 @@ def load_sae(sae_path):
     
     act_mean = checkpoint["act_mean"].to(DEVICE)
     
-    return sae, act_mean, cfg
+    return sae, act_mean, cfg, is_legacy
 
 #%%
 def collect_activations(model, dataloader, sep_idx=2):
@@ -94,14 +100,22 @@ def collect_activations(model, dataloader, sep_idx=2):
     )
 
 #%%
-def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits):
-    """Compute metrics for a single SAE."""
+def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, is_legacy=False):
+    """Compute metrics for a single SAE.
+    
+    If is_legacy=True, uses batch-level TopK instead of threshold encoding.
+    """
     sae.eval()
     
     # Encode all activations
     sep_acts_centered = sep_acts.to(DEVICE) - act_mean
     with torch.no_grad():
-        sae_acts = sae.encode(sep_acts_centered, use_threshold=True).cpu()
+        if is_legacy:
+            # Old SAE used batch-level TopK, not threshold
+            # use_threshold=False triggers proper TopK behavior
+            sae_acts = sae.encode(sep_acts_centered, use_threshold=False).cpu()
+        else:
+            sae_acts = sae.encode(sep_acts_centered, use_threshold=True).cpu()
     
     n_samples = sae_acts.shape[0]
     d_sae = sae_acts.shape[1]
@@ -298,8 +312,8 @@ def main():
         print(f"\nEvaluating: {name}")
         
         try:
-            sae, act_mean, cfg = load_sae(sae_path)
-            metrics = evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, N_DIGITS)
+            sae, act_mean, cfg, is_legacy = load_sae(sae_path)
+            metrics = evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, N_DIGITS, is_legacy=is_legacy)
             metrics['name'] = name
             metrics['n_samples'] = n_samples
             results.append(metrics)

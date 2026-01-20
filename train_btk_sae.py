@@ -46,9 +46,8 @@ SEP_TOKEN_INDEX = 2               # [d1, d2, SEP, o1, o2] -> Index 2
 # Runtime
 SEED = 42
 DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-print(f"Using device: {DEVICE}")
 
-SAVE_NAME = f'sae_d{D_SAE}_k{TOP_K}_{MODEL_NAME}.pt'
+SAVE_NAME = f'sae_d{D_SAE}_k{TOP_K}_{N_STEPS//1000}ksteps_{MODEL_NAME}.pt'
 SAVE_PATH = os.path.join(SAVE_FOLDER, SAVE_NAME)
 
 
