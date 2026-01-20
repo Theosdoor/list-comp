@@ -419,9 +419,9 @@ def analyze_o2_errors(preds, targets, inputs=None, top_k=10):
 
     # Frequency of o2 predictions when wrong
     vals = o2_pred[o2_wrong_mask]
-    counts = torch.bincount(vals, minlength=VOCAB).cpu()
+    counts = torch.bincount(vals, minlength=VOCAB).cpu() 
     top_idx = counts.argsort(descending=True)[:top_k]
-        
+    
 
     def tok_label(t):
         t = int(t)
@@ -484,23 +484,23 @@ att = (
 )
 
 # prune arrows (these ones don't have any effect on the output)
-if N_LAYER == 2:
-    att[0][:2] = 0. * att[0][:2]
-    att[1][:3] = 0. * att[1][:3]
-elif N_LAYER == 3:
-    ablate = {
-        0: [(4, 2), (3, 2), (4, 3), (0, 0), (1, 0)],
-        1: [(3, 2), (4, 3), (0, 0), (1, 0), (2, 1)],
-        2: [(0, 0), (1, 0), (2, 0), (2, 1), (3, 0), (4, 0), (4, 1), (4, 2), (4, 3)],
-    }
-    # Vectorized assignment using numpy indexing (robust for single/multiple pairs)
-    for layer, pairs in ablate.items():
-        if not pairs:
-            continue
-        arr = np.array(pairs, dtype=int)  # shape (n_pairs, 2)
-        qs = arr[:, 0]
-        ks = arr[:, 1]
-        att[layer, qs, ks] = 0.0
+# if N_LAYER == 2:
+#     att[0][:2] = 0. * att[0][:2]
+#     att[1][:3] = 0. * att[1][:3]
+# elif N_LAYER == 3:
+#     ablate = {
+#         0: [(4, 2), (3, 2), (4, 3), (0, 0), (1, 0)],
+#         1: [(3, 2), (4, 3), (0, 0), (1, 0), (2, 1)],
+#         2: [(0, 0), (1, 0), (2, 0), (2, 1), (3, 0), (4, 0), (4, 1), (4, 2), (4, 3)],
+#     }
+#     # Vectorized assignment using numpy indexing (robust for single/multiple pairs)
+#     for layer, pairs in ablate.items():
+#         if not pairs:
+#             continue
+#         arr = np.array(pairs, dtype=int)  # shape (n_pairs, 2)
+#         qs = arr[:, 0]
+#         ks = arr[:, 1]
+#         att[layer, qs, ks] = 0.0
 
 # Collect residual stream (embed + post-resid after each layer)
 resid_keys = ["hook_embed"] + [f"blocks.{l}.hook_resid_post" for l in range(model.cfg.n_layers)]
@@ -530,8 +530,12 @@ plt.rcParams.update({
 fig, ax = plt.subplots(figsize=(6.8, 4.2), dpi=300)
 
 # Node roles and colors
-position_names = ["d1", "d2", "SEP", "o1", "o2"]
-roles = ["input", "input", "sep", "output", "output"]
+# position_names = ["d1", "d2", "SEP", "o1", "o2"]
+# roles = ["input", "input", "sep", "output", "output"]
+
+position_names = [f"d{i+1}" for i in range(LIST_LEN)] + ["SEP"] + [f"o{i+1}" for i in range(LIST_LEN)]
+roles = ["input"] * LIST_LEN + ["sep"] + ["output"] * LIST_LEN
+
 role_colors = {"input": "#4C78A8", "sep": "#F58518", "output": "#54A24B"}
 node_colors = [role_colors[r] for r in roles]
 
