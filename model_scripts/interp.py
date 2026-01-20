@@ -57,10 +57,12 @@ USE_BIAS = inferred['use_bias']
 USE_WV = inferred['use_wv']
 USE_WO = inferred['use_wo']
 
-# Derive data parameters from inferred vocab size
+# Derive data parameters from inferred vocab size and model name
+from model_utils import parse_model_name_safe
+parsed = parse_model_name_safe(MODEL_NAME)
 N_DIGITS = VOCAB - 2  # vocab = digits + MASK + SEP
-LIST_LEN = 2  # [d1, d2]
-SEQ_LEN = LIST_LEN * 2 + 1  # [d1, d2, SEP, o1, o2]
+LIST_LEN = parsed.list_len  # parsed from model name, defaults to 2
+SEQ_LEN = LIST_LEN * 2 + 1  # [d1, ..., dn, SEP, o1, ..., on]
 
 DIGITS = list(range(N_DIGITS))  # 0 .. N_DIGITS-1
 MASK = N_DIGITS  # special masking token for o1 and o2

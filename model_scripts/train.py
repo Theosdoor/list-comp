@@ -49,6 +49,7 @@ def parse_args():
     parser.add_argument("--n-heads", type=int, default=1, help="Number of attention heads")
     parser.add_argument("--d-model", type=int, default=64, help="Model dimension")
     parser.add_argument("--n-digits", type=int, default=100, help="Number of digits (vocabulary size - 2)")
+    parser.add_argument("--list-len", type=int, default=2, help="Length of input list (e.g., 2 for [d1,d2], 3 for [d1,d2,d3])")
     
     # Model features (flags)
     parser.add_argument("--ln", action="store_true", default=False, help="Use layer normalization")
@@ -75,15 +76,15 @@ try:
 except SystemExit:
     # Running in notebook/interactive mode, use defaults
     args = argparse.Namespace(
-        n_layers=2, n_heads=1, d_model=64, n_digits=100,
+        n_layers=2, n_heads=1, d_model=64, n_digits=100, list_len=2,
         ln=False, bias=False, wv=False, wo=False, mlp=False,
         lr=1e-3, weight_decay=0.01, max_steps=50_000, seed=0,
         checkpoint=False, name=None
     )
 
 # Extract to module-level variables for compatibility
-LIST_LEN = 2  # [d1, d2]
-SEQ_LEN = LIST_LEN * 2 + 1  # [d1, d2, SEP, o1, o2]
+LIST_LEN = args.list_len
+SEQ_LEN = LIST_LEN * 2 + 1  # [d1, ..., dn, SEP, o1, ..., on]
 
 N_DIGITS = args.n_digits
 DIGITS = list(range(N_DIGITS))
@@ -113,6 +114,7 @@ base_name = f"L{N_LAYER}_H{N_HEAD}_D{D_MODEL}_V{N_DIGITS}"
 
 # Add flags suffix only for non-default settings
 flags = []
+if LIST_LEN != 2: flags.append(f"len{LIST_LEN}")
 if USE_LN: flags.append("ln")
 if USE_BIAS: flags.append("bias")
 if USE_WV: flags.append("wv")

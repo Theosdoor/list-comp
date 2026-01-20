@@ -333,16 +333,17 @@ class ModelConfig(NamedTuple):
 	n_digits: int
 	d_model: int
 	n_layers: int
+	list_len: int = 2  # default to 2 for backwards compatibility
 
 def parse_model_name(name: str) -> ModelConfig:
 	"""Parse model naming convention to extract configuration.
 
 	Supports both old and new naming formats:
 	    Old: '2layer_100dig_64d' or '2layer_100dig_64d_LBVO-TTTT_20241014-153012'
-	    New: 'L2_H1_D64_V100' or 'L2_H1_D64_V100_ln-bias_250120-180326'
+	    New: 'L2_H1_D64_V100' or 'L2_H1_D64_V100_len3-ln-bias_250120-180326'
 
 	Returns:
-	    ModelConfig(n_digits, d_model, n_layers)
+	    ModelConfig(n_digits, d_model, n_layers, list_len)
 
 	Raises:
 	    ValueError if pattern not recognized.
@@ -350,16 +351,23 @@ def parse_model_name(name: str) -> ModelConfig:
 	import re
 	base = name.split('.pt')[0]  # strip accidental file extension
 	
+	# Helper to extract list_len from flags section (e.g., 'len3' in 'len3-ln-bias')
+	def extract_list_len(name_str: str) -> int:
+		len_match = re.search(r'len(\d+)', name_str)
+		return int(len_match.group(1)) if len_match else 2
+	
 	# Try new format first: L{layers}_H{heads}_D{d_model}_V{digits}[_flags][_timestamp]
 	new_pattern = r"^L(?P<layers>\d+)_H(?P<heads>\d+)_D(?P<dmodel>\d+)_V(?P<digits>\d+)(?:_.+)?$"
 	m = re.match(new_pattern, base)
 	if m:
+		list_len = extract_list_len(base)
 		config = ModelConfig(
 			n_digits=int(m.group('digits')),
 			d_model=int(m.group('dmodel')),
-			n_layers=int(m.group('layers'))
+			n_layers=int(m.group('layers')),
+			list_len=list_len
 		)
-		print(f"Parsed model config (new format): {config.n_layers} layers, {config.n_digits} digits, {config.d_model} d_model")
+		print(f"Parsed model config (new format): {config.n_layers} layers, {config.n_digits} digits, {config.d_model} d_model, list_len={config.list_len}")
 		return config
 	
 	# Try old format: {layers}layer_{digits}dig_{d_model}d[_...]
@@ -369,9 +377,10 @@ def parse_model_name(name: str) -> ModelConfig:
 		config = ModelConfig(
 			n_digits=int(m.group('digits')),
 			d_model=int(m.group('dmodel')),
-			n_layers=int(m.group('layers'))
+			n_layers=int(m.group('layers')),
+			list_len=2  # old format always used list_len=2
 		)
-		print(f"Parsed model config (old format): {config.n_layers} layers, {config.n_digits} digits, {config.d_model} d_model")
+		print(f"Parsed model config (old format): {config.n_layers} layers, {config.n_digits} digits, {config.d_model} d_model, list_len={config.list_len}")
 		return config
 	
 	raise ValueError(f"Model name '{name}' does not match expected patterns. "
