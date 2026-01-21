@@ -148,7 +148,7 @@ configure_runtime(list_len=LIST_LEN, seq_len=SEQ_LEN, vocab=VOCAB, device=DEV, s
 
 # view mask
 mask_bias, _ = build_attention_mask()
-print(mask_bias.cpu()[0][0])
+mask_bias.cpu()[0][0]
 
 # %%
 # ---------- dataset ----------
@@ -245,30 +245,30 @@ save_model(best_model, MODEL_PATH_WITH_ACC)
 
 # %%
 # --- Model Parameters Overview ---
-m_for_overview = globals().get('model', None)
-if m_for_overview is not None:
-    print("--- Overview of Model Parameters ---")   
-    total_params = 0
-    trainable_params = 0
+# m_for_overview = globals().get('model', None)
+# if m_for_overview is not None:
+#     print("--- Overview of Model Parameters ---")   
+#     total_params = 0
+#     trainable_params = 0
 
-    # Use a formatted string for better alignment
-    print(f"{'Parameter Name':<40} | {'Shape':<20} | {'Trainable':<10}")
-    print("-" * 80)
+#     # Use a formatted string for better alignment
+#     print(f"{'Parameter Name':<40} | {'Shape':<20} | {'Trainable':<10}")
+#     print("-" * 80)
 
-    for name, param in m_for_overview.named_parameters():
-        shape_str = str(tuple(param.shape))
-        is_trainable = "Yes" if param.requires_grad else "No"
-        total_params += param.numel()
+#     for name, param in m_for_overview.named_parameters():
+#         shape_str = str(tuple(param.shape))
+#         is_trainable = "Yes" if param.requires_grad else "No"
+#         total_params += param.numel()
 
-        if not param.requires_grad:
-            continue
-        # Print only trainable parameters
-        print(f"{name:<40} | {shape_str:<20} | {is_trainable:<10}")
-        trainable_params += param.numel()
+#         if not param.requires_grad:
+#             continue
+#         # Print only trainable parameters
+#         print(f"{name:<40} | {shape_str:<20} | {is_trainable:<10}")
+#         trainable_params += param.numel()
 
-    print("-" * 80)
-    print(f"Total parameters: {total_params}")
-    print(f"Trainable parameters: {trainable_params}")
-    print("-" * 80)
+#     print("-" * 80)
+#     print(f"Total parameters: {total_params}")
+#     print(f"Trainable parameters: {trainable_params}")
+#     print("-" * 80)
 
 # %%
