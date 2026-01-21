@@ -1,6 +1,3 @@
-# %% [markdown]
-# ## Setup
-
 # %%
 import numpy as np
 import torch
@@ -18,6 +15,7 @@ from matplotlib.patches import Ellipse
 import einops
 import pandas as pd, itertools
 from tqdm.auto import tqdm
+from dotenv import load_dotenv
 
 from transformer_lens import HookedTransformer, HookedTransformerConfig, utils
 
@@ -30,12 +28,13 @@ from model_utils import (
 )
 from data import get_dataset
 
+# Wandb project name (hardcoded for this repo)
+WANDB_PROJECT = "list-comp"
+wandb = None  # Will be imported if --wandb flag is set
+
 float_formatter = "{:.5f}".format
 np.set_printoptions(formatter={'float_kind':float_formatter})
 
-
-# %% [markdown]
-# ## Model
 
 # %%
 # ---------- parameters ----------
@@ -66,6 +65,13 @@ def parse_args():
     parser.add_argument("--checkpoint", action="store_true", help="Save checkpoints during training")
     parser.add_argument("--min-acc", type=float, default=0.9, help="Minimum accuracy to stop training")
     parser.add_argument("--max-retries", type=int, default=3, help="Max training retries if min-acc not reached")
+    parser.add_argument("--early-stop-acc", type=float, default=1.0, help="Stop training when this accuracy is reached")
+    parser.add_argument("--early-stopping-patience", type=int, default=5, help="Stop after N eval steps with no improvement (eval every 100 steps)")
+    parser.add_argument("--train-batch-size", type=int, default=512, help="Training batch size")
+    parser.add_argument("--val-batch-size", type=int, default=1024, help="Validation batch size")
+    
+    # Logging
+    parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
     
     # Output
     parser.add_argument("--name", type=str, default=None, help="Custom model name (overrides auto-generated)")
@@ -81,7 +87,9 @@ except SystemExit:
         n_layers=2, n_heads=1, d_model=64, n_digits=100, list_len=2,
         ln=False, bias=False, wv=False, wo=False, mlp=False,
         lr=1e-3, weight_decay=0.01, max_steps=50_000, seed=0,
-        checkpoint=False, name=None, min_acc=0.9, max_retries=3
+        checkpoint=False, name=None, min_acc=0.9, max_retries=3,
+        early_stop_acc=1.0, early_stopping_patience=5,
+        train_batch_size=512, val_batch_size=1024, wandb=False
     )
 
 # Extract to module-level variables for compatibility
@@ -160,8 +168,8 @@ train_ds, val_ds = get_dataset(
     sep_tok=SEP, # use SEP as separator token
     )
 
-train_batch_size = min(128, len(train_ds))
-val_batch_size = min(256, len(val_ds))
+train_batch_size = min(args.train_batch_size, len(train_ds))
+val_batch_size = min(args.val_batch_size, len(val_ds))
 train_dl = DataLoader(train_ds, train_batch_size, shuffle=True, drop_last=True)
 val_dl = DataLoader(val_ds, val_batch_size, drop_last=False)
 
@@ -171,11 +179,22 @@ print(f"Train dataset size: {len(train_ds)}, Validation dataset size: {len(val_d
 
 
 # %%
-def train(m, max_steps=10_000, early_stop_acc=0.999, checkpoints=False, lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY):
+def train(m, max_steps=10_000, early_stop_acc=1.0, checkpoints=False, lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY, patience=5, use_wandb=False):
+    """Train the model with optional early stopping and wandb logging.
+    
+    Args:
+        patience: Stop after this many eval steps (every 100 train steps) with no improvement.
+                  Set to None or 0 to disable early stopping by patience.
+    """
     opt = torch.optim.AdamW(m.parameters(), lr, weight_decay=weight_decay)
     ce = torch.nn.CrossEntropyLoss()
     dl = itertools.cycle(train_dl)  # infinite iterator
     pbar = tqdm(range(max_steps), desc="Training")
+    
+    # Early stopping state
+    best_acc = 0.0
+    steps_without_improvement = 0
+    
     for step in pbar:
         inputs, targets = next(dl)
         # get logits/loss for output tokens only
@@ -184,15 +203,34 @@ def train(m, max_steps=10_000, early_stop_acc=0.999, checkpoints=False, lr=LEARN
         loss.backward()
         opt.step()
         opt.zero_grad()
+        
         if (step + 1) % 100 == 0:
             acc = accuracy(m, val_dl)
+            
+            # Log to wandb
+            if use_wandb:
+                wandb.log({"train/loss": loss.item(), "val/accuracy": acc, "train/step": step + 1})
+            
+            # Check for target accuracy
             if acc > early_stop_acc:
                 print(f"Early stopping at step {step + 1} with accuracy {acc:.2%} >= {early_stop_acc:.2%}")
                 break
+            
+            # Check for patience-based early stopping
+            if acc > best_acc:
+                best_acc = acc
+                steps_without_improvement = 0
+            else:
+                steps_without_improvement += 1
+                if patience and steps_without_improvement >= patience:
+                    print(f"Early stopping at step {step + 1}: no improvement for {patience} eval steps (best acc: {best_acc:.2%})")
+                    break
+            
             # Update tqdm bar w/ metrics
             pbar.set_postfix({
                 "loss": f"{loss.item():.4f}",
                 "acc": f"{acc:.2%}",
+                "best": f"{best_acc:.2%}",
             })
             if checkpoints and (step+1) % 50_000 == 0:
                 save_model(m, MODEL_PATH)
@@ -204,10 +242,40 @@ def train(m, max_steps=10_000, early_stop_acc=0.999, checkpoints=False, lr=LEARN
 # train and SAVE new model
 MIN_ACC = args.min_acc
 MAX_RETRIES = args.max_retries
+EARLY_STOP_ACC = args.early_stop_acc
+PATIENCE = args.early_stopping_patience
+USE_WANDB = args.wandb
+
+# Initialize wandb if enabled
+if USE_WANDB:
+    load_dotenv()  # Load .env file for WANDB_API_KEY and WANDB_ENTITY
+    import wandb as _wandb
+    wandb = _wandb
+    wandb.init(
+        project=WANDB_PROJECT,
+        config={
+            "n_layers": N_LAYER,
+            "n_heads": N_HEAD,
+            "d_model": D_MODEL,
+            "n_digits": N_DIGITS,
+            "list_len": LIST_LEN,
+            "use_ln": USE_LN,
+            "use_bias": USE_BIAS,
+            "use_wv": USE_WV,
+            "use_wo": USE_WO,
+            "attn_only": ATTN_ONLY,
+            "lr": LEARNING_RATE,
+            "weight_decay": WEIGHT_DECAY,
+            "max_steps": MAX_TRAIN_STEPS,
+            "early_stopping_patience": PATIENCE,
+            "seed": SEED,
+        },
+        name=MODEL_NAME,
+    )
 
 print(f"Training {MODEL_NAME}")
 print(f"  Config: {N_LAYER} layers, {N_HEAD} heads, d_model={D_MODEL}, LN={USE_LN}, bias={USE_BIAS}, WV={USE_WV}, WO={USE_WO}, attn_only={ATTN_ONLY}")
-print(f"  Target: min_acc={MIN_ACC:.1%}, max_retries={MAX_RETRIES}")
+print(f"  Target: min_acc={MIN_ACC:.1%}, max_retries={MAX_RETRIES}, patience={PATIENCE}")
 
 best_acc = 0
 best_model = None
@@ -223,7 +291,8 @@ for attempt in range(MAX_RETRIES):
         use_wo=USE_WO,
         attn_only=ATTN_ONLY,
     )
-    train(model, max_steps=MAX_TRAIN_STEPS, checkpoints=USE_CHECKPOINTING)
+    train(model, max_steps=MAX_TRAIN_STEPS, early_stop_acc=EARLY_STOP_ACC,
+          checkpoints=USE_CHECKPOINTING, patience=PATIENCE, use_wandb=USE_WANDB)
     acc = accuracy(model, val_dl)
     
     if acc > best_acc:
@@ -242,6 +311,11 @@ else:
 MODEL_NAME_WITH_ACC = f'{MODEL_NAME}_acc{best_acc:.4f}'
 MODEL_PATH_WITH_ACC = os.path.join(_PROJECT_ROOT, "models", f"{MODEL_NAME_WITH_ACC}.pt")
 save_model(best_model, MODEL_PATH_WITH_ACC)
+
+# Finish wandb run
+if USE_WANDB:
+    wandb.log({"final/accuracy": best_acc})
+    wandb.finish()
 
 # %%
 # --- Model Parameters Overview ---

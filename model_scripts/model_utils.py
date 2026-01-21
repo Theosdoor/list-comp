@@ -268,8 +268,8 @@ def infer_model_config(path, device=None):
 		device: Device to load checkpoint on
 		
 	Returns:
-		dict with keys: d_model, n_layers, n_heads, d_vocab, n_ctx, attn_only,
-		                use_ln, use_bias, use_wv, use_wo
+		dict with keys: d_model, n_layers, n_heads, d_vocab, n_ctx, list_len,
+		                attn_only, use_ln, use_bias, use_wv, use_wo
 	"""
 	if device is None:
 		device = _RUNTIME.device or "cpu"
@@ -290,6 +290,17 @@ def infer_model_config(path, device=None):
 	
 	# Infer n_ctx from pos_embed.W_pos shape: (n_ctx, d_model)
 	n_ctx = checkpoint['pos_embed.W_pos'].shape[0]
+	
+	# Derive list_len from n_ctx: n_ctx = list_len * 2 + 1 => list_len = (n_ctx - 1) // 2
+	# Validate that n_ctx is odd (required by the formula)
+	if n_ctx % 2 == 0:
+		raise ValueError(f"Invalid n_ctx={n_ctx}: expected odd value (n_ctx = list_len * 2 + 1)")
+	list_len = (n_ctx - 1) // 2
+	
+	# Validate the relationship holds exactly
+	expected_n_ctx = list_len * 2 + 1
+	if n_ctx != expected_n_ctx:
+		raise ValueError(f"n_ctx={n_ctx} does not match expected value {expected_n_ctx} for list_len={list_len}")
 	
 	# Infer attn_only: check if MLP weights exist
 	attn_only = 'blocks.0.mlp.W_in' not in checkpoint
@@ -316,6 +327,7 @@ def infer_model_config(path, device=None):
 		'n_heads': n_heads,
 		'd_vocab': d_vocab,
 		'n_ctx': n_ctx,
+		'list_len': list_len,
 		'attn_only': attn_only,
 		'use_ln': use_ln,
 		'use_bias': use_bias,
