@@ -2,8 +2,6 @@ import torch
 from torch.utils.data import TensorDataset
 import itertools
 
-torch.manual_seed(0) # for reproducibility
-
 def get_dataset(
     list_len=2, # [d1, d2]
     n_digits=100,
@@ -12,7 +10,11 @@ def get_dataset(
     no_dupes=False, # whether to use only non-duplicates (i.e. all d1 != d2)
     mask_tok=None, # special masking token for o1 and o2
     sep_tok=None, # special seperator token for the model to think about the input 
+    seed=0, # seed for reproducible shuffle
 ):
+    # Set seed for reproducible dataset generation
+    torch.manual_seed(seed)
+    
     seq_len = list_len * 2 + 1 # [d1, d2, SEP, o1, o2]
     digits = list(range(n_digits)) # 100 digits from 0 to 99
     if mask_tok is None:
