@@ -26,7 +26,7 @@ from model_utils import (
     make_model,
     accuracy
 )
-from data import get_dataset
+from .data import get_dataset
 
 # Wandb project name (hardcoded for this repo)
 WANDB_PROJECT = "list-comp"
@@ -60,13 +60,13 @@ def parse_args():
     # Training
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     parser.add_argument("--weight-decay", type=float, default=0.01, help="Weight decay")
-    parser.add_argument("--max-steps", type=int, default=50_000, help="Max training steps")
+    parser.add_argument("--max-steps", type=int, default=50000, help="Max training steps")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("--checkpoint", action="store_true", help="Save checkpoints during training")
     parser.add_argument("--min-acc", type=float, default=0.9, help="Minimum accuracy to stop training")
     parser.add_argument("--max-retries", type=int, default=3, help="Max training retries if min-acc not reached")
     parser.add_argument("--early-stop-acc", type=float, default=1.0, help="Stop training when this accuracy is reached")
-    parser.add_argument("--early-stopping-patience", type=int, default=5, help="Stop after N eval steps with no improvement (eval every 100 steps)")
+    parser.add_argument("--early-stopping-patience", type=int, default=None, help="Stop after N eval steps with no improvement (eval every 100 steps). Set to None to disable.")
     parser.add_argument("--train-batch-size", type=int, default=512, help="Training batch size")
     parser.add_argument("--val-batch-size", type=int, default=1024, help="Validation batch size")
     
@@ -86,7 +86,7 @@ except SystemExit:
     args = argparse.Namespace(
         n_layers=2, n_heads=1, d_model=64, n_digits=100, list_len=2,
         ln=False, bias=False, wv=False, wo=False, mlp=False,
-        lr=1e-3, weight_decay=0.01, max_steps=50_000, seed=0,
+        lr=1e-3, weight_decay=0.01, max_steps=50000, seed=0,
         checkpoint=False, name=None, min_acc=0.9, max_retries=3,
         early_stop_acc=1.0, early_stopping_patience=5,
         train_batch_size=512, val_batch_size=1024, wandb=False
@@ -179,7 +179,7 @@ print(f"Train dataset size: {len(train_ds)}, Validation dataset size: {len(val_d
 
 
 # %%
-def train(m, max_steps=10_000, early_stop_acc=1.0, checkpoints=False, lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY, patience=5, use_wandb=False):
+def train(m, max_steps=10000, early_stop_acc=1.0, checkpoints=False, lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY, patience=5, use_wandb=False):
     """Train the model with optional early stopping and wandb logging.
     
     Args:
@@ -232,7 +232,7 @@ def train(m, max_steps=10_000, early_stop_acc=1.0, checkpoints=False, lr=LEARNIN
                 "acc": f"{acc:.2%}",
                 "best": f"{best_acc:.2%}",
             })
-            if checkpoints and (step+1) % 50_000 == 0:
+            if checkpoints and (step+1) % 50000 == 0:
                 save_model(m, MODEL_PATH)
             
     print(f"Final accuracy: {accuracy(m, val_dl):.2%}")

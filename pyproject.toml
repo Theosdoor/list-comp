@@ -1,0 +1,23 @@
+[project]
+name = "list-comp"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy==1.26.4",
+    "torch>=2.2.0",
+    "matplotlib",
+    "plotly",
+    "umap-learn",
+    "einops",
+    "pandas",
+    "tabulate",
+    "tqdm",
+    "transformer-lens",
+    "dictionary-learning",
+    "ipykernel",
+    "wandb",
+    "python-dotenv",
+    "seaborn",
+]
