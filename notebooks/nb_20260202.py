@@ -12,6 +12,7 @@ import pandas as pd
 import numpy as np
 from tqdm.auto import tqdm
 from scipy import stats
+import wandb
 
 # Use BatchTopKSAE from dictionary_learning library
 from dictionary_learning.trainers.batch_top_k import BatchTopKSAE
@@ -21,10 +22,19 @@ import sys
 sys.path.insert(0, '..')
 from model_scripts.model_utils import configure_runtime, load_model, parse_model_name_safe
 from model_scripts.data import get_dataset
+from model_scripts.sae_analysis import (
+    collect_sae_activations,
+    create_feature_heatmaps,
+    compute_reconstruction_metrics,
+    identify_special_features,
+    load_sae_from_wandb_run,
+    load_sae_from_local,
+    compare_sweep_runs,
+)
 
 # Set Device
-device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-print(f"Using device: {device}")
+DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+print(f"Using device: {DEVICE}")
 torch.set_grad_enabled(False) # don't need gradients - analysis only
 
 SEED = 42
@@ -62,7 +72,7 @@ configure_runtime(
     list_len=LIST_LEN,
     seq_len=2 * LIST_LEN + 1,  # [d1, d2, SEP, o1, o2] = 5
     vocab=N_DIGITS + 2,  # digits + MASK + SEP
-    device=device
+    device=DEVICE
 )
 
 # Load base transformer model (with required kwargs)
@@ -83,7 +93,7 @@ except Exception as e:
     raise
 
 # Load SAE using library's BatchTopKSAE
-sae_checkpoint = torch.load(SAE_PATH, map_location=device, weights_only=False)
+sae_checkpoint = torch.load(SAE_PATH, map_location=DEVICE, weights_only=False)
 
 # Extract config from checkpoint
 sae_cfg = sae_checkpoint.get("cfg", {})
@@ -95,7 +105,7 @@ sae = BatchTopKSAE(
     activation_dim=D_MODEL,
     dict_size=D_SAE,
     k=TOP_K
-).to(device)
+).to(DEVICE)
 
 # Load state dict (handles both old and new formats)
 old_state_dict = sae_checkpoint["state_dict"]
@@ -114,10 +124,26 @@ else:
     print(f"  (Threshold: {sae.threshold.item():.4f})")
 
 # Load the mean for centering (critical for SAE)
-act_mean = sae_checkpoint["act_mean"].to(device)
+act_mean = sae_checkpoint["act_mean"].to(DEVICE)
 
 print(f"✓ Loaded SAE from {SAE_PATH}")
 print(f"  - Latent dim: {D_SAE}")
 print(f"  - TopK: {TOP_K}")
 
 # %%
+# Example usage for loading SAEs from W&B sweeps
+
+# Load a specific run by ID
+# sae_data = load_sae_from_wandb_run("nqie9jok", device=device)
+# sae = sae_data["sae"]
+# act_mean = sae_data["act_mean"]
+
+# Or load from local file
+# sae_data = load_sae_from_local("../results/sae_models/sweep_runs/sae_d256_k4_lr0.001_seed42_2layer_100dig_64d.pt", device=device)
+
+# Compare all runs in sweep
+# df = compare_sweep_runs()
+# print(df.head())
+
+# %%
+
