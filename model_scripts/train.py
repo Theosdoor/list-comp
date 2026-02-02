@@ -60,15 +60,19 @@ def parse_args():
     # Training
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     parser.add_argument("--weight-decay", type=float, default=0.01, help="Weight decay")
-    parser.add_argument("--max-steps", type=int, default=50000, help="Max training steps")
+    parser.add_argument("--max-steps", type=int, default=100000, help="Max training steps")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("--checkpoint", action="store_true", help="Save checkpoints during training")
     parser.add_argument("--min-acc", type=float, default=0.9, help="Minimum accuracy to stop training")
     parser.add_argument("--max-retries", type=int, default=3, help="Max training retries if min-acc not reached")
     parser.add_argument("--early-stop-acc", type=float, default=1.0, help="Stop training when this accuracy is reached")
-    parser.add_argument("--early-stopping-patience", type=int, default=None, help="Stop after N eval steps with no improvement (eval every 100 steps). Set to None to disable.")
-    parser.add_argument("--train-batch-size", type=int, default=512, help="Training batch size")
-    parser.add_argument("--val-batch-size", type=int, default=1024, help="Validation batch size")
+    parser.add_argument("--early-stopping-patience", type=int, default=None, help="Stop after N eval steps with no improvement (eval every 100 steps). Only triggers if acc > early-stopping-threshold. Set to None to disable.")
+    parser.add_argument("--early-stopping-threshold", type=float, default=0.9, help="Only allow early stopping if accuracy is above this threshold")
+    parser.add_argument("--train-batch-size", type=int, default=2048, help="Training batch size")
+    parser.add_argument("--val-batch-size", type=int, default=4096, help="Validation batch size")
+    parser.add_argument("--use-lr-scheduler", action="store_true", help="Use LR scheduler (warmup + cosine decay)")
+    parser.add_argument("--warmup-steps", type=int, default=1000, help="Number of warmup steps for LR scheduler")
+    parser.add_argument("--max-grad-norm", type=float, default=None, help="Max gradient norm for clipping. Set to None to disable.")
     
     # Logging
     parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
@@ -86,10 +90,11 @@ except SystemExit:
     args = argparse.Namespace(
         n_layers=2, n_heads=1, d_model=64, n_digits=100, list_len=2,
         ln=False, bias=False, wv=False, wo=False, mlp=False,
-        lr=1e-3, weight_decay=0.01, max_steps=50000, seed=0,
+        lr=1e-3, weight_decay=0.01, max_steps=100000, seed=0,
         checkpoint=False, name=None, min_acc=0.9, max_retries=3,
-        early_stop_acc=1.0, early_stopping_patience=5,
-        train_batch_size=512, val_batch_size=1024, wandb=False
+        early_stop_acc=1.0, early_stopping_patience=5, early_stopping_threshold=0.9,
+        train_batch_size=2048, val_batch_size=1024, wandb=False,
+        use_lr_scheduler=False, warmup_steps=1000, max_grad_norm=None
     )
 
 # Extract to module-level variables for compatibility
@@ -179,14 +184,36 @@ print(f"Train dataset size: {len(train_ds)}, Validation dataset size: {len(val_d
 
 
 # %%
-def train(m, max_steps=10000, early_stop_acc=1.0, checkpoints=False, lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY, patience=5, use_wandb=False):
+def train(m, max_steps=10000, early_stop_acc=1.0, checkpoints=False, lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY, 
+          patience=5, patience_threshold=0.9, use_wandb=False, use_lr_scheduler=False, warmup_steps=1000, max_grad_norm=None):
     """Train the model with optional early stopping and wandb logging.
     
     Args:
         patience: Stop after this many eval steps (every 100 train steps) with no improvement.
                   Set to None or 0 to disable early stopping by patience.
+        patience_threshold: Only allow patience-based early stopping if accuracy is above this threshold.
+        use_lr_scheduler: If True, use warmup + cosine decay LR scheduler.
+        warmup_steps: Number of warmup steps for LR scheduler.
+        max_grad_norm: Max gradient norm for clipping. Set to None to disable.
     """
     opt = torch.optim.AdamW(m.parameters(), lr, weight_decay=weight_decay)
+    
+    # Setup LR scheduler (warmup + cosine decay)
+    scheduler = None
+    if use_lr_scheduler:
+        from torch.optim.lr_scheduler import LambdaLR
+        import math
+        
+        def lr_lambda(current_step):
+            # Warmup phase
+            if current_step < warmup_steps:
+                return float(current_step) / float(max(1, warmup_steps))
+            # Cosine decay phase
+            progress = float(current_step - warmup_steps) / float(max(1, max_steps - warmup_steps))
+            return 0.5 * (1.0 + math.cos(math.pi * progress))
+        
+        scheduler = LambdaLR(opt, lr_lambda)
+    
     ce = torch.nn.CrossEntropyLoss()
     dl = itertools.cycle(train_dl)  # infinite iterator
     pbar = tqdm(range(max_steps), desc="Training")
@@ -201,37 +228,54 @@ def train(m, max_steps=10000, early_stop_acc=1.0, checkpoints=False, lr=LEARNING
         logits = m(inputs.to(DEV))[:, LIST_LEN+1:].reshape(-1, VOCAB) 
         loss = ce(logits, targets[:, LIST_LEN+1:].reshape(-1).to(DEV))
         loss.backward()
+        
+        # Gradient clipping
+        if max_grad_norm is not None:
+            torch.nn.utils.clip_grad_norm_(m.parameters(), max_grad_norm)
+        
         opt.step()
         opt.zero_grad()
+        
+        # Step LR scheduler
+        if scheduler is not None:
+            scheduler.step()
         
         if (step + 1) % 100 == 0:
             acc = accuracy(m, val_dl)
             
+            # Get current LR for logging
+            current_lr = opt.param_groups[0]['lr']
+            
             # Log to wandb
             if use_wandb:
-                wandb.log({"train/loss": loss.item(), "val/accuracy": acc, "train/step": step + 1})
+                wandb.log({"train/loss": loss.item(), "val/accuracy": acc, "train/step": step + 1, "train/lr": current_lr})
             
             # Check for target accuracy
-            if acc > early_stop_acc:
+            if acc >= early_stop_acc:
                 print(f"Early stopping at step {step + 1} with accuracy {acc:.2%} >= {early_stop_acc:.2%}")
                 break
             
-            # Check for patience-based early stopping
+            # Check for patience-based early stopping (only if acc > threshold)
             if acc > best_acc:
                 best_acc = acc
                 steps_without_improvement = 0
             else:
                 steps_without_improvement += 1
-                if patience and steps_without_improvement >= patience:
-                    print(f"Early stopping at step {step + 1}: no improvement for {patience} eval steps (best acc: {best_acc:.2%})")
+                # Only trigger patience-based stopping if we're above the threshold
+                if patience and steps_without_improvement >= patience and acc >= patience_threshold:
+                    print(f"Early stopping at step {step + 1}: no improvement for {patience} eval steps (acc: {acc:.2%}, best: {best_acc:.2%})")
                     break
             
             # Update tqdm bar w/ metrics
-            pbar.set_postfix({
+            postfix = {
                 "loss": f"{loss.item():.4f}",
                 "acc": f"{acc:.2%}",
                 "best": f"{best_acc:.2%}",
-            })
+            }
+            if scheduler is not None:
+                postfix["lr"] = f"{current_lr:.2e}"
+            pbar.set_postfix(postfix)
+            
             if checkpoints and (step+1) % 50000 == 0:
                 save_model(m, MODEL_PATH)
             
@@ -268,6 +312,11 @@ if USE_WANDB:
             "weight_decay": WEIGHT_DECAY,
             "max_steps": MAX_TRAIN_STEPS,
             "early_stopping_patience": PATIENCE,
+            "early_stopping_threshold": args.early_stopping_threshold,
+            "use_lr_scheduler": args.use_lr_scheduler,
+            "warmup_steps": args.warmup_steps,
+            "max_grad_norm": args.max_grad_norm,
+            "train_batch_size": args.train_batch_size,
             "seed": SEED,
         },
         name=MODEL_NAME,
@@ -292,7 +341,9 @@ for attempt in range(MAX_RETRIES):
         attn_only=ATTN_ONLY,
     )
     train(model, max_steps=MAX_TRAIN_STEPS, early_stop_acc=EARLY_STOP_ACC,
-          checkpoints=USE_CHECKPOINTING, patience=PATIENCE, use_wandb=USE_WANDB)
+          checkpoints=USE_CHECKPOINTING, patience=PATIENCE, patience_threshold=args.early_stopping_threshold,
+          use_wandb=USE_WANDB, use_lr_scheduler=args.use_lr_scheduler, warmup_steps=args.warmup_steps,
+          max_grad_norm=args.max_grad_norm)
     acc = accuracy(model, val_dl)
     
     if acc > best_acc:

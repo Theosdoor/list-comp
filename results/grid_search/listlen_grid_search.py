@@ -23,83 +23,19 @@ import fcntl  # POSIX file locking
 import sys
 sys.path.insert(0, '../..')
 from transformer_lens import HookedTransformer
-from model_scripts.model_utils import configure_runtime, make_model
+from gridsearch_utils import (
+    pick_device,
+    set_global_seed,
+    count_params,
+    make_batch,
+    make_validation_set,
+    eval_accuracy,
+    build_model,
+)
 
 # -----------------------------
-# Device, seeds, utils
+# Config and model building
 # -----------------------------
-
-
-def pick_device(explicit: str = "auto") -> torch.device:
-    if explicit != "auto":
-        return torch.device(explicit)
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    # if torch.backends.mps.is_available():
-    #     return torch.device("mps")
-    return torch.device("cpu")
-
-
-def set_global_seed(seed: int) -> None:
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-
-
-def count_params(model: nn.Module) -> Tuple[int, int]:
-    total = sum(p.numel() for p in model.parameters())
-    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    return total, trainable
-
-
-def make_batch(
-    batch_size: int,
-    n_digits: int,
-    list_len: int,
-    device: torch.device,
-    rng: torch.Generator,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Returns:
-      inputs  [B, T]
-      targets [B, T]
-    where T = 2L + 1 and evaluation uses targets[:, L+1:].
-    """
-    pad = n_digits
-    sep = n_digits + 1
-    T = 2 * list_len + 1
-
-    digits = torch.randint(
-        0, n_digits, (batch_size, list_len), generator=rng, device=device
-    )
-
-    inputs = torch.full((batch_size, T), pad, dtype=torch.long, device=device)
-    targets = torch.full((batch_size, T), sep, dtype=torch.long, device=device)
-
-    inputs[:, :list_len] = digits
-    inputs[:, list_len] = sep
-
-    targets[:, :list_len] = digits
-    targets[:, list_len] = sep
-    targets[:, list_len + 1 :] = digits
-    return inputs, targets
-
-
-def make_validation_set(
-    n_examples: int,
-    n_digits: int,
-    list_len: int,
-    device: torch.device,
-    seed: int,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    g = torch.Generator(device=device)
-    g.manual_seed(seed)
-    X, Y = make_batch(n_examples, n_digits, list_len, device, g)
-    return X, Y
 
 
 @dataclass(frozen=True)
@@ -117,46 +53,21 @@ class Config:
     run_idx: int
 
 
-def eval_accuracy(
-    model: HookedTransformer,
-    val_inputs: torch.Tensor,
-    val_targets: torch.Tensor,
-    list_len: int,
-    batch_size: int = 1024,
-) -> float:
-    model.eval()
-    device = next(model.parameters()).device
-    hits = 0
-    tots = 0
-    with torch.no_grad():
-        for i in range(0, val_inputs.size(0), batch_size):
-            xb = val_inputs[i : i + batch_size].to(device)
-            yb = val_targets[i : i + batch_size].to(device)
-            logits = model(xb)[:, list_len + 1 :, :]  # [B, L, V]
-            preds = logits.argmax(dim=-1)
-            gold = yb[:, list_len + 1 :]
-            hits += (preds == gold).sum().item()
-            tots += preds.numel()
-    return hits / max(1, tots)
-
-
 def build_model_from_config(cfg: Config, device: torch.device) -> HookedTransformer:
-    assert cfg.D_MODEL % cfg.N_HEAD == 0, "d_model must be divisible by n_heads"
-    vocab = cfg.N_DIGITS + 2
-    seq_len = 2 * cfg.LIST_LEN + 1
-    # Configure shared runtime and build via model_utils
-    configure_runtime(list_len=cfg.LIST_LEN, seq_len=seq_len, vocab=vocab, device=device)
-    model = make_model(
-        n_layers=cfg.N_LAYERS,
-        n_heads=cfg.N_HEAD,
+    """Build model from config dataclass"""
+    return build_model(
+        list_len=cfg.LIST_LEN,
+        n_digits=cfg.N_DIGITS,
         d_model=cfg.D_MODEL,
-        ln=cfg.USE_LN,
+        n_heads=cfg.N_HEAD,
+        n_layers=cfg.N_LAYERS,
+        use_ln=cfg.USE_LN,
         use_bias=cfg.USE_BIAS,
         use_wv=cfg.USE_WV,
         use_wo=cfg.USE_WO,
+        attn_only=True,  # Always attention-only in grid search
         device=device,
     )
-    return model
 
 
 def train_and_return_model(
