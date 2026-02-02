@@ -1,0 +1,122 @@
+_wandb:
+    value:
+        cli_version: 0.23.1
+        e:
+            k6tx4n0mi0bjsoniilk9s8z7a4d4ybdx:
+                args:
+                    - --batch_size=4096
+                    - --d_sae=50
+                    - --lr=0.0001
+                    - --n_steps=50000
+                    - --seed=42
+                    - --top_k=2
+                    - --warmup_steps=1000
+                codePath: sae_sweep.py
+                codePathLocal: sae_sweep.py
+                cpu_count: 16
+                cpu_count_logical: 32
+                cudaVersion: "12.4"
+                disk:
+                    /:
+                        total: "399008681984"
+                        used: "59988992000"
+                email: theo.farrell99@outlook.com
+                executable: /home2/nchw73/venv312/bin/python
+                git:
+                    commit: d9f4b82ed695ac6af49716d4d4340614a0f21020
+                    remote: https://github.com/Theosdoor/list-comp-priv.git
+                gpu: NVIDIA GeForce RTX 2080 Ti
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Turing
+                      cudaCores: 4352
+                      memoryTotal: "11811160064"
+                      name: NVIDIA GeForce RTX 2080 Ti
+                      uuid: GPU-612344a1-4ec4-b8a3-00aa-eadae9272902
+                host: gpu5
+                memory:
+                    total: "236260823040"
+                os: Linux-5.4.0-176-generic-x86_64-with-glibc2.31
+                program: /home2/nchw73/Year4/L4_Project/list-comp-priv/sae_sweep.py
+                python: CPython 3.12.2
+                root: /home2/nchw73/Year4/L4_Project/list-comp-priv
+                slurm:
+                    cluster_name: ncc
+                    conf: /apps/slurm-23.11.10/slurm.conf
+                    cpus_on_node: "1"
+                    gpus_on_node: "1"
+                    gtids: "0"
+                    job_account: ncc_users
+                    job_cpus_per_node: "1"
+                    job_end_time: "1770119961"
+                    job_gid: "1001"
+                    job_gpus: "1"
+                    job_id: "837932"
+                    job_name: SAEs
+                    job_nodelist: gpu5
+                    job_num_nodes: "1"
+                    job_partition: ug-gpu-small
+                    job_qos: normal
+                    job_start_time: "1770033561"
+                    job_uid: "2617"
+                    job_user: nchw73
+                    jobid: "837932"
+                    localid: "0"
+                    mem_per_node: "16384"
+                    nnodes: "1"
+                    nodeid: "0"
+                    nodelist: gpu5
+                    prio_process: "19"
+                    procid: "0"
+                    submit_dir: /home2/nchw73/Year4/L4_Project/list-comp-priv
+                    submit_host: ncc1
+                    task_pid: "1144521"
+                    tasks_per_node: "1"
+                    topology_addr: gpu5
+                    topology_addr_pattern: node
+                startedAt: "2026-02-02T12:00:42.801760Z"
+                writerId: k6tx4n0mi0bjsoniilk9s8z7a4d4ybdx
+        m: []
+        python_version: 3.12.2
+        t:
+            "1":
+                - 1
+                - 5
+                - 11
+                - 41
+                - 49
+                - 51
+                - 53
+                - 71
+            "2":
+                - 1
+                - 5
+                - 11
+                - 41
+                - 49
+                - 51
+                - 53
+                - 71
+            "3":
+                - 2
+                - 14
+                - 62
+            "4": 3.12.2
+            "5": 0.23.1
+            "6": 4.57.3
+            "12": 0.23.1
+            "13": linux-x86_64
+batch_size:
+    value: 4096
+d_sae:
+    value: 50
+lr:
+    value: 0.0001
+n_steps:
+    value: 50000
+seed:
+    value: 42
+top_k:
+    value: 2
+warmup_steps:
+    value: 1000

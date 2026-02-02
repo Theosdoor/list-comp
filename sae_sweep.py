@@ -12,11 +12,20 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 import wandb
+import matplotlib.pyplot as plt
 
 from dictionary_learning.trainers import BatchTopKTrainer
 
 from model_scripts.model_utils import make_model, configure_runtime, parse_model_name_safe
 from model_scripts.data import get_dataset
+from model_scripts.sae_analysis import (
+    collect_sae_activations, 
+    create_feature_heatmaps,
+    compute_reconstruction_metrics,
+    collect_attention_patterns,
+    identify_special_features,
+    create_firing_rate_histogram,
+)
 
 
 # Base Model Configuration
@@ -187,6 +196,79 @@ def train_sae_sweep():
     
     wandb.summary["final_loss"] = loss
     wandb.summary["final_l0"] = final_l0
+    
+    # 6b. Generate and log feature heatmaps
+    print("\nGenerating analysis metrics...")
+    val_ds, _ = get_dataset(
+        list_len=LIST_LEN,
+        n_digits=N_DIGITS,
+        train_split=1.0,
+        no_dupes=False
+    )
+    val_dl = DataLoader(val_ds, batch_size=2048, shuffle=False)
+    
+    sae = trainer.ae
+    
+    # Collect SAE activations
+    d1_all, d2_all, sae_acts_all = collect_sae_activations(
+        model, sae, val_dl, act_mean,
+        layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
+    )
+    
+    # 1. Feature heatmaps
+    print("  - Creating feature heatmaps...")
+    fig = create_feature_heatmaps(d1_all, d2_all, sae_acts_all, n_digits=N_DIGITS)
+    wandb.log({"feature_heatmaps": wandb.Image(fig)})
+    plt.close(fig)
+    
+    # 2. Basic sparsity metrics
+    l0 = (sae_acts_all > 0).float().sum(dim=1).mean()
+    dead_features = (sae_acts_all.sum(dim=0) == 0).sum().item()
+    firing_rate = (sae_acts_all > 0).float().mean(dim=0)
+    
+    wandb.summary["avg_l0"] = l0.item()
+    wandb.summary["dead_features"] = dead_features
+    wandb.summary["dead_features_pct"] = 100 * dead_features / d_sae
+    
+    # 3. Reconstruction quality
+    print("  - Computing reconstruction metrics...")
+    recon_metrics = compute_reconstruction_metrics(
+        model, sae, val_dl, act_mean,
+        layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
+    )
+    wandb.summary["reconstruction_mse"] = recon_metrics["mse"]
+    wandb.summary["explained_variance"] = recon_metrics["explained_variance"]
+    
+    # 4. Special features (correlated with attention)
+    print("  - Identifying special features...")
+    alpha_d1_all, alpha_d2_all = collect_attention_patterns(
+        model, val_dl, layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
+    )
+    special_features_info = identify_special_features(
+        sae_acts_all, alpha_d1_all, alpha_d2_all, threshold=0.5
+    )
+    
+    wandb.summary["n_special_features"] = special_features_info["n_special_features"]
+    wandb.summary["special_features_pct"] = 100 * special_features_info["n_special_features"] / d_sae
+    wandb.summary["max_attn_correlation"] = special_features_info["max_correlation"]
+    wandb.summary["mean_abs_attn_correlation"] = special_features_info["mean_abs_correlation"]
+    
+    # Log special features as table
+    if special_features_info["special_features"]:
+        special_features_table = wandb.Table(
+            columns=["feature_idx", "correlation", "type"],
+            data=[[f["feature_idx"], f["correlation"], f["type"]] 
+                  for f in special_features_info["special_features"]]
+        )
+        wandb.log({"special_features": special_features_table})
+    
+    # 5. Firing rate histogram
+    print("  - Creating firing rate histogram...")
+    fig_firing = create_firing_rate_histogram(sae_acts_all)
+    wandb.log({"firing_rate_histogram": wandb.Image(fig_firing)})
+    plt.close(fig_firing)
+    
+    print("✓ Logged all analysis metrics to W&B")
     
     # 7. Save SAE
     os.makedirs(SAVE_FOLDER, exist_ok=True)

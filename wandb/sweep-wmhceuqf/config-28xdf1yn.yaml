@@ -1,0 +1,16 @@
+wandb_version: 1
+
+batch_size:
+  value: 4096
+d_sae:
+  value: 50
+lr:
+  value: 0.0001
+n_steps:
+  value: 50000
+seed:
+  value: 44
+top_k:
+  value: 1
+warmup_steps:
+  value: 1000
