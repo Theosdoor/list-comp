@@ -1,0 +1,25 @@
+program: sae_sweep.py
+project: list-comp
+method: grid
+metric:
+  name: final_loss
+  goal: minimize
+
+parameters:
+  d_sae:
+    values: [50, 100, 150, 200, 256]
+  top_k:
+    values: [1, 2, 4]
+  lr:
+    values: [1e-4, 3e-4, 4e-4]
+  n_steps:
+    value: 50000
+  warmup_steps:
+    value: 1000
+  batch_size:
+    value: 4096
+  seed:
+    values: [42, 43, 44]  # 3 repeats with different seeds
+
+# Grid search will run all combinations
+# 4 d_sae × 3 top_k × 3 lr × 3 seeds = 108 runs
