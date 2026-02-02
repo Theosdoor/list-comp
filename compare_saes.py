@@ -22,7 +22,7 @@ from model_scripts.data import get_dataset
 # --- Configuration ---
 MODEL_NAME = '2layer_100dig_64d'
 MODEL_CFG = parse_model_name_safe(MODEL_NAME)
-SAE_FOLDER = 'results/sae_models'
+SAE_FOLDER = 'results/sae_models/sweep_runs'  # Changed to sweep_runs
 OUTPUT_FILE = 'sae_comparison.md'
 
 # Model config
@@ -191,9 +191,15 @@ def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, is_legacy=Fa
 #%%
 def generate_markdown_report(results, output_path):
     """Generate markdown comparison report."""
+    if not results:
+        return "No results to report."
+    
+    # Sort by top_k, then d_sae
+    results = sorted(results, key=lambda x: (x['k'], x['d_sae']))
+    
     lines = [
-        "# SAE Comparison Report\n",
-        f"Compared {len(results)} SAE models on {results[0]['n_samples'] if results else 0} samples.\n",
+        "# SAE Sweep Comparison Report\n",
+        f"Compared {len(results)} SAE models from sweep runs on {results[0]['n_samples']} samples.\n",
         "",
         "## Summary Table\n",
         "| Model | d_sae | k | L0 | Dead | Dead % | Alive | MSE |",
@@ -205,6 +211,22 @@ def generate_markdown_report(results, output_path):
             f"| {r['name']} | {r['d_sae']} | {r['k']} | {r['l0']:.2f} | "
             f"{r['n_dead']} | {r['dead_pct']:.1f}% | {r['n_alive']} | {r['mse']:.4f} |"
         )
+    
+    lines.extend([
+        "",
+        "## Best Models by top_k\n",
+    ])
+    
+    # Group by top_k and find best in each group
+    from itertools import groupby
+    for k, group in groupby(results, key=lambda x: x['k']):
+        group_list = list(group)
+        best_by_mse = min(group_list, key=lambda x: x['mse'])
+        best_by_dead = min(group_list, key=lambda x: x['dead_pct'])
+        
+        lines.append(f"\n### top_k = {k}\n")
+        lines.append(f"- Best reconstruction (MSE): **{best_by_mse['name']}** (MSE: {best_by_mse['mse']:.4f}, d_sae={best_by_mse['d_sae']})")
+        lines.append(f"- Fewest dead features: **{best_by_dead['name']}** ({best_by_dead['dead_pct']:.1f}%, d_sae={best_by_dead['d_sae']})")
     
     lines.extend([
         "",
@@ -220,38 +242,12 @@ def generate_markdown_report(results, output_path):
     
     lines.extend([
         "",
-        "## Top Features by Firing Rate\n",
-    ])
-    
-    for r in results:
-        lines.append(f"### {r['name']}\n")
-        if r['top_features']:
-            lines.append("| Feature | Firing Rate | Position | Best Digit |")
-            lines.append("|---------|-------------|----------|------------|")
-            for feat in r['top_features']:
-                lines.append(
-                    f"| {feat['idx']} | {feat['firing_rate']:.4f} | {feat['position']} | {feat['best_digit']} |"
-                )
-        else:
-            lines.append("No active features found.\n")
-        lines.append("")
-    
-    lines.extend([
         "## Analysis\n",
         "- **L0**: Average number of active features per sample (lower = sparser)",
         "- **Dead %**: Percentage of features that never fire (lower = better utilization)",
         "- **MSE**: Mean squared reconstruction error (lower = better reconstruction)",
         "",
-        "### Key Observations\n",
     ])
-    
-    # Auto-generate some observations
-    if len(results) > 1:
-        best_dead = min(results, key=lambda x: x['dead_pct'])
-        best_mse = min(results, key=lambda x: x['mse'])
-        
-        lines.append(f"- Lowest dead feature %: **{best_dead['name']}** ({best_dead['dead_pct']:.1f}%)")
-        lines.append(f"- Best reconstruction: **{best_mse['name']}** (MSE: {best_mse['mse']:.4f})")
     
     report = "\n".join(lines)
     
