@@ -146,4 +146,84 @@ print(f"  - TopK: {TOP_K}")
 # print(df.head())
 
 # %%
+# --- Attention Ablation Analysis on 3-Layer Model ---
 
+from model_scripts.interp_utils import find_critical_attention_edges, gen_attn_flow, format_ablation_results, format_ablation_as_matrices
+
+# Load the 3-layer model
+MODEL_3L_PATH = "../models/L3_H1_D64_V100_len3_260121-143443_acc0.9962.pt"
+MODEL_3L_CFG = parse_model_name_safe("L3_H1_D64_V100_len3_260121-143443_acc0.9962")
+
+configure_runtime(
+    list_len=MODEL_3L_CFG.list_len,
+    seq_len=2 * MODEL_3L_CFG.list_len + 1,
+    vocab=MODEL_3L_CFG.n_digits + 2,
+    device=DEVICE
+)
+
+model_3l = load_model(
+    MODEL_3L_PATH,
+    n_layers=MODEL_3L_CFG.n_layers,
+    n_heads=1,
+    d_model=MODEL_3L_CFG.d_model,
+    ln=False,
+    use_bias=False,
+    use_wv=False,
+    use_wo=False
+)
+print(f"✓ Loaded 3-layer model: {MODEL_3L_CFG.n_layers}L, {MODEL_3L_CFG.d_model}D, {MODEL_3L_CFG.n_digits} digits, list_len={MODEL_3L_CFG.list_len}")
+
+# Load validation data for this model config
+train_ds, val_ds = get_dataset(
+    list_len=MODEL_3L_CFG.list_len,
+    n_digits=MODEL_3L_CFG.n_digits,
+)
+val_inputs = val_ds.tensors[0].to(DEVICE)
+val_targets = val_ds.tensors[1].to(DEVICE)
+print(f"✓ Loaded validation data: {val_inputs.shape[0]} samples")
+
+# %%
+# Run ablation analysis
+
+renorm_rows = True
+
+print("\n--- Running Attention Ablation Analysis ---")
+ablation_results = find_critical_attention_edges(
+    model=model_3l,
+    inputs=val_inputs,
+    targets=val_targets,
+    list_len=MODEL_3L_CFG.list_len,
+    accuracy_tolerance=0.001,
+    verbose=True,
+    renorm=renorm_rows,
+)
+
+# Print formatted results
+position_names = [f"d{i+1}" for i in range(MODEL_3L_CFG.list_len)] + ["SEP"] + [f"o{i+1}" for i in range(MODEL_3L_CFG.list_len)]
+print("\n" + format_ablation_as_matrices(
+    ablation_results, 
+    model_3l, 
+    val_inputs[0],  # Use first validation sample
+    MODEL_3L_CFG.list_len,
+    position_names=position_names
+))
+
+# %%
+# --- Visualize Attention Flow (Critical Edges Only) ---
+
+# Pick a sample input to visualize
+sample_idx = 0
+example_input = val_inputs[sample_idx]
+
+gen_attn_flow(
+    model=model_3l,
+    example_input=example_input,
+    list_len=MODEL_3L_CFG.list_len,
+    ablation_results=ablation_results,
+    show_delta_labels=True,
+    attention_threshold=0.04,
+    figsize=(8, 5),
+    dpi=150,
+)
+
+# %%

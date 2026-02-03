@@ -258,7 +258,7 @@ print("Accuracy with avg-attn:", accuracy(model_with_avg_attn, val_dl))
 # %%
 # ---- Ablation of Specific Attention Edges ----
 
-renorm_rows = False # whether to renormalize rows after ablation
+renorm_rows = True # whether to renormalize rows after ablation
 ablate_in_l0 = [
                 (4,3),
                 (0,0),
@@ -285,7 +285,8 @@ def build_qk_mask(positions=None, queries=None, keys=None, seq_len=SEQ_LEN):
     mask = torch.zeros(seq_len, seq_len, dtype=torch.bool)
     if positions is not None:
         for q, k in positions:
-            mask[q, k] = True
+            if 0 <= q < seq_len and 0 <= k < seq_len:
+                mask[q, k] = True
     else:
         if queries is None:
             queries = range(seq_len)
@@ -348,10 +349,15 @@ def make_pattern_hook(mask_2d: torch.Tensor, head_index=None, set_to=0.0, renorm
 # Define what to ablate per layer:
 # - As explicit (q,k) pairs
 # - Or as queries/keys sets (outer-product)
+_layers_to_ablate_raw = {
+    0: ablate_in_l0,
+    1: ablate_in_l1,
+    # 2: ablate_in_l2,
+}
 layers_to_ablate = {
-    0: build_qk_mask(positions=ablate_in_l0, seq_len=SEQ_LEN),
-    1: build_qk_mask(positions=ablate_in_l1, seq_len=SEQ_LEN),
-    # 2: build_qk_mask(positions=ablate_in_l2, seq_len=SEQ_LEN),
+    layer_idx: build_qk_mask(positions=positions, seq_len=SEQ_LEN)
+    for layer_idx, positions in _layers_to_ablate_raw.items()
+    if layer_idx < model.cfg.n_layers
 }
 
 # Apply to a single head or all heads
