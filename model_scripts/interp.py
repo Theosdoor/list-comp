@@ -258,7 +258,8 @@ print("Accuracy with avg-attn:", accuracy(model_with_avg_attn, val_dl))
 # %%
 # ---- Ablation of Specific Attention Edges ----
 
-renorm_rows = True # whether to renormalize rows after ablation
+renorm_rows = False # whether to renormalize rows after ablation
+# ^ False gets graph from paper, but True is arguably more correct (Results don't signigicantly change)
 ablate_in_l0 = [
                 (4,3),
                 (0,0),
@@ -468,255 +469,36 @@ analyze_o2_errors(ablated_output_predictions, output_targets, inputs=val_inputs)
 # %%
 #  ------ Fig 1 ------
 
-from matplotlib.patches import FancyArrowPatch
-import matplotlib.patheffects as pe
-from matplotlib.path import Path as MplPath  # NEW: inspect curve type
+from interp_utils import gen_attn_flow, find_critical_attention_edges
 
-# Use a single validation example 
+# Use a single validation example
 example = val_inputs[sample_idx].unsqueeze(0).to(DEV)
 
-# Run and cache activations
-_, cache = model.run_with_cache(example, return_type="logits")
-
-# Collect attention patterns per layer -> shape [L, Q, K]
-att = (
-    torch.stack(
-        [cache[f"blocks.{layer}.attn.hook_pattern"] for layer in range(model.cfg.n_layers)],
-        dim=0,
-    )
-    .cpu()
-    .numpy()
-    .squeeze()
+# Run ablation to find critical edges
+ablation_results = find_critical_attention_edges(
+    model=model,
+    inputs=val_inputs,
+    targets=val_targets,
+    list_len=LIST_LEN,
+    accuracy_tolerance=0.01,
+    head_index=0,
+    verbose=True,
+    renorm=renorm_rows,
 )
 
-# prune arrows (these ones don't have any effect on the output)
-# if N_LAYER == 2:
-#     att[0][:2] = 0. * att[0][:2]
-#     att[1][:3] = 0. * att[1][:3]
-# elif N_LAYER == 3:
-#     ablate = {
-#         0: [(4, 2), (3, 2), (4, 3), (0, 0), (1, 0)],
-#         1: [(3, 2), (4, 3), (0, 0), (1, 0), (2, 1)],
-#         2: [(0, 0), (1, 0), (2, 0), (2, 1), (3, 0), (4, 0), (4, 1), (4, 2), (4, 3)],
-#     }
-#     # Vectorized assignment using numpy indexing (robust for single/multiple pairs)
-#     for layer, pairs in ablate.items():
-#         if not pairs:
-#             continue
-#         arr = np.array(pairs, dtype=int)  # shape (n_pairs, 2)
-#         qs = arr[:, 0]
-#         ks = arr[:, 1]
-#         att[layer, qs, ks] = 0.0
-
-# Collect residual stream (embed + post-resid after each layer)
-resid_keys = ["hook_embed"] + [f"blocks.{l}.hook_resid_post" for l in range(model.cfg.n_layers)]
-resid_values = torch.stack([cache[k] for k in resid_keys], dim=0)  # [L+1, 1, seq, d_model]
-
-# Get W_U (compatibly)
-W_U = getattr(model, "W_U", model.unembed.W_U)
-
-# Logit lens: decode most likely token at each position after each layer
-position_tokens = (resid_values @ W_U).squeeze(1).argmax(-1)  # [L+1, seq]
-
-L, N, _ = att.shape
-
-# Layout
-x_positions = np.arange(L + 1)  # columns: input + after each layer
-y_positions = np.arange(N)[::-1]  # top token index = 0
-
-# Styling for publication (vector-safe fonts for PDF/SVG)
-plt.rcParams.update({
-    "font.size": 10,
-    "axes.titlesize": 12,
-    "axes.labelsize": 10,
-    "pdf.fonttype": 42,
-    "ps.fonttype": 42,
-})
-
-fig, ax = plt.subplots(figsize=(6.8, 4.2), dpi=300)
-
-# Node roles and colors
-# position_names = ["d1", "d2", "SEP", "o1", "o2"]
-# roles = ["input", "input", "sep", "output", "output"]
-
-position_names = [f"d{i+1}" for i in range(LIST_LEN)] + ["SEP"] + [f"o{i+1}" for i in range(LIST_LEN)]
-roles = ["input"] * LIST_LEN + ["sep"] + ["output"] * LIST_LEN
-
-role_colors = {"input": "#4C78A8", "sep": "#F58518", "output": "#54A24B"}
-node_colors = [role_colors[r] for r in roles]
-
-# Draw nodes and labels (keep these on top of arrows)
-for lx in range(L + 1):
-    xs = np.full(N, lx)
-    ax.scatter(xs, y_positions, s=180, c=node_colors,
-               edgecolor="black", linewidth=0.6, zorder=4)
-    # left: position label (only in first col); right: decoded token id (every col)
-    for i, y in enumerate(y_positions):
-        if lx == 0:
-            ax.text(lx - 0.14, y, position_names[i], va="center", ha="right",
-                    fontsize=9, color="#334155", zorder=5)
-        ax.text(lx + 0.14, y, str(position_tokens[lx, i].item()),
-                va="center", ha="left", fontsize=9, fontweight="bold",
-                color="black", zorder=5)
-
-# Residual stream (dotted straight arrows)
-for lx in range(L):
-    for y in y_positions:
-        arrow = FancyArrowPatch((lx, y), (lx + 1, y),
-                                arrowstyle="-", mutation_scale=8,
-                                lw=1.0, linestyle=(0, (2, 2)), color="#94A3B8",
-                                alpha=0.7, zorder=1, clip_on=False)
-        ax.add_patch(arrow)
-
-# --- Per-edge Δaccuracy placeholders ---
-# Fill this dict with your measured changes in percentage points (pp).
-# Key: (layer, query_idx, key_idx) where layer is 0-indexed.
-# Example: delta_acc_pp[(0, 2, 0)] = -1.7  # ablating L0: q=SEP, k=d1 lowers acc by 1.7 pp
-if N_LAYER == 2:
-    delta_acc_pp = {
-        # (l, q, k): value_in_pp,
-        (0, 2, 0): -50.9, # sep --> d1
-        (0, 2, 1): -41.0, # sep --> d2
-        (1, 3, 2): -48.9, # o1 --> sep (L1)
-        (1, 4, 2): -50.0, # o2 --> sep (L1)
-        (1, 4, 3): -23.0, # o2 --> o1 (L1)
-    }
-elif N_LAYER == 3:
-    delta_acc_pp = {
-        (0, 2, 0): -4,
-        (0, 2, 1): -49.5,
-        (1, 2, 0): -49.6,
-        (1, 4, 2): -49.6,
-        (2, 3, 2): -49.7,
-    }
-
-def format_delta_pp(val):
-    # Less obtrusive: short text, no "Δacc:" prefix
-    if val is None:
-        return "—"
-    sign = "+" if val >= 0 else "−"
-    return f"{sign}{abs(val):.1f}%"
-
-# Attention edges (curved; width/alpha ~ weight)
-threshold = 0.04  # ignore tiny weights
-arrow_color = "#DC2626"   # red
-arrow_alpha = 0.35        # translucent to avoid obscuring text
-
-# Label controls
-label_threshold = 0.04     # only label edges above this weight
-show_placeholder = False   # set True to show "—" for missing entries
-label_offset = 0.12        # distance of label from the edge midpoint
-
-CURVE_STRENGTH = 0.0  # try 0.04–0.08; set 0.0 if you want perfectly straight
-
-def edge_style(w):
-    lw = 0.6 + 2.0 * np.sqrt(float(w))
-    alpha = arrow_alpha
-    return lw, alpha
-
-def angle_in_display(ax, x0, y0, x1, y1):
-    # Compute angle in screen space so rotation matches visual slope despite axis scales
-    X0, Y0 = ax.transData.transform((x0, y0))
-    X1, Y1 = ax.transData.transform((x1, y1))
-    return np.degrees(np.arctan2(Y1 - Y0, X1 - X0))
-
-for l in range(L):
-    for q in range(N):
-        for k in range(N):
-            w = att[l, q, k]
-            if w <= threshold:
-                continue
-
-            x0, y0 = l,      y_positions[k]
-            x1, y1 = l + 1, y_positions[q]
-            dy = y1 - y0
-
-            # Curvature and style
-            rad = np.sign(dy) * CURVE_STRENGTH * (min(abs(dy), 2) / 2.0)
-            lw, alpha = edge_style(w)
-
-            arrow = FancyArrowPatch(
-                (x0, y0), (x1, y1),
-                connectionstyle=f"arc3,rad={rad}",
-                arrowstyle="->", mutation_scale=8,
-                lw=lw, color=arrow_color, alpha=alpha,
-                zorder=2, shrinkA=8, shrinkB=8,
-                joinstyle="round", capstyle="round",
-                clip_on=False,
-            )
-            ax.add_patch(arrow)
-
-            # Check if a label should be drawn
-            delta_val = delta_acc_pp.get((l, q, k))
-            if (delta_val is None and not show_placeholder) or (w < label_threshold):
-                continue
-            
-            label_text = format_delta_pp(delta_val)
-
-            # 1. Calculate the angle of the straight line between nodes in display space
-            angle_deg = angle_in_display(ax, x0, y0, x1, y1) -8
-            angle_rad = np.deg2rad(angle_deg)
-
-            # 2. Calculate the simple midpoint of the straight line in data space
-            mid_data = np.array([(x0 + x1) / 2.0, (y0 + y1) / 2.0])
-
-            # 3. Calculate a perpendicular "nudge" vector in display space
-            #    This vector points perpendicularly outwards from the line on the screen
-            perp_vec_disp = np.array([-np.sin(angle_rad), np.cos(angle_rad)])
-            
-            # 4. Define how far to nudge the label in pixels.
-            #    This is proportional to the curvature `rad`.
-            #    This "magic number" controls the strength of the effect. Tune if needed.
-            offset_strength_px = -400.0 
-            pixel_offset = rad * offset_strength_px
-
-            # 5. Apply the nudge in display space for visual correctness
-            mid_disp = ax.transData.transform(mid_data)
-            label_pos_disp = mid_disp + pixel_offset * perp_vec_disp
-            
-            # 6. Transform the final label position back to data space
-            lx, ly = ax.transData.inverted().transform(label_pos_disp)
-
-            # 7. Annotate at the final calculated position
-            ann = ax.annotate(
-                label_text,
-                xy=(lx, ly),
-                ha="center",
-                va="center",
-                fontsize=7,
-                color="#111827",
-                rotation=angle_deg, # Rotate to match the chord
-                rotation_mode="anchor",
-                zorder=4.2,
-                clip_on=False,
-            )
-            ann.set_path_effects([pe.withStroke(linewidth=2.0, foreground="white", alpha=0.85)])
-         
-# Axes cosmetics
-ax.set_xlim(-0.5, L + 0.5)
-ax.set_ylim(-0.5, N - 0.5)
-ax.set_xticks(x_positions)
-ax.set_xticklabels(["Input"] + [f"After L{l+1}" for l in range(L)])
-ax.set_yticks([])  # we draw our own labels
-for spine in ax.spines.values():
-    spine.set_visible(False)
-
-# Legend (update attention color to red)
-legend_elements = [
-    Line2D([0], [0], marker="o", color="w", label="Inputs",
-           markerfacecolor=role_colors["input"], markeredgecolor="black", markersize=7),
-    Line2D([0], [0], marker="o", color="w", label="SEP",
-           markerfacecolor=role_colors["sep"], markeredgecolor="black", markersize=7),
-    Line2D([0], [0], marker="o", color="w", label="Outputs",
-           markerfacecolor=role_colors["output"], markeredgecolor="black", markersize=7),
-    Line2D([0], [0], linestyle=(0, (2, 2)), color="#94A3B8", lw=1.2, label="Residual"),
-    Line2D([0], [0], color=arrow_color, lw=2, label="Attention"),
-]
-ax.legend(handles=legend_elements, frameon=False, ncol=5,
-          loc="upper center", bbox_to_anchor=(0.5, -0.12))
-
-plt.tight_layout()
-plt.show()
+# Generate attention flow diagram with critical edges and delta labels
+gen_attn_flow(
+    model=model,
+    example_input=example,
+    list_len=LIST_LEN,
+    ablation_results=ablation_results,
+    attention_threshold=0.04,
+    show_delta_labels=True,
+    figsize=(8, 5),
+    dpi=300,
+    show_plot=True,
+    return_fig=False,
+)
 
 
 # %% [markdown]
@@ -1043,10 +825,9 @@ plt.show()
 # %% [markdown]
 # ## Additional Plots
 
-# %% [markdown]
+# %% 
 # ----- Fig 2 - Attn histogram -----
 
-# %%
 # Extract attention weights (reuse existing cache)
 attn_sep_d1 = cache["pattern", 0].squeeze()[:, 2, 0].cpu().numpy()
 attn_sep_d2 = cache["pattern", 0].squeeze()[:, 2, 1].cpu().numpy()
@@ -1102,70 +883,22 @@ axes[1, 1].set_ylim(0, ymax_row1)
 plt.tight_layout()
 plt.show()
 
-# %% [markdown]
+# %%
 # ------ Fig 3 - SEP attn vs accuracy ------
+from interp_utils import plot_sep_attention_vs_accuracy
+
+
+plot_sep_attention_vs_accuracy(
+    model=model,
+    val_inputs=val_inputs,
+    val_targets=val_targets,
+    list_len=LIST_LEN,
+    layer=0,
+    dpi=300,
+)
 
 # %%
-# Run model on all validation data
-all_inputs = val_ds.tensors[0].to(DEV)
-all_targets = val_ds.tensors[1].to(DEV)
-with torch.no_grad():
-    all_logits, all_cache = model.run_with_cache(all_inputs, return_type="logits")
-
-# Correctness per sample (both outputs correct)
-all_predictions = all_logits.argmax(dim=-1)[:, -LIST_LEN:]
-all_correct = (all_predictions == all_targets[:, -LIST_LEN:]).all(dim=-1).cpu().numpy()
-
-# Extract attention SCORES: Layer 0, q=SEP (2), k∈{d1=0, d2=1}
-scores_l0 = all_cache["attn_scores", 0][:, 0]  # [B, Q, K] (head=0)
-attn_vals = scores_l0[:, 2, [0, 1]].detach().cpu().numpy()  # [B, 2]
-x, y = attn_vals[:, 0], attn_vals[:, 1]
-ok = all_correct.astype(bool)
-x_ok, y_ok = x[ok], y[ok]
-x_bad, y_bad = x[~ok], y[~ok]
-
-# Axes limits (robust to outliers)
-x_lo, x_hi = np.percentile(x, [1, 99])
-y_lo, y_hi = np.percentile(y, [1, 99])
-pad_x = 0.06 * max(1e-6, x_hi - x_lo)
-pad_y = 0.06 * max(1e-6, y_hi - y_lo)
-
-# Figure (no marginals, no title)
-fig, ax_sc = plt.subplots(figsize=(6.8, 6.2), dpi=300)
-
-c_ok, c_bad = "#1f77b4", "#DC2626"  # blue, red
-ms, a_ok, a_bad = 24, 0.35, 0.55
-
-# Scatter
-if len(x_ok):
-    ax_sc.scatter(x_ok, y_ok, s=ms, c=c_ok, alpha=a_ok, edgecolors="none", label=f"Correct")
-if len(x_bad):
-    ax_sc.scatter(x_bad, y_bad, s=ms, c=c_bad, alpha=a_bad, edgecolors="none", label=f"Incorrect") # (n={len(x_bad)})
-
-# Reference lines at 0
-ax_sc.axvline(0, color="#94A3B8", lw=0.8, ls="--", alpha=0.8)
-ax_sc.axhline(0, color="#94A3B8", lw=0.8, ls="--", alpha=0.8)
-
-# Labels, limits, legend
-ax_sc.set_xlabel("SEP → d1 attention score (Layer 1)")
-ax_sc.set_ylabel("SEP → d2 attention score (Layer 1)")
-ax_sc.set_xlim(x_lo - pad_x, x_hi + pad_x)
-ax_sc.set_ylim(y_lo - pad_y, y_hi + pad_y)
-ax_sc.grid(True, linestyle=":", alpha=0.8)
-ax_sc.legend(frameon=True, loc="best")
-
-plt.tight_layout()
-plt.show()
-
-acc = all_correct.mean()
-print(f"Total samples: {len(all_correct)}")
-print(f"Correct predictions: {all_correct.sum()}")
-print(f"Accuracy: {acc:.3f}")
-
-# %% [markdown]
 # ---- Fig - scatter plot ----
-
-# %%
 # Indices of incorrect samples
 incorrect_idx = np.where(~all_correct)[0]
 

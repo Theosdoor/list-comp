@@ -3,6 +3,15 @@ import torch
 import numpy as np
 from tqdm.auto import tqdm
 from transformer_lens import utils
+import matplotlib.pyplot as plt
+from matplotlib.patches import FancyArrowPatch
+from matplotlib.lines import Line2D
+import matplotlib.patheffects as pe
+
+try:
+    from .model_utils import build_attention_mask
+except ImportError:
+    from model_utils import build_attention_mask
 
 
 def get_valid_attention_positions(mask_bias, mask_bias_l0, seq_len, n_layers):
@@ -409,8 +418,6 @@ def find_critical_attention_edges(
             'individual_results': Dict of (layer, q, k) -> {'accuracy': float, 'delta': float}
             'non_critical_by_layer': Dict of layer -> list of (q, k) positions
     """
-    from .model_utils import build_attention_mask
-    
     seq_len = list_len * 2 + 1  # [d1, ..., dn, SEP, o1, ..., on]
     if vocab_size is None:
         vocab_size = model.cfg.d_vocab
@@ -561,11 +568,6 @@ def gen_attn_flow(
         If return_fig=True: (fig, ax) tuple
         Otherwise: None
     """
-    import matplotlib.pyplot as plt
-    from matplotlib.patches import FancyArrowPatch
-    from matplotlib.lines import Line2D
-    import matplotlib.patheffects as pe
-    
     seq_len = list_len * 2 + 1
     n_layers = model.cfg.n_layers
     
@@ -759,3 +761,197 @@ def gen_attn_flow(
     
     if return_fig:
         return fig, ax
+
+
+def plot_sep_attention_vs_accuracy(
+    model,
+    val_inputs,
+    val_targets,
+    list_len,
+    layer=0,
+    sep_position=None,
+    d1_position=0,
+    d2_position=1,
+    position_pairs=None,
+    figsize=(6.8, 6.2),
+    dpi=300,
+    layout='row',
+    show_plot=True,
+    return_fig=False,
+):
+    """
+    Create scatter plot(s) of SEP attention scores colored by correctness.
+    
+    Can create either a single plot (default) or multiple subplots arranged
+    in a row or column when position_pairs is provided.
+    
+    Args:
+        model: HookedTransformer model
+        val_inputs: Validation input tensor [B, seq_len]
+        val_targets: Validation target tensor [B, seq_len]
+        list_len: Number of input digits
+        layer: Which layer to extract attention scores from (default 0)
+        sep_position: Position of SEP token (default: list_len)
+        d1_position: Position of first digit (default: 0, ignored if position_pairs provided)
+        d2_position: Position of second digit (default: 1, ignored if position_pairs provided)
+        position_pairs: List of (d1_pos, d2_pos, title) tuples to create multiple plots
+        figsize: Figure size tuple
+        dpi: Figure DPI
+        layout: 'row' for horizontal layout, 'column' for vertical (default: 'row')
+        show_plot: Whether to call plt.show()
+        return_fig: Whether to return (fig, axes, stats) tuple
+        
+    Returns:
+        If return_fig=True: (fig, axes, stats) tuple where stats contains accuracy info
+        Otherwise: None
+    """
+    if sep_position is None:
+        sep_position = list_len
+    
+    device = next(model.parameters()).device
+    val_inputs = val_inputs.to(device)
+    val_targets = val_targets.to(device)
+    
+    # Run model on all validation data
+    with torch.no_grad():
+        logits, cache = model.run_with_cache(val_inputs, return_type="logits")
+    
+    # Correctness per sample (both outputs correct)
+    predictions = logits.argmax(dim=-1)[:, -list_len:]
+    targets = val_targets[:, -list_len:]
+    all_correct = (predictions == targets).all(dim=-1).cpu().numpy()
+    
+    # Extract attention SCORES: specified layer, q=SEP
+    scores = cache["attn_scores", layer][:, 0]  # [B, Q, K] (head=0)
+    
+    # Use position_pairs if provided, otherwise create single plot
+    if position_pairs is None:
+        position_pairs = [(d1_position, d2_position, None)]
+    
+    n_plots = len(position_pairs)
+    if n_plots == 1:
+        fig, axes = plt.subplots(1, 1, figsize=figsize, dpi=dpi)
+        axes = [axes]
+    else:
+        if layout == 'column':
+            fig, axes = plt.subplots(n_plots, 1, figsize=figsize, dpi=dpi)
+        else:  # 'row'
+            fig, axes = plt.subplots(1, n_plots, figsize=figsize, dpi=dpi)
+    
+    ok = all_correct.astype(bool)
+    c_ok, c_bad = "#1f77b4", "#DC2626"  # blue, red
+    ms, a_ok, a_bad = 24, 0.35, 0.55
+    
+    # Plot each pair
+    for idx, (d1_pos, d2_pos, title) in enumerate(position_pairs):
+        ax = axes[idx]
+        
+        attn_vals = scores[:, sep_position, [d1_pos, d2_pos]].detach().cpu().numpy()  # [B, 2]
+        x, y = attn_vals[:, 0], attn_vals[:, 1]
+        x_ok, y_ok = x[ok], y[ok]
+        x_bad, y_bad = x[~ok], y[~ok]
+        
+        # Axes limits (robust to outliers)
+        x_lo, x_hi = np.percentile(x, [1, 99])
+        y_lo, y_hi = np.percentile(y, [1, 99])
+        pad_x = 0.06 * max(1e-6, x_hi - x_lo)
+        pad_y = 0.06 * max(1e-6, y_hi - y_lo)
+        
+        # Scatter
+        if len(x_ok):
+            ax.scatter(x_ok, y_ok, s=ms, c=c_ok, alpha=a_ok, edgecolors="none", label="Correct")
+        if len(x_bad):
+            ax.scatter(x_bad, y_bad, s=ms, c=c_bad, alpha=a_bad, edgecolors="none", label="Incorrect")
+        
+        # Reference lines at 0
+        ax.axvline(0, color="#94A3B8", lw=0.8, ls="--", alpha=0.8)
+        ax.axhline(0, color="#94A3B8", lw=0.8, ls="--", alpha=0.8)
+        
+        # Labels, limits, legend
+        ax.set_xlabel(f"SEP → d{d1_pos+1} attention score")
+        ax.set_ylabel(f"SEP → d{d2_pos+1} attention score")
+        ax.set_xlim(x_lo - pad_x, x_hi + pad_x)
+        ax.set_ylim(y_lo - pad_y, y_hi + pad_y)
+        ax.grid(True, linestyle=":", alpha=0.8)
+        if title:
+            ax.set_title(title)
+        if idx == 0:
+            ax.legend(frameon=True, loc="best")
+    
+    plt.tight_layout()
+    
+    if show_plot:
+        plt.show()
+        # Print statistics
+        acc = all_correct.mean()
+        print(f"Total samples: {len(all_correct)}")
+        print(f"Correct predictions: {all_correct.sum()}")
+        print(f"Accuracy: {acc:.3f}")
+    
+    if return_fig:
+        stats = {
+            'accuracy': all_correct.mean(),
+            'total': len(all_correct),
+            'correct': all_correct.sum(),
+            'incorrect': (~all_correct).sum(),
+        }
+        return fig, axes if n_plots > 1 else axes[0], stats
+    
+    ok = all_correct.astype(bool)
+    c_ok, c_bad = "#1f77b4", "#DC2626"  # blue, red
+    ms, a_ok, a_bad = 24, 0.35, 0.55
+    
+    # Plot each pair
+    for idx, (d1_pos, d2_pos, title) in enumerate(position_pairs):
+        ax = axes[idx]
+        
+        attn_vals = scores[:, sep_position, [d1_pos, d2_pos]].detach().cpu().numpy()  # [B, 2]
+        x, y = attn_vals[:, 0], attn_vals[:, 1]
+        x_ok, y_ok = x[ok], y[ok]
+        x_bad, y_bad = x[~ok], y[~ok]
+        
+        # Axes limits (robust to outliers)
+        x_lo, x_hi = np.percentile(x, [1, 99])
+        y_lo, y_hi = np.percentile(y, [1, 99])
+        pad_x = 0.06 * max(1e-6, x_hi - x_lo)
+        pad_y = 0.06 * max(1e-6, y_hi - y_lo)
+        
+        # Scatter
+        if len(x_ok):
+            ax.scatter(x_ok, y_ok, s=ms, c=c_ok, alpha=a_ok, edgecolors="none", label="Correct")
+        if len(x_bad):
+            ax.scatter(x_bad, y_bad, s=ms, c=c_bad, alpha=a_bad, edgecolors="none", label="Incorrect")
+        
+        # Reference lines at 0
+        ax.axvline(0, color="#94A3B8", lw=0.8, ls="--", alpha=0.8)
+        ax.axhline(0, color="#94A3B8", lw=0.8, ls="--", alpha=0.8)
+        
+        # Labels, limits, legend
+        ax.set_xlabel(f"SEP → d{d1_pos+1} attention score")
+        ax.set_ylabel(f"SEP → d{d2_pos+1} attention score")
+        ax.set_xlim(x_lo - pad_x, x_hi + pad_x)
+        ax.set_ylim(y_lo - pad_y, y_hi + pad_y)
+        ax.grid(True, linestyle=":", alpha=0.8)
+        if title:
+            ax.set_title(title)
+        if idx == 0:
+            ax.legend(frameon=True, loc="best")
+    
+    plt.tight_layout()
+    
+    if show_plot:
+        plt.show()
+        # Print statistics
+        acc = all_correct.mean()
+        print(f"Total samples: {len(all_correct)}")
+        print(f"Correct predictions: {all_correct.sum()}")
+        print(f"Accuracy: {acc:.3f}")
+    
+    if return_fig:
+        stats = {
+            'accuracy': all_correct.mean(),
+            'total': len(all_correct),
+            'correct': all_correct.sum(),
+            'incorrect': (~all_correct).sum(),
+        }
+        return fig, axes if n_plots > 1 else axes[0], stats

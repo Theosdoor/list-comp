@@ -1,4 +1,9 @@
 #%% [markdown]
+# # SAE Analysis: Order by Scale Paper Validation
+# 
+# This notebook validates key predictions from the "Order by Scale" paper about graded latent activations in Sparse Autoencoders trained on SEP token activations.
+
+#%% [markdown]
 # # SAE Validation: Order by Scale Paper
 # 
 # This script validates the key predictions from the "Order by Scale" paper about
@@ -12,6 +17,7 @@
 
 #%%
 import os
+import sys
 
 import torch
 import torch.nn.functional as F
@@ -23,111 +29,48 @@ import numpy as np
 from tqdm.auto import tqdm
 from scipy import stats
 
-# Use BatchTopKSAE from dictionary_learning library
-from dictionary_learning.trainers.batch_top_k import BatchTopKSAE
+# Import notebook utilities
+from nb_utils import setup_notebook, load_transformer_model, load_sae
 
-# Import project utilities (add parent to path for imports)
-import sys
+# Import project utilities
 sys.path.insert(0, '..')
-from model_scripts.model_utils import configure_runtime, load_model, parse_model_name_safe
 from model_scripts.data import get_dataset
 
-# Set Device
-device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-print(f"Using device: {device}")
-torch.set_grad_enabled(False) # don't need gradients - analysis only
+# Setup device and seeds
+device = setup_notebook()
 
 #%% [markdown]
 # ## 1. Configuration & Model Loading
 
 #%%
-# --- Configuration (Must match training) ---
+# --- Configuration ---
 MODEL_NAME = '2layer_100dig_64d'
-MODEL_CFG = parse_model_name_safe(MODEL_NAME)
-SAVE_FOLDER = '../results/sae_models'
-
 SAVE_NAME = 'sae_d100_k4_50ksteps_2layer_100dig_64d.pt'
-SAE_PATH = os.path.join(SAVE_FOLDER, SAVE_NAME)
-
-# Architecture (will be overridden by checkpoint config)
-D_MODEL = MODEL_CFG.d_model
-
-# Model Config (derived from model name)
-N_LAYERS = MODEL_CFG.n_layers
-N_HEADS = 1
-LIST_LEN = 2
-N_DIGITS = MODEL_CFG.n_digits
-SEP_TOKEN_INDEX = 2  # Position of SEP in [d1, d2, SEP, o1, o2]
 
 # Output Config
 SAVE_DIR = None  # Set to "../results/sae_results/" to enable saving plots
 
 #%%
 # --- Load Models ---
-MODEL_PATH = "../models/" + MODEL_NAME + ".pt"
+model, model_cfg = load_transformer_model(MODEL_NAME, device=device)
 
-# Setup Runtime (required by model_utils)
-configure_runtime(
-    list_len=LIST_LEN,
-    seq_len=2 * LIST_LEN + 1,  # [d1, d2, SEP, o1, o2] = 5
-    vocab=N_DIGITS + 2,  # digits + MASK + SEP
-    device=device
-)
+# Extract config for convenience
+D_MODEL = model_cfg['d_model']
+N_LAYERS = model_cfg['n_layers']
+N_HEADS = model_cfg['n_heads']
+LIST_LEN = model_cfg['list_len']
+N_DIGITS = model_cfg['n_digits']
+SEP_TOKEN_INDEX = model_cfg['sep_token_index']
 
-# Load base transformer model (with required kwargs)
-try:
-    model = load_model(
-        MODEL_PATH,
-        n_layers=N_LAYERS,
-        n_heads=N_HEADS,
-        d_model=D_MODEL,
-        ln=False,
-        use_bias=False,
-        use_wv=False,
-        use_wo=False
-    )
-    print(f"✓ Loaded base model from {MODEL_PATH}")
-except Exception as e:
-    print(f"✗ Error loading model: {e}")
-    raise
+# Load SAE
+sae, sae_cfg = load_sae(SAVE_NAME, D_MODEL, device=device)
+D_SAE = sae_cfg['dict_size']
+TOP_K = sae_cfg['k']
 
-# Load SAE using library's BatchTopKSAE
+# Load activation mean from checkpoint (for centering)
+SAE_PATH = os.path.join('../results/sae_models', SAVE_NAME)
 sae_checkpoint = torch.load(SAE_PATH, map_location=device, weights_only=False)
-
-# Extract config from checkpoint
-sae_cfg = sae_checkpoint.get("cfg", {})
-D_SAE = sae_cfg.get("dict_size", sae_cfg.get("d_sae", 256))
-TOP_K = sae_cfg.get("k", 4)
-
-# Library's BatchTopKSAE uses (activation_dim, dict_size, k) constructor
-sae = BatchTopKSAE(
-    activation_dim=D_MODEL,
-    dict_size=D_SAE,
-    k=TOP_K
-).to(device)
-
-# Load state dict (handles both old and new formats)
-old_state_dict = sae_checkpoint["state_dict"]
-if "W_enc" in old_state_dict:
-    # Legacy format conversion (for old sae.pt)
-    new_state_dict = {
-        "encoder.weight": old_state_dict["W_enc"].T,
-        "encoder.bias": old_state_dict["b_enc"],
-        "decoder.weight": old_state_dict["W_dec"].T,
-        "b_dec": old_state_dict["b_dec"],
-    }
-    sae.load_state_dict(new_state_dict, strict=False)
-    print("  (Converted legacy checkpoint format)")
-else:
-    sae.load_state_dict(old_state_dict)
-    print(f"  (Threshold: {sae.threshold.item():.4f})")
-
-# Load the mean for centering (critical for SAE)
 act_mean = sae_checkpoint["act_mean"].to(device)
-
-print(f"✓ Loaded SAE from {SAE_PATH}")
-print(f"  - Latent dim: {D_SAE}")
-print(f"  - TopK: {TOP_K}")
 
 #%% [markdown]
 # ## 2. Collect Activations and Attention Patterns
