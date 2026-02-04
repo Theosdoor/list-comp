@@ -277,7 +277,9 @@ def train_sae_sweep():
     
     # 7. Save SAE
     os.makedirs(SAVE_FOLDER, exist_ok=True)
-    save_name = f'sae_d{d_sae}_k{top_k}_lr{lr}_seed{seed}_{MODEL_NAME}.pt'
+    # Format MSE with 4 decimal places, removing trailing zeros
+    mse_str = f"{recon_metrics['mse']:.4f}".rstrip('0').rstrip('.')
+    save_name = f'sae_d{d_sae}_k{top_k}_lr{lr}_seed{seed}_mse{mse_str}_{MODEL_NAME}.pt'
     save_path = os.path.join(SAVE_FOLDER, save_name)
     
     sae = trainer.ae
