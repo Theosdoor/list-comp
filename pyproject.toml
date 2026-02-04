@@ -24,6 +24,7 @@ dependencies = [
     "wandb",
     "python-dotenv",
     "seaborn",
+    "nbformat>=5.10.4",
 ]
 
 [tool.hatch.build.targets.wheel]

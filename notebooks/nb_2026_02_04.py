@@ -42,10 +42,10 @@ DEVICE = setup_notebook(seed=42)
 # --- Configuration ---
 MODEL_NAME = '2layer_100dig_64d'
 # looking at:
-# SAE_NAME = "sae_d50_k1_lr0.0001_seed44_2layer_100dig_64d.pt" # MSE: 0.1770
+SAE_NAME = "sae_d50_k1_lr0.0001_seed44_2layer_100dig_64d.pt" # MSE: 0.1770
 # SAE_NAME = "sae_d100_k1_lr0.0003_seed42_2layer_100dig_64d.pt" # MSE: 0.1347
 # SAE_NAME = "sae_d50_k2_lr0.001_seed44_2layer_100dig_64d.pt" # MSE: 0.1378
-SAE_NAME = "sae_d100_k2_lr0.0003_seed44_2layer_100dig_64d.pt" # MSE: 0.0246
+# SAE_NAME = "sae_d100_k2_lr0.0003_seed44_2layer_100dig_64d.pt" # MSE: 0.0246
 
 
 # Output Config
@@ -132,7 +132,7 @@ print(f"Total samples evaluated:  {acc_metrics['total_samples']}")
 print(f"{'='*60}\n")
 
 # %%
-# Feature heatmaps
+# Feature heatmaps (Plotly interactive)
 fig = create_feature_heatmaps(
     d1_all=d1_all,
     d2_all=d2_all,
@@ -140,10 +140,10 @@ fig = create_feature_heatmaps(
     n_digits=N_DIGITS,
     figsize=(20, 20)
 )
-plt.tight_layout()
 if SAVE_RESULTS:
-    plt.savefig(f"{SAVE_DIR}sae_feature_heatmaps.png", dpi=150, bbox_inches='tight')
-plt.show()
+    fig.write_html(f"{SAVE_DIR}sae_feature_heatmaps.html")
+    fig.write_image(f"{SAVE_DIR}sae_feature_heatmaps.png")
+fig.show()
 
 # %%
 # Reconstruction metrics
@@ -222,7 +222,7 @@ if special_features_info['special_features']:
     for feat in top_special:
         print(f"  Feature {feat['feature_idx']}: {feat['type']}, corr={feat['correlation']:.4f}")
 
-
+# %%
 feature_firing_freq = (sae_acts_all > 0).float().mean(dim=0).numpy()
 active_features = np.where(feature_firing_freq > 0)[0]
 n_active = len(active_features)
