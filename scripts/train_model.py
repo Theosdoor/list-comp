@@ -1,4 +1,8 @@
 # %%
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -61,7 +65,7 @@ def parse_args():
     parser.add_argument("--checkpoint", action="store_true", help="Save checkpoints during training")
     parser.add_argument("--min-acc", type=float, default=0.9, help="Minimum accuracy to stop training")
     parser.add_argument("--max-retries", type=int, default=3, help="Max training retries if min-acc not reached")
-    parser.add_argument("--early-stop-acc", type=float, default=1.0, help="Stop training when this accuracy is reached")
+    parser.add_argument("--early-stop-acc", type=float, default=0.999, help="Stop training when this accuracy is reached")
     parser.add_argument("--early-stopping-patience", type=int, default=None, help="Stop after N eval steps with no improvement (eval every 100 steps). Only triggers if acc > early-stopping-threshold. Set to None to disable.")
     parser.add_argument("--early-stopping-threshold", type=float, default=0.9, help="Only allow early stopping if accuracy is above this threshold")
     parser.add_argument("--train-batch-size", type=int, default=2048, help="Training batch size")

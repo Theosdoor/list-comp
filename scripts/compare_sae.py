@@ -5,6 +5,10 @@
 # Outputs a markdown table for easy comparison.
 
 #%%
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import os
 import glob
 import torch

@@ -5,6 +5,10 @@
 # Trains an SAE with config optimized for the Order by Scale paper predictions.
 
 #%%
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import argparse
 import os
 

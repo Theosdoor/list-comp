@@ -5,6 +5,10 @@ Runs grid search over SAE configurations with multiple seeds.
 Each configuration is trained 3 times with different random seeds.
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import os
 import argparse
 
