@@ -16,6 +16,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import numpy as np
 from tqdm.auto import tqdm
+from datetime import datetime
 
 from dictionary_learning.trainers.batch_top_k import BatchTopKSAE
 
@@ -23,13 +24,15 @@ from src.utils.runtime import configure_runtime
 from src.models.utils import load_model
 from src.models.transformer import parse_model_name_safe
 from src.data.datasets import get_dataset
+from src.sae.sae_analysis import compute_sae_reconstruction_accuracy, identify_special_features
 
 #%%
 # --- Configuration ---
 MODEL_NAME = '2layer_100dig_64d'
 MODEL_CFG = parse_model_name_safe(MODEL_NAME)
 SAE_FOLDER = 'results/sae_models/sweep_runs'  # Changed to sweep_runs
-OUTPUT_FILE = 'sae_comparison.md'
+OUTPUT_FILE = f'sae_comparison_{datetime.now().strftime("%Y%m%d_%H%M%S")}.md'
+COMPUTE_RECON_ACC = True  # Toggle reconstruction accuracy computation
 
 # Model config
 D_MODEL = MODEL_CFG.d_model
@@ -80,10 +83,12 @@ def load_sae(sae_path):
 
 #%%
 def collect_activations(model, dataloader, sep_idx=2):
-    """Collect SEP token activations."""
+    """Collect SEP token activations and attention weights."""
     activations = []
     d1_all, d2_all = [], []
+    alpha_d1_all, alpha_d2_all = [], []
     hook_name = "blocks.0.hook_resid_post"
+    attn_hook = "blocks.0.attn.hook_attn_scores"
     
     with torch.no_grad():
         for inputs, _ in tqdm(dataloader, desc="Collecting activations", leave=False):
@@ -94,22 +99,33 @@ def collect_activations(model, dataloader, sep_idx=2):
             _, cache = model.run_with_cache(
                 inputs, 
                 stop_at_layer=1,
-                names_filter=hook_name
+                names_filter=[hook_name, attn_hook]
             )
             sep_acts = cache[hook_name][:, sep_idx, :]
             activations.append(sep_acts.cpu())
+            
+            # Extract attention weights from SEP to d1 and d2
+            attn_scores = cache[attn_hook]  # [batch, n_heads, seq_len, seq_len]
+            alpha_d1 = attn_scores[:, :, sep_idx, 0].mean(dim=1)  # Average over heads
+            alpha_d2 = attn_scores[:, :, sep_idx, 1].mean(dim=1)
+            alpha_d1_all.append(alpha_d1.cpu())
+            alpha_d2_all.append(alpha_d2.cpu())
     
     return (
         torch.cat(activations),
         torch.cat(d1_all),
-        torch.cat(d2_all)
+        torch.cat(d2_all),
+        torch.cat(alpha_d1_all),
+        torch.cat(alpha_d2_all)
     )
 
 #%%
-def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, is_legacy=False):
+def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all=None, alpha_d2_all=None, is_legacy=False, model=None, val_dl=None):
     """Compute metrics for a single SAE.
     
     If is_legacy=True, uses batch-level TopK instead of threshold encoding.
+    If model and val_dl are provided and COMPUTE_RECON_ACC=True, computes reconstruction accuracy.
+    If alpha_d1_all and alpha_d2_all are provided, computes special features.
     """
     sae.eval()
     
@@ -141,10 +157,13 @@ def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, is_legacy=Fa
     max_firing = firing_rate.max().item()
     mean_firing = alive_rates.mean().item() if len(alive_rates) > 0 else 0
     
-    # Reconstruction error
+    # Reconstruction error and explained variance
     with torch.no_grad():
         recon = sae.decode(sae_acts.to(DEVICE)).cpu()
-        mse = ((sep_acts - act_mean.cpu() - recon) ** 2).mean().item()
+        sep_acts_centered = sep_acts - act_mean.cpu()
+        mse = ((sep_acts_centered - recon) ** 2).mean().item()
+        orig_var = (sep_acts_centered ** 2).mean().item()
+        explained_var = 1 - (mse / orig_var) if orig_var > 0 else 0
     
     # Top features analysis (most frequently firing)
     top_k_features = 5
@@ -180,6 +199,38 @@ def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, is_legacy=Fa
             'best_digit': best_d1 if is_d1 else best_d2,
         })
     
+    # Identify special features (attention-correlated)
+    special_info = {}
+    if alpha_d1_all is not None and alpha_d2_all is not None:
+        special_results = identify_special_features(
+            sae_acts_all=sae_acts,
+            alpha_d1_all=alpha_d1_all,
+            alpha_d2_all=alpha_d2_all,
+            threshold=0.5
+        )
+        special_info = {
+            'n_special_features': special_results['n_special_features'],
+            'special_features_pct': 100 * special_results['n_special_features'] / d_sae,
+            'max_correlation': special_results['max_correlation'],
+            'mean_abs_correlation': special_results['mean_abs_correlation'],
+            'special_features_list': special_results['special_features'],
+        }
+    
+    # Compute reconstruction accuracy if enabled
+    acc_metrics = {}
+    if COMPUTE_RECON_ACC and model is not None and val_dl is not None:
+        print("  Computing reconstruction accuracy...", end="", flush=True)
+        acc_results = compute_sae_reconstruction_accuracy(
+            model, sae, val_dl, act_mean, 
+            layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
+        )
+        acc_metrics = {
+            'baseline_acc': acc_results['baseline_acc'],
+            'recon_acc': acc_results['reconstruction_acc'],
+            'acc_drop': acc_results['accuracy_drop'],
+        }
+        print(" Done.")
+    
     return {
         'l0': l0,
         'd_sae': d_sae,
@@ -191,7 +242,10 @@ def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, is_legacy=Fa
         'max_firing': max_firing,
         'mean_firing': mean_firing,
         'mse': mse,
+        'explained_var': explained_var,
         'top_features': top_features_info,
+        **special_info,
+        **acc_metrics,
     }
 
 #%%
@@ -203,20 +257,37 @@ def generate_markdown_report(results, output_path):
     # Sort by top_k, then d_sae
     results = sorted(results, key=lambda x: (x['k'], x['d_sae']))
     
+    # Check if we have accuracy metrics
+    has_acc = 'recon_acc' in results[0]
+    
     lines = [
         "# SAE Sweep Comparison Report\n",
         f"Compared {len(results)} SAE models from sweep runs on {results[0]['n_samples']} samples.\n",
         "",
         "## Summary Table\n",
-        "| Model | d_sae | k | L0 | Dead | Dead % | Alive | MSE |",
-        "|-------|-------|---|----|----|--------|-------|-----|",
     ]
     
+    if has_acc:
+        lines.extend([
+            "| Model | d_sae | k | L0 | Dead | Dead % | Alive | MSE | Exp Var | Recon Acc | Acc Drop |",
+            "|-------|-------|---|----|----|--------|-------|-----|---------|-----------|----------|",
+        ])
+    else:
+        lines.extend([
+            "| Model | d_sae | k | L0 | Dead | Dead % | Alive | MSE | Exp Var |",
+            "|-------|-------|---|----|----|--------|-------|-----|---------|----|",
+        ])
+    
     for r in results:
-        lines.append(
+        base_row = (
             f"| {r['name']} | {r['d_sae']} | {r['k']} | {r['l0']:.2f} | "
-            f"{r['n_dead']} | {r['dead_pct']:.1f}% | {r['n_alive']} | {r['mse']:.4f} |"
+            f"{r['n_dead']} | {r['dead_pct']:.1f}% | {r['n_alive']} | {r['mse']:.4f} | {r['explained_var']:.4f}"
         )
+        if has_acc:
+            base_row += f" | {r['recon_acc']:.4f} | {r['acc_drop']:.4f} |"
+        else:
+            base_row += " |"
+        lines.append(base_row)
     
     lines.extend([
         "",
@@ -246,12 +317,48 @@ def generate_markdown_report(results, output_path):
             f"| {r['name']} | {r['min_firing']:.4f} | {r['max_firing']:.4f} | {r['mean_firing']:.4f} |"
         )
     
+    # Special features section
+    has_special = 'n_special_features' in results[0]
+    if has_special:
+        lines.extend([
+            "",
+            "## Special Features (Attention-Correlated)\n",
+            "| Model | N Special | Special % | Max Corr | Mean Abs Corr |",
+            "|-------|-----------|-----------|----------|---------------|",
+        ])
+        
+        for r in results:
+            lines.append(
+                f"| {r['name']} | {r['n_special_features']} | {r['special_features_pct']:.1f}% | "
+                f"{r['max_correlation']:.4f} | {r['mean_abs_correlation']:.4f} |"
+            )
+        
+        # Show top special features for each model
+        lines.extend(["", "### Top Special Features by Model\n"])
+        for r in results:
+            if r.get('special_features_list'):
+                top_special = sorted(
+                    r['special_features_list'],
+                    key=lambda x: abs(x['correlation']),
+                    reverse=True
+                )[:5]
+                if top_special:
+                    lines.append(f"\n**{r['name']}:**")
+                    for feat in top_special:
+                        firing_rate = (r.get('firing_rate', 0) if 'firing_rate' in r else 'N/A')
+                        lines.append(
+                            f"- Feature {feat['feature_idx']}: {feat['type']}, "
+                            f"corr={feat['correlation']:.4f}"
+                        )
+    
     lines.extend([
         "",
         "## Analysis\n",
         "- **L0**: Average number of active features per sample (lower = sparser)",
         "- **Dead %**: Percentage of features that never fire (lower = better utilization)",
         "- **MSE**: Mean squared reconstruction error (lower = better reconstruction)",
+        "- **Exp Var**: Explained variance (higher = better reconstruction)",
+        "- **Special Features**: Features with |correlation| > 0.5 with attention difference (alpha_d1 - alpha_d2)",
         "",
     ])
     
@@ -297,9 +404,9 @@ def main():
     )
     val_dl = DataLoader(val_ds, batch_size=2048, shuffle=False)
     
-    # Collect activations once
-    print("Collecting activations...")
-    sep_acts, d1_all, d2_all = collect_activations(model, val_dl, SEP_TOKEN_INDEX)
+    # Collect activations and attention weights once
+    print("Collecting activations and attention weights...")
+    sep_acts, d1_all, d2_all, alpha_d1_all, alpha_d2_all = collect_activations(model, val_dl, SEP_TOKEN_INDEX)
     n_samples = len(sep_acts)
     print(f"✓ Collected {n_samples} samples")
     
@@ -309,18 +416,25 @@ def main():
     
     # Evaluate each SAE
     results = []
-    for sae_path in sae_paths:
+    for sae_path in tqdm(sae_paths, desc="Evaluating SAEs"):
         name = os.path.basename(sae_path).replace('.pt', '')
         print(f"\nEvaluating: {name}")
         
         try:
             sae, act_mean, cfg, is_legacy = load_sae(sae_path)
-            metrics = evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, N_DIGITS, is_legacy=is_legacy)
+            metrics = evaluate_sae(
+                sae, act_mean, sep_acts, d1_all, d2_all, N_DIGITS,
+                alpha_d1_all=alpha_d1_all, alpha_d2_all=alpha_d2_all,
+                is_legacy=is_legacy, model=model, val_dl=val_dl
+            )
             metrics['name'] = name
             metrics['n_samples'] = n_samples
             results.append(metrics)
             
-            print(f"  L0: {metrics['l0']:.2f}, Dead: {metrics['n_dead']}/{metrics['d_sae']} ({metrics['dead_pct']:.1f}%)")
+            status = f"  L0: {metrics['l0']:.2f}, Dead: {metrics['n_dead']}/{metrics['d_sae']} ({metrics['dead_pct']:.1f}%)"
+            if 'recon_acc' in metrics:
+                status += f", Recon Acc: {metrics['recon_acc']:.4f}"
+            print(status)
         except Exception as e:
             print(f"  ✗ Error: {e}")
     
