@@ -42,10 +42,15 @@ DEVICE = setup_notebook(seed=42)
 # --- Configuration ---
 MODEL_NAME = '2layer_100dig_64d'
 # looking at:
-SAE_NAME = "sae_d50_k1_lr0.0001_seed44_2layer_100dig_64d.pt" # MSE: 0.1770
-# SAE_NAME = "sae_d100_k1_lr0.0003_seed42_2layer_100dig_64d.pt" # MSE: 0.1347
-# SAE_NAME = "sae_d50_k2_lr0.001_seed44_2layer_100dig_64d.pt" # MSE: 0.1378
-# SAE_NAME = "sae_d100_k2_lr0.0003_seed44_2layer_100dig_64d.pt" # MSE: 0.0246
+# SAE_NAME = "sae_d50_k1_lr0.0001_seed44_2layer_100dig_64d.pt" # MSE: 0.1770, Recon Acc: 0.3217
+# SAE_NAME = "sae_d100_k1_lr0.0003_seed42_2layer_100dig_64d.pt" # MSE: 0.1347, Recon Acc: 0.3886 (boring)
+# SAE_NAME = "sae_d50_k2_lr0.001_seed44_2layer_100dig_64d.pt" # MSE: 0.1378, Recon Acc: 0.4728
+# SAE_NAME = "sae_d50_k2_lr0.001_seed42_2layer_100dig_64d.pt" # MSE: 0.1399, Recon Acc: 0.4658
+# SAE_NAME = "sae_d100_k2_lr0.0003_seed44_2layer_100dig_64d.pt" # MSE: 0.0246, Recon Acc: 0.7365 (boring)
+# SAE_NAME = "sae_d100_k2_lr0.0001_seed42_2layer_100dig_64d.pt" # MSE: 0.0291, Recon Acc: 0.7102
+SAE_NAME = "sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt" # MSE: 0.0042, Recon Acc: 0.9312 (hmm dont know)
+# SAE_NAME = "sae_d256_k1_2layer_100dig_64d.pt"
+# SAE_NAME = "sae_d100_k4_50ksteps_2layer_100dig_64d.pt" # (classic)
 
 
 # Output Config
@@ -75,13 +80,13 @@ act_mean = sae_checkpoint["act_mean"].to(DEVICE)
 
 # %%
 # Load validation dataset and collect SAE activations
-train_dataset, val_dataset = get_dataset(
+_, val_ds = get_dataset(
     n_digits=N_DIGITS,
     list_len=LIST_LEN,
     no_dupes=False,
     train_dupes_only=False
 )
-val_dl = DataLoader(val_dataset, batch_size=128, shuffle=False)
+val_dl = DataLoader(val_ds, batch_size=128, shuffle=False)
 
 # Collect SAE activations for validation set
 d1_all, d2_all, sae_acts_all = collect_sae_activations(
@@ -310,9 +315,9 @@ n_features_to_analyze = min(20, n_active)
 top_features = top_total_idx[:n_features_to_analyze]
 
 feature_stats = {}
-for feat_idx in tqdm(top_features, desc="Computing digit stats"):
-    feature_stats[feat_idx] = compute_feature_digit_stats(
-        feat_idx, d1_all, d2_all, sae_acts_all, N_DIGITS
+for special_feat_idx in tqdm(top_features, desc="Computing digit stats"):
+    feature_stats[special_feat_idx] = compute_feature_digit_stats(
+        special_feat_idx, d1_all, d2_all, sae_acts_all, N_DIGITS
     )
 
 
@@ -322,12 +327,12 @@ print(f"\n{'='*100}")
 print(f"DIGIT DISTRIBUTION ANALYSIS FOR TOP {n_features_to_analyze} FEATURES")
 print(f"{'='*100}\n")
 
-for feat_idx in top_features[:10]:  # Show first 10
-    stats = feature_stats[feat_idx]
+for special_feat_idx in top_features[:10]:  # Show first 10
+    stats = feature_stats[special_feat_idx]
     n_inputs = stats['n_inputs']
     
     print(f"\n{'─'*100}")
-    print(f"Feature {feat_idx}: Activates on {n_inputs} inputs ({n_inputs*2} total digits)")
+    print(f"Feature {special_feat_idx}: Activates on {n_inputs} inputs ({n_inputs*2} total digits)")
     print(f"{'─'*100}")
     
     # Find top digits overall
@@ -362,8 +367,8 @@ fig, axes = plt.subplots(n_vis, 3, figsize=(18, 4*n_vis))
 if n_vis == 1:
     axes = axes[np.newaxis, :]
 
-for idx, feat_idx in enumerate(top_features[:n_vis]):
-    stats = feature_stats[feat_idx]
+for idx, special_feat_idx in enumerate(top_features[:n_vis]):
+    stats = feature_stats[special_feat_idx]
     
     # Plot combined distribution
     ax = axes[idx, 0]
@@ -371,7 +376,7 @@ for idx, feat_idx in enumerate(top_features[:n_vis]):
     ax.bar(digits, stats['all_digit_dist'], color='steelblue', alpha=0.7, edgecolor='black', linewidth=0.5)
     ax.set_xlabel('Digit')
     ax.set_ylabel('Percentage')
-    ax.set_title(f'Feature {feat_idx}: All digits (n={stats["n_inputs"]} inputs)')
+    ax.set_title(f'Feature {special_feat_idx}: All digits (n={stats["n_inputs"]} inputs)')
     ax.grid(alpha=0.3, axis='y')
     ax.set_xlim(-1, N_DIGITS)
     
@@ -380,7 +385,7 @@ for idx, feat_idx in enumerate(top_features[:n_vis]):
     ax.bar(digits, stats['d1_digit_dist'], color='coral', alpha=0.7, edgecolor='black', linewidth=0.5)
     ax.set_xlabel('Digit')
     ax.set_ylabel('Percentage')
-    ax.set_title(f'Feature {feat_idx}: d1 positions only')
+    ax.set_title(f'Feature {special_feat_idx}: d1 positions only')
     ax.grid(alpha=0.3, axis='y')
     ax.set_xlim(-1, N_DIGITS)
     
@@ -389,7 +394,7 @@ for idx, feat_idx in enumerate(top_features[:n_vis]):
     ax.bar(digits, stats['d2_digit_dist'], color='mediumseagreen', alpha=0.7, edgecolor='black', linewidth=0.5)
     ax.set_xlabel('Digit')
     ax.set_ylabel('Percentage')
-    ax.set_title(f'Feature {feat_idx}: d2 positions only')
+    ax.set_title(f'Feature {special_feat_idx}: d2 positions only')
     ax.grid(alpha=0.3, axis='y')
     ax.set_xlim(-1, N_DIGITS)
 
@@ -401,8 +406,8 @@ plt.show()
 # %%
 # Create comprehensive dataframe for all features
 rows = []
-for feat_idx in top_features:
-    stats = feature_stats[feat_idx]
+for special_feat_idx in top_features:
+    stats = feature_stats[special_feat_idx]
     
     # Get top 5 digits for each category
     all_dist = stats['all_digit_dist']
@@ -419,9 +424,9 @@ for feat_idx in top_features:
     top_d2_str = ", ".join([f"{d}({d2_dist[d]:.1f}%)" for d in top5_d2 if d2_dist[d] > 0])
     
     rows.append({
-        'Feature': feat_idx,
+        'Feature': special_feat_idx,
         'N_Inputs': stats['n_inputs'],
-        'Fire_Rate_%': feature_firing_freq[feat_idx] * 100,
+        'Fire_Rate_%': feature_firing_freq[special_feat_idx] * 100,
         'Top_All_Digits': top_all_str,
         'Top_D1_Digits': top_d1_str,
         'Top_D2_Digits': top_d2_str,
@@ -440,3 +445,134 @@ if SAVE_RESULTS:
 # %% [markdown]
 # After running this for all 4 SAEs at the top, the 100d SAEs seem to have learned the identity function.
 # the 50d ones are more interesting
+
+# %% [markdown]
+# Looking at `sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt`, let's inspect feature 30 (fires on 1433 / 10000 inputs with 71% fire rate)
+
+# %%
+special_feat_idx = 30
+
+special_feat_acts = sae_acts_all[:, special_feat_idx]
+
+spec_feat_active = special_feat_acts > 0
+
+print(f"\nF{special_feat_idx} fires when α_d1 > α_d2: {(spec_feat_active & (alpha_d1_all > alpha_d2_all)).sum() / spec_feat_active.sum() * 100:.1f}%")
+print(f"F{special_feat_idx} fires when α_d2 > α_d1: {(spec_feat_active & (alpha_d2_all > alpha_d1_all)).sum() / spec_feat_active.sum() * 100:.1f}%")
+
+#  the features fire when the attention is higher for one digit than the other
+
+# %%
+# Setup hook for SAE patching
+from src.sae.sae_analysis import make_sae_patch_hook
+
+hook_name_resid = f"blocks.0.hook_resid_post"
+
+# %%
+# lets try some steering on random pairs for special feat
+
+# Select test cases where the feature ACTUALLY FIRES
+active_indices = torch.where(sae_acts_all[:, special_feat_idx] > 0)[0]
+print(f"Feature {special_feat_idx} fires on {len(active_indices)} / {len(d1_all)} inputs")
+
+# Sample from active inputs only
+np.random.seed(42)
+test_indices = np.random.choice(active_indices.numpy(), size=min(5, len(active_indices)), replace=False)
+test_pairs = [(d1_all[i].item(), d2_all[i].item()) for i in test_indices]
+
+# Extended scale range: -1 to 2 to test negative scaling (reversing the feature)
+scale_factors = np.array([-1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0])
+
+# Storage for plotting
+all_results = []
+
+for d1_val, d2_val in test_pairs:
+    # Find this pair in dataset
+    mask = (d1_all == d1_val) & (d2_all == d2_val)
+    if mask.sum() == 0:
+        continue
+    idx = torch.where(mask)[0][0].item()
+    
+    inputs_i = val_ds.tensors[0][idx:idx+1].to(DEVICE)
+    z_orig = sae_acts_all[idx].clone().to(DEVICE)
+    order_feat_orig = z_orig[special_feat_idx].item()
+    
+    logit_d1_at_o1 = []
+    logit_d2_at_o1 = []
+    logit_d1_at_o2 = []
+    logit_d2_at_o2 = []
+    output_o1 = []
+    output_o2 = []
+    
+    for scale in scale_factors:
+        z_scaled = z_orig.clone()
+        z_scaled[special_feat_idx] = order_feat_orig * scale
+        
+        recon = sae.decode(z_scaled.unsqueeze(0))
+        
+        with torch.no_grad():
+            patched_logits = model.run_with_hooks(
+                inputs_i,
+                fwd_hooks=[(hook_name_resid, make_sae_patch_hook(recon, act_mean, SEP_TOKEN_INDEX))]
+            )
+        
+        # Get logits at o1 (position -2) and o2 (position -1)
+        logits_o1 = patched_logits[0, -2, :N_DIGITS]
+        logits_o2 = patched_logits[0, -1, :N_DIGITS]
+        
+        logit_d1_at_o1.append(logits_o1[d1_val].item())
+        logit_d2_at_o1.append(logits_o1[d2_val].item())
+        logit_d1_at_o2.append(logits_o2[d1_val].item())
+        logit_d2_at_o2.append(logits_o2[d2_val].item())
+        output_o1.append(logits_o1.argmax().item())
+        output_o2.append(logits_o2.argmax().item())
+    
+    all_results.append({
+        'd1': d1_val, 'd2': d2_val,
+        'scales': scale_factors,
+        'logit_d1_o1': logit_d1_at_o1,
+        'logit_d2_o1': logit_d2_at_o1,
+        'logit_d1_o2': logit_d1_at_o2,
+        'logit_d2_o2': logit_d2_at_o2,
+        'output_o1': output_o1,
+        'output_o2': output_o2,
+        'order_feat_orig': order_feat_orig,
+    })
+
+# Plot results
+fig, axes = plt.subplots(2, len(all_results), figsize=(4*len(all_results), 8), squeeze=False)
+
+for col, result in enumerate(all_results):
+    d1, d2 = result['d1'], result['d2']
+    scales = result['scales']
+    
+    # Top row: Logits at o1 position
+
+    ax1 = axes[0, col]
+    ax1.plot(scales, result['logit_d1_o1'], 'b-o', label=f'd1={d1} logit', markersize=4)
+    ax1.plot(scales, result['logit_d2_o1'], 'r-s', label=f'd2={d2} logit', markersize=4)
+    ax1.axvline(x=1.0, color='gray', linestyle='--', alpha=0.5, label='Original')
+    ax1.axvline(x=0.0, color='red', linestyle=':', alpha=0.5)
+    ax1.set_xlabel(f'Feature {special_feat_idx} Scale')
+    ax1.set_ylabel('Logit at o1')
+    ax1.set_title(f'Input ({d1}, {d2})\nf{special_feat_idx}_orig={result["order_feat_orig"]:.2f}')
+    ax1.legend(fontsize=8)
+    ax1.grid(True, alpha=0.3)
+    
+    # Bottom row: Logits at o2 position
+    ax2 = axes[1, col]
+    ax2.plot(scales, result['logit_d1_o2'], 'b-o', label=f'd1={d1} logit', markersize=4)
+    ax2.plot(scales, result['logit_d2_o2'], 'r-s', label=f'd2={d2} logit', markersize=4)
+    ax2.axvline(x=1.0, color='gray', linestyle='--', alpha=0.5, label='Original')
+    ax2.axvline(x=0.0, color='red', linestyle=':', alpha=0.5)
+    ax2.set_xlabel(f'Feature {special_feat_idx} Scale')
+    ax2.set_ylabel('Logit at o2')
+    ax2.set_title(f'Logits at Output Position 2')
+    ax2.legend(fontsize=8)
+    ax2.grid(True, alpha=0.3)
+
+plt.tight_layout()
+if SAVE_DIR: plt.savefig(os.path.join(SAVE_DIR, f'feature_{special_feat_idx}_logit_steering.png'), dpi=150, bbox_inches='tight')
+plt.show()
+# %%
+
+# %%

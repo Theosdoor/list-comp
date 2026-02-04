@@ -19,6 +19,26 @@ import wandb
 from dictionary_learning.trainers.batch_top_k import BatchTopKSAE
 
 
+def make_sae_patch_hook(reconstructed_acts, act_mean, sep_idx):
+    """
+    Create a hook that patches SAE-reconstructed activations at the SEP token position.
+    
+    Args:
+        reconstructed_acts: SAE-decoded activations (mean-centered)
+        act_mean: Activation mean to add back (SAE outputs are mean-centered)
+        sep_idx: SEP token position
+    
+    Returns:
+        hook_fn: Hook function that can be used with model.run_with_hooks
+    """
+    def hook_fn(activations, hook):
+        activations = activations.clone()
+        # Add back the activation mean (SAE outputs are mean-centered)
+        activations[:, sep_idx, :] = reconstructed_acts + act_mean.to(activations.device)
+        return activations
+    return hook_fn
+
+
 def collect_sae_activations(model, sae, val_dl, act_mean, layer_idx=0, sep_idx=2, device="cuda"):
     """
     Collect SAE latent activations and input pairs for all validation data.
