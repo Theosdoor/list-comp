@@ -9,7 +9,9 @@ from dictionary_learning.trainers.batch_top_k import BatchTopKSAE
 
 # Add parent to path for imports
 sys.path.insert(0, '..')
-from model_scripts.model_utils import configure_runtime, load_model as _load_model, parse_model_name_safe
+from src.utils.runtime import configure_runtime
+from src.models.transformer import parse_model_name_safe
+from src.models.utils import load_model as _load_model
 
 
 def get_device():

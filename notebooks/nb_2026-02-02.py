@@ -43,7 +43,7 @@ from src.sae.sae_analysis import (
 DEVICE = setup_notebook(seed=42)
 
 # --- Configuration ---
-MODEL_NAME = '2layer_100dig_64d'
+MODEL_NAME = 'L3_H1_D64_V100_len3_260121-143443_acc0.9962'
 SAVE_NAME = 'sae_d100_k4_50ksteps_2layer_100dig_64d.pt'
 
 # Output Config
@@ -67,8 +67,8 @@ SEP_TOKEN_INDEX = model_cfg['sep_token_index']
 from src.interpretability.interp_utils import find_critical_attention_edges, gen_attn_flow, format_ablation_results, format_ablation_as_matrices
 
 # Load the 3-layer model
-MODEL_3L_PATH = "../models/L3_H1_D64_V100_len3_260121-143443_acc0.9962.pt"
-MODEL_3L_CFG = parse_model_name_safe("L3_H1_D64_V100_len3_260121-143443_acc0.9962")
+MODEL_3L_PATH = "../models/" + MODEL_NAME + ".pt"
+MODEL_3L_CFG = parse_model_name_safe(MODEL_NAME)
 
 configure_runtime(
     list_len=MODEL_3L_CFG.list_len,
