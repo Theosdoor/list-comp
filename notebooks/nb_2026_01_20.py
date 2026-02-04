@@ -20,7 +20,7 @@ from tqdm.auto import tqdm
 from scipy import stats
 
 # Import notebook utilities
-from nb_utils import setup_notebook, load_transformer_model, load_sae
+from src.utils.nb_utils import setup_notebook, load_transformer_model, load_sae
 
 # Import project utilities
 sys.path.insert(0, '..')
