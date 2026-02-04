@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 
 from transformer_lens import HookedTransformer, HookedTransformerConfig, utils
 
-from model_utils import (
+from .model_utils import (
     configure_runtime,
     build_attention_mask,
     save_model,
