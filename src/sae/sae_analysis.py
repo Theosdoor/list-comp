@@ -189,6 +189,82 @@ def compute_reconstruction_metrics(model, sae, val_dl, act_mean, layer_idx=0, se
     }
 
 
+def compute_sae_reconstruction_accuracy(model, sae, val_dl, act_mean, layer_idx=0, sep_idx=2, device="cuda"):
+    """
+    Compute model accuracy when using SAE-reconstructed activations instead of original.
+    
+    Args:
+        model: Base transformer model
+        sae: Trained SAE
+        val_dl: Validation dataloader
+        act_mean: Mean activation for centering
+        layer_idx: Layer to extract activations from
+        sep_idx: SEP token position (list_len)
+        device: Device to use
+    
+    Returns:
+        dict with keys: baseline_acc, reconstruction_acc, accuracy_drop, total_samples
+    """
+    from ..utils.runtime import _RUNTIME
+    list_len = _RUNTIME.list_len
+    
+    hook_name_resid = f"blocks.{layer_idx}.hook_resid_post"
+    
+    # 1. Baseline accuracy (original model)
+    correct_baseline = 0
+    total = 0
+    
+    with torch.no_grad():
+        for inputs, targets in tqdm(val_dl, desc="Computing baseline accuracy", leave=False):
+            inputs = inputs.to(device)
+            targets = targets.to(device)
+            
+            logits = model(inputs)[:, list_len + 1:]  # Only output positions
+            preds = logits.argmax(dim=-1)
+            correct_baseline += (preds == targets[:, list_len + 1:]).sum().item()
+            total += preds.numel()
+    
+    baseline_acc = correct_baseline / total
+    
+    # 2. Accuracy with SAE reconstruction
+    correct_recon = 0
+    
+    def reconstruction_hook(activations, hook):
+        """Replace activations with SAE reconstruction at SEP position."""
+        # Get SEP token activations
+        sep_acts = activations[:, sep_idx, :]
+        # Center and reconstruct
+        sep_acts_centered = sep_acts - act_mean.to(sep_acts.device)
+        sae_z = sae.encode(sep_acts_centered, use_threshold=True)
+        reconstructed = sae.decode(sae_z)
+        # Replace with reconstruction (add mean back)
+        activations[:, sep_idx, :] = reconstructed + act_mean.to(reconstructed.device)
+        return activations
+    
+    with torch.no_grad():
+        for inputs, targets in tqdm(val_dl, desc="Computing SAE reconstruction accuracy", leave=False):
+            inputs = inputs.to(device)
+            targets = targets.to(device)
+            
+            # Run with reconstruction hook
+            logits = model.run_with_hooks(
+                inputs,
+                fwd_hooks=[(hook_name_resid, reconstruction_hook)]
+            )[:, list_len + 1:]  # Only output positions
+            preds = logits.argmax(dim=-1)
+            correct_recon += (preds == targets[:, list_len + 1:]).sum().item()
+    
+    recon_acc = correct_recon / total
+    acc_drop = baseline_acc - recon_acc
+    
+    return {
+        'baseline_acc': baseline_acc,
+        'reconstruction_acc': recon_acc,
+        'accuracy_drop': acc_drop,
+        'total_samples': total
+    }
+
+
 def collect_attention_patterns(model, val_dl, layer_idx=0, sep_idx=2, device="cuda"):
     """
     Collect attention patterns from SEP token to d1 and d2.

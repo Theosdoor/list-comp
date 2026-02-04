@@ -1,5 +1,5 @@
 #%% [markdown]
-# interp saes
+# # interp saes
 
 # %%
 # SETUP
@@ -30,6 +30,7 @@ from src.sae.sae_analysis import (
     collect_sae_activations,
     create_feature_heatmaps,
     compute_reconstruction_metrics,
+    compute_sae_reconstruction_accuracy,
     identify_special_features,
     load_sae_from_wandb_run,
     compare_sweep_runs,
@@ -40,7 +41,12 @@ DEVICE = setup_notebook(seed=42)
 
 # --- Configuration ---
 MODEL_NAME = '2layer_100dig_64d'
-SAE_NAME = "sae_d100_k1_lr0.0003_seed42_2layer_100dig_64d.pt"
+# looking at:
+# SAE_NAME = "sae_d50_k1_lr0.0001_seed44_2layer_100dig_64d.pt" # MSE: 0.1770
+# SAE_NAME = "sae_d100_k1_lr0.0003_seed42_2layer_100dig_64d.pt" # MSE: 0.1347
+# SAE_NAME = "sae_d50_k2_lr0.001_seed44_2layer_100dig_64d.pt" # MSE: 0.1378
+SAE_NAME = "sae_d100_k2_lr0.0003_seed44_2layer_100dig_64d.pt" # MSE: 0.0246
+
 
 # Output Config
 SAVE_RESULTS = False
@@ -102,6 +108,28 @@ print(f"Dead features: {dead_features} / {D_SAE} ({100*dead_features/D_SAE:.1f}%
 # Feature firing rates
 firing_rate = (sae_acts_all > 0).float().mean(dim=0)
 print(f"Firing rate range: [{firing_rate[firing_rate > 0].min():.4f}, {firing_rate.max():.4f}]")
+
+# %%
+# SAE Reconstruction Accuracy - model performance with SAE-reconstructed activations
+
+acc_metrics = compute_sae_reconstruction_accuracy(
+    model=model,
+    sae=sae,
+    val_dl=val_dl,
+    act_mean=act_mean,
+    layer_idx=0,
+    sep_idx=SEP_TOKEN_INDEX,
+    device=DEVICE
+)
+
+print(f"\n{'='*60}")
+print("SAE RECONSTRUCTION ACCURACY")
+print(f"{'='*60}")
+print(f"Baseline accuracy:        {acc_metrics['baseline_acc']:.4f} ({acc_metrics['baseline_acc']*100:.2f}%)")
+print(f"SAE reconstruction acc:   {acc_metrics['reconstruction_acc']:.4f} ({acc_metrics['reconstruction_acc']*100:.2f}%)")
+print(f"Accuracy drop:            {acc_metrics['accuracy_drop']:.4f} ({acc_metrics['accuracy_drop']*100:.2f}%)")
+print(f"Total samples evaluated:  {acc_metrics['total_samples']}")
+print(f"{'='*60}\n")
 
 # %%
 # Feature heatmaps
@@ -194,48 +222,18 @@ if special_features_info['special_features']:
     for feat in top_special:
         print(f"  Feature {feat['feature_idx']}: {feat['type']}, corr={feat['correlation']:.4f}")
 
-# %%
-# Comprehensive feature activation analysis
 
-# 1. Feature firing frequency
 feature_firing_freq = (sae_acts_all > 0).float().mean(dim=0).numpy()
 active_features = np.where(feature_firing_freq > 0)[0]
 n_active = len(active_features)
-
-print(f"Active features: {n_active} / {D_SAE}")
 
 # Sort by firing frequency
 sorted_indices = np.argsort(feature_firing_freq)[::-1]
 top_n = min(30, n_active)
 
-fig, axes = plt.subplots(1, 2, figsize=(16, 5))
-
-# Bar chart of top features by firing rate
-ax = axes[0]
-ax.bar(range(top_n), feature_firing_freq[sorted_indices[:top_n]], color='steelblue', edgecolor='black')
-ax.set_xlabel('Feature rank')
-ax.set_ylabel('Firing frequency')
-ax.set_title(f'Top {top_n} Features by Firing Rate')
-ax.grid(alpha=0.3)
-
-# Histogram of firing frequencies
-ax = axes[1]
-ax.hist(feature_firing_freq[feature_firing_freq > 0], bins=50, color='steelblue', edgecolor='black', alpha=0.7)
-ax.set_xlabel('Firing frequency')
-ax.set_ylabel('Number of features')
-ax.set_title('Distribution of Feature Firing Frequencies')
-ax.set_yscale('log')
-ax.grid(alpha=0.3)
-
-plt.tight_layout()
-if SAVE_RESULTS:
-    plt.savefig(f"{SAVE_DIR}sae_firing_frequencies.png", dpi=150, bbox_inches='tight')
-plt.show()
-
 # %%
 # 2. Activation strength analysis per feature
 
-fig, axes = plt.subplots(2, 2, figsize=(16, 12))
 
 # Mean activation strength (when active)
 mean_act_strength = []
@@ -248,117 +246,21 @@ for i in range(D_SAE):
 mean_act_strength = np.array(mean_act_strength)
 
 # Top features by mean strength
-ax = axes[0, 0]
 top_strength_idx = np.argsort(mean_act_strength)[::-1][:top_n]
-ax.bar(range(top_n), mean_act_strength[top_strength_idx], color='coral', edgecolor='black')
-ax.set_xlabel('Feature rank')
-ax.set_ylabel('Mean activation (when active)')
-ax.set_title(f'Top {top_n} Features by Mean Activation Strength')
-ax.grid(alpha=0.3)
+
 
 # Firing frequency vs mean strength scatter
-ax = axes[0, 1]
 active_mask = feature_firing_freq > 0
-ax.scatter(feature_firing_freq[active_mask], mean_act_strength[active_mask], 
-           alpha=0.6, s=50, c='steelblue', edgecolor='black', linewidth=0.5)
-ax.set_xlabel('Firing frequency')
-ax.set_ylabel('Mean activation strength')
-ax.set_title('Firing Frequency vs Activation Strength')
-ax.set_xscale('log')
-ax.grid(alpha=0.3)
 
 # Max activation per feature
 max_act_strength = sae_acts_all.max(dim=0)[0].numpy()
-ax = axes[1, 0]
-ax.bar(range(top_n), max_act_strength[top_strength_idx], color='orange', edgecolor='black')
-ax.set_xlabel('Feature rank')
-ax.set_ylabel('Max activation')
-ax.set_title(f'Top {top_n} Features by Max Activation')
-ax.grid(alpha=0.3)
+
 
 # Total activation (sum over all samples)
 total_activation = sae_acts_all.sum(dim=0).numpy()
-ax = axes[1, 1]
 top_total_idx = np.argsort(total_activation)[::-1][:top_n]
-ax.bar(range(top_n), total_activation[top_total_idx], color='mediumseagreen', edgecolor='black')
-ax.set_xlabel('Feature rank')
-ax.set_ylabel('Total activation')
-ax.set_title(f'Top {top_n} Features by Total Activation')
-ax.grid(alpha=0.3)
-
-plt.tight_layout()
-if SAVE_RESULTS:
-    plt.savefig(f"{SAVE_DIR}sae_activation_strengths.png", dpi=150, bbox_inches='tight')
-plt.show()
 
 # %%
-# 3. Input pattern analysis for top features
-
-def plot_feature_activation_patterns(feat_idx, d1_all, d2_all, sae_acts_all, n_digits=100, ax=None):
-    """Plot which (d1, d2) pairs activate a specific feature."""
-    if ax is None:
-        fig, ax = plt.subplots(1, 1, figsize=(8, 7))
-    
-    # Create activation matrix
-    act_matrix = torch.zeros(n_digits, n_digits)
-    count_matrix = torch.zeros(n_digits, n_digits)
-    
-    for i in range(len(d1_all)):
-        d1, d2 = d1_all[i].item(), d2_all[i].item()
-        act_matrix[d1, d2] += sae_acts_all[i, feat_idx].item()
-        count_matrix[d1, d2] += 1
-    
-    # Average activation
-    act_matrix = torch.where(count_matrix > 0, act_matrix / count_matrix, act_matrix)
-    
-    # Plot
-    im = ax.imshow(act_matrix.numpy(), cmap='hot', origin='lower', aspect='auto')
-    ax.set_xlabel('d2')
-    ax.set_ylabel('d1')
-    ax.set_title(f'Feature {feat_idx} Activations')
-    plt.colorbar(im, ax=ax, label='Mean activation')
-    
-    # Add diagonal line (d1=d2)
-    ax.plot([0, n_digits-1], [0, n_digits-1], 'c--', alpha=0.5, linewidth=1)
-    
-    return ax
-
-# Plot top 6 features by total activation
-top_6_features = np.argsort(total_activation)[::-1][:6]
-
-fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-axes = axes.flatten()
-
-for idx, feat_idx in enumerate(top_6_features):
-    plot_feature_activation_patterns(feat_idx, d1_all, d2_all, sae_acts_all, N_DIGITS, ax=axes[idx])
-
-plt.tight_layout()
-if SAVE_RESULTS:
-    plt.savefig(f"{SAVE_DIR}sae_top_feature_patterns.png", dpi=150, bbox_inches='tight')
-plt.show()
-
-# %%
-# 4. Feature statistics table
-print("Top 20 Features Summary:\n")
-print(f"{'Feat':>4} | {'Fire%':>7} | {'MeanAct':>8} | {'MaxAct':>8} | {'TotalAct':>10} | {'Top Inputs (d1,d2)'}")
-print("-" * 80)
-
-for rank, feat_idx in enumerate(top_total_idx[:20]):
-    firing_pct = feature_firing_freq[feat_idx] * 100
-    mean_act = mean_act_strength[feat_idx]
-    max_act = max_act_strength[feat_idx]
-    total_act = total_activation[feat_idx]
-    
-    # Find top 3 activating inputs
-    top_activations_idx = sae_acts_all[:, feat_idx].argsort(descending=True)[:3]
-    top_inputs = [(d1_all[i].item(), d2_all[i].item()) for i in top_activations_idx]
-    top_inputs_str = ", ".join([f"({d1},{d2})" for d1, d2 in top_inputs])
-    
-    print(f"{feat_idx:4d} | {firing_pct:6.2f}% | {mean_act:8.4f} | {max_act:8.4f} | {total_act:10.2f} | {top_inputs_str}")
-
-# %%
-# 5. Digit distribution analysis for each feature
-
 def compute_feature_digit_stats(feat_idx, d1_all, d2_all, sae_acts_all, n_digits=100):
     """
     Compute digit distribution statistics for a feature.
@@ -412,6 +314,7 @@ for feat_idx in tqdm(top_features, desc="Computing digit stats"):
     feature_stats[feat_idx] = compute_feature_digit_stats(
         feat_idx, d1_all, d2_all, sae_acts_all, N_DIGITS
     )
+
 
 # %%
 # Display digit distribution table for top features
@@ -534,4 +437,6 @@ if SAVE_RESULTS:
     df_digit_stats.to_csv(f"{SAVE_DIR}sae_digit_distributions.csv", index=False)
     print(f"\nSaved to {SAVE_DIR}sae_digit_distributions.csv")
 
-# %%
+# %% [markdown]
+# After running this for all 4 SAEs at the top, the 100d SAEs seem to have learned the identity function.
+# the 50d ones are more interesting

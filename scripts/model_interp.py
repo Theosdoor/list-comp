@@ -256,7 +256,7 @@ print("Accuracy with avg-attn:", accuracy(model_with_avg_attn, val_dl))
 # %%
 # ---- Ablation of Specific Attention Edges ----
 
-renorm_rows = False # whether to renormalize rows after ablation
+renorm_rows = True # whether to renormalize rows after ablation
 # ^ False gets graph from paper, but True is arguably more correct (Results don't signigicantly change)
 ablate_in_l0 = [
                 (4,3),
