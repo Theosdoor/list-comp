@@ -8,6 +8,8 @@ import os
 import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import numpy as np
 import pandas as pd
 from torch.utils.data import DataLoader
@@ -75,17 +77,17 @@ def collect_sae_activations(model, sae, val_dl, act_mean, layer_idx=0, sep_idx=2
 
 def create_feature_heatmaps(d1_all, d2_all, sae_acts_all, n_digits=100, figsize=(25, 25)):
     """
-    Create grid of heatmaps showing activation patterns for all SAE features.
+    Create interactive grid of heatmaps showing activation patterns for all SAE features.
     
     Args:
         d1_all: Tensor of d1 values [n_samples]
         d2_all: Tensor of d2 values [n_samples]
         sae_acts_all: Tensor of SAE activations [n_samples, d_sae]
         n_digits: Number of possible digit values
-        figsize: Figure size for the plot
+        figsize: Figure size (width, height) in inches
     
     Returns:
-        fig: Matplotlib figure object
+        fig: Plotly Figure object (interactive)
     """
     d_sae = sae_acts_all.shape[1]
     n_samples = len(d1_all)
@@ -101,32 +103,51 @@ def create_feature_heatmaps(d1_all, d2_all, sae_acts_all, n_digits=100, figsize=
     
     all_act_matrices = all_act_matrices / count_matrix.clamp(min=1)
     
-    # Create grid layout
+    # Create subplot grid
     grid_size = int(np.ceil(np.sqrt(d_sae)))
-    fig, axes = plt.subplots(grid_size, grid_size, figsize=figsize)
-    fig.suptitle(f'All {d_sae} SAE Feature Activation Heatmaps (d1 vs d2)', fontsize=16, y=0.995)
     
-    # Flatten axes for easier indexing
-    axes_flat = axes.flatten() if d_sae > 1 else [axes]
+    # Create subplot specs and titles
+    subplot_titles = [f'F{i}' for i in range(d_sae)]
+    # Add empty titles for unused subplots
+    total_subplots = grid_size * grid_size
+    subplot_titles.extend([''] * (total_subplots - d_sae))
     
+    fig = make_subplots(
+        rows=grid_size,
+        cols=grid_size,
+        subplot_titles=subplot_titles,
+        horizontal_spacing=0.02,
+        vertical_spacing=0.05,
+    )
+    
+    # Add heatmaps
     for feat_idx in range(d_sae):
-        ax = axes_flat[feat_idx]
+        row = feat_idx // grid_size + 1
+        col = feat_idx % grid_size + 1
         
-        im = ax.imshow(
-            all_act_matrices[feat_idx].numpy(),
-            cmap='viridis',
-            origin='lower',
-            aspect='auto'
+        fig.add_trace(
+            go.Heatmap(
+                z=all_act_matrices[feat_idx].numpy(),
+                colorscale='Viridis',
+                showscale=(feat_idx == d_sae - 1),  # Show colorbar only on last subplot
+                hovertemplate='d1: %{x}<br>d2: %{y}<br>Activation: %{z:.4f}<extra></extra>',
+                name=f'F{feat_idx}',
+            ),
+            row=row,
+            col=col
         )
-        ax.set_title(f'F{feat_idx}', fontsize=7)
-        ax.set_xticks([])
-        ax.set_yticks([])
+        
+        # Update axes for this subplot
+        fig.update_xaxes(showticklabels=False, row=row, col=col)
+        fig.update_yaxes(showticklabels=False, row=row, col=col)
     
-    # Hide unused subplots
-    for idx in range(d_sae, len(axes_flat)):
-        axes_flat[idx].axis('off')
+    fig.update_layout(
+        title_text=f'All {d_sae} SAE Feature Activation Heatmaps (d1 vs d2)',
+        height=figsize[1] * 100,  # Convert inches to pixels
+        width=figsize[0] * 100,
+        showlegend=False,
+    )
     
-    plt.tight_layout()
     return fig
 
 
