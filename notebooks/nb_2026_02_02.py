@@ -35,7 +35,6 @@ from src.sae.sae_analysis import (
     compute_reconstruction_metrics,
     identify_special_features,
     load_sae_from_wandb_run,
-    load_sae_from_local,
     compare_sweep_runs,
 )
 

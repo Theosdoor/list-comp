@@ -401,48 +401,7 @@ def load_sae_from_wandb_run(run_id, project="theo-farrell99-durham-university/li
     }
 
 
-def load_sae_from_local(sae_path, device="cuda"):
-    """
-    Load an SAE from a local .pt file.
-    
-    Args:
-        sae_path: Path to the .pt checkpoint file
-        device: Device to load model on
-    
-    Returns:
-        dict with same structure as load_sae_from_wandb_run
-    """
-    print(f"Loading SAE from: {sae_path}")
-    
-    checkpoint = torch.load(sae_path, map_location=device, weights_only=False)
-    sae_config = checkpoint.get("cfg", {})
-    
-    # Extract config
-    activation_dim = sae_config.get("activation_dim", sae_config.get("d_model", 64))
-    dict_size = sae_config.get("dict_size", sae_config.get("d_sae", 256))
-    k = sae_config.get("k", 4)
-    
-    # Initialize SAE
-    sae = BatchTopKSAE(
-        activation_dim=activation_dim,
-        dict_size=dict_size,
-        k=k
-    ).to(device)
-    
-    # Load state dict
-    sae.load_state_dict(checkpoint["state_dict"])
-    act_mean = checkpoint["act_mean"].to(device)
-    
-    print(f"✓ Loaded SAE: d_sae={dict_size}, k={k}")
-    
-    return {
-        "sae": sae,
-        "act_mean": act_mean,
-        "config": sae_config,
-        "run_config": {},
-        "checkpoint": checkpoint,
-    }
-
+# NOTE - USE from src.utils.nb_utils import load_sae for local loading
 
 def compare_sweep_runs(project="theo-farrell99-durham-university/list-comp", 
                        sweep_id="wmhceuqf"):
