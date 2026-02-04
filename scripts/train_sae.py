@@ -15,8 +15,9 @@ from tqdm.auto import tqdm
 from dictionary_learning.trainers import BatchTopKTrainer
 # https://github.com/saprmarks/dictionary_learning/blob/main/dictionary_learning/trainers/batch_top_k.py
 
-from model_scripts.model_utils import make_model, configure_runtime, parse_model_name_safe
-from model_scripts.data import get_dataset
+from src.models.transformer import make_model, parse_model_name_safe
+from src.utils.runtime import configure_runtime
+from src.data.datasets import get_dataset
 
 #%%
 # --- Configuration ---

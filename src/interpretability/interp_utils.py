@@ -8,10 +8,7 @@ from matplotlib.patches import FancyArrowPatch
 from matplotlib.lines import Line2D
 import matplotlib.patheffects as pe
 
-try:
-    from .model_utils import build_attention_mask
-except ImportError:
-    from model_utils import build_attention_mask
+from ..models.transformer import build_attention_mask
 
 
 def get_valid_attention_positions(mask_bias, mask_bias_l0, seq_len, n_layers):

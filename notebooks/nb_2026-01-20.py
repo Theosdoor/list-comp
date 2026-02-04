@@ -24,7 +24,7 @@ from nb_utils import setup_notebook, load_transformer_model, load_sae
 
 # Import project utilities
 sys.path.insert(0, '..')
-from model_scripts.data import get_dataset
+from src.data.datasets import get_dataset
 
 # Setup device and seeds
 device = setup_notebook(seed=42)

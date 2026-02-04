@@ -23,9 +23,11 @@ from nb_utils import setup_notebook, load_transformer_model, load_sae
 
 # Import project utilities
 sys.path.insert(0, '..')
-from model_scripts.model_utils import build_attention_mask, parse_model_name_safe, configure_runtime, load_model
-from model_scripts.data import get_dataset
-from model_scripts.sae_analysis import (
+from src.utils.runtime import configure_runtime
+from src.models.transformer import parse_model_name_safe, build_attention_mask
+from src.models.utils import load_model
+from src.data.datasets import get_dataset
+from src.sae.sae_analysis import (
     collect_sae_activations,
     create_feature_heatmaps,
     compute_reconstruction_metrics,

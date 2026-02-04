@@ -16,9 +16,10 @@ import matplotlib.pyplot as plt
 
 from dictionary_learning.trainers import BatchTopKTrainer
 
-from model_scripts.model_utils import make_model, configure_runtime, parse_model_name_safe
-from model_scripts.data import get_dataset
-from model_scripts.sae_analysis import (
+from src.models.transformer import make_model, parse_model_name_safe
+from src.utils.runtime import configure_runtime
+from src.data.datasets import get_dataset
+from src.sae.sae_analysis import (
     collect_sae_activations, 
     create_feature_heatmaps,
     compute_reconstruction_metrics,

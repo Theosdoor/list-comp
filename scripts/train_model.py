@@ -19,14 +19,10 @@ from dotenv import load_dotenv
 
 from transformer_lens import HookedTransformer, HookedTransformerConfig, utils
 
-from .model_utils import (
-    configure_runtime,
-    build_attention_mask,
-    save_model,
-    make_model,
-    accuracy
-)
-from .data import get_dataset
+from src.utils.runtime import configure_runtime
+from src.models.transformer import make_model, build_attention_mask
+from src.models.utils import save_model, accuracy
+from src.data.datasets import get_dataset
 
 # Wandb project name (hardcoded for this repo)
 WANDB_PROJECT = "list-comp"

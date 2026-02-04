@@ -15,15 +15,10 @@ import pandas as pd, itertools
 from tqdm.auto import tqdm
 
 from transformer_lens import utils
-from model_utils import (
-    configure_runtime,
-    build_attention_mask,
-    load_model,
-    accuracy,
-    infer_model_config,
-)
-
-from data import get_dataset
+from src.utils.runtime import configure_runtime
+from src.models.transformer import build_attention_mask
+from src.models.utils import load_model, accuracy, infer_model_config
+from src.data.datasets import get_dataset
 
 # Configure plotly to use static rendering if widgets fail
 import plotly.io as pio

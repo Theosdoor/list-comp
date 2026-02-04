@@ -15,8 +15,10 @@ from tqdm.auto import tqdm
 
 from dictionary_learning.trainers.batch_top_k import BatchTopKSAE
 
-from model_scripts.model_utils import configure_runtime, load_model, parse_model_name_safe
-from model_scripts.data import get_dataset
+from src.utils.runtime import configure_runtime
+from src.models.utils import load_model
+from src.models.transformer import parse_model_name_safe
+from src.data.datasets import get_dataset
 
 #%%
 # --- Configuration ---

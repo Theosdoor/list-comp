@@ -25,9 +25,11 @@ from nb_utils import setup_notebook, load_transformer_model, load_sae
 
 # Import project utilities
 sys.path.insert(0, '..')
-from model_scripts.model_utils import build_attention_mask, parse_model_name_safe, configure_runtime, load_model
-from model_scripts.data import get_dataset
-from model_scripts.sae_analysis import (
+from src.utils.runtime import configure_runtime
+from src.models.transformer import parse_model_name_safe, build_attention_mask
+from src.models.utils import load_model
+from src.data.datasets import get_dataset
+from src.sae.sae_analysis import (
     collect_sae_activations,
     create_feature_heatmaps,
     compute_reconstruction_metrics,
@@ -62,7 +64,7 @@ SEP_TOKEN_INDEX = model_cfg['sep_token_index']
 # %%
 # load 3 layer model 99% acc
 
-from model_scripts.interp_utils import find_critical_attention_edges, gen_attn_flow, format_ablation_results, format_ablation_as_matrices
+from src.interpretability.interp_utils import find_critical_attention_edges, gen_attn_flow, format_ablation_results, format_ablation_as_matrices
 
 # Load the 3-layer model
 MODEL_3L_PATH = "../models/L3_H1_D64_V100_len3_260121-143443_acc0.9962.pt"
@@ -148,7 +150,7 @@ gen_attn_flow(
 # %%
 # --- SEP Attention vs Accuracy (Fig 3) ---
 
-from model_scripts.interp_utils import plot_sep_attention_vs_accuracy
+from src.interpretability.interp_utils import plot_sep_attention_vs_accuracy
 
 # Create 3 plots: d1 vs d2, d1 vs d3, d2 vs d3
 position_pairs = [
