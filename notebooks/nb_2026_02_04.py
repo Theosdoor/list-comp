@@ -43,7 +43,7 @@ DEVICE = setup_notebook(seed=42)
 MODEL_NAME = '2layer_100dig_64d'
 # looking at:
 SAE_NAME = "sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt" # MSE: 0.0042, Recon Acc: 0.8688 (old - not as high accuracy as below)
-SAE_NAME = "sae_d100_k3_lr0.0001_seed43_2layer_100dig_64d.pt" # MSE: 0.0036, Recon Acc: 0.8752
+# SAE_NAME = "sae_d100_k3_lr0.0001_seed43_2layer_100dig_64d.pt" # MSE: 0.0036, Recon Acc: 0.8752
 # SAE_NAME = "sae_d100_k4_50ksteps_2layer_100dig_64d.pt" # (classic - best recon accuracy of 0.8885) 
 
 
@@ -74,19 +74,24 @@ act_mean = sae_checkpoint["act_mean"].to(DEVICE)
 
 # %%
 # Load validation dataset and collect SAE activations
-_, val_ds = get_dataset(
+train_ds, val_ds = get_dataset(
     n_digits=N_DIGITS,
     list_len=LIST_LEN,
     no_dupes=False,
     train_dupes_only=False
 )
-val_dl = DataLoader(val_ds, batch_size=128, shuffle=False)
+# concat both
+all_ds = torch.utils.data.ConcatDataset([train_ds, val_ds])
 
-# Collect SAE activations for validation set
+train_dl = DataLoader(train_ds, batch_size=128, shuffle=True)
+val_dl = DataLoader(val_ds, batch_size=128, shuffle=False)
+all_dl = DataLoader(all_ds, batch_size=128, shuffle=False)
+
+# Collect SAE activations for ALL data (not getting acccuracy so it's fine to incl train)
 d1_all, d2_all, sae_acts_all = collect_sae_activations(
     model=model,
     sae=sae,
-    val_dl=val_dl,
+    val_dl=all_dl, 
     act_mean=act_mean,
     layer_idx=0,
     sep_idx=SEP_TOKEN_INDEX,
@@ -111,10 +116,10 @@ print(f"Firing rate range: [{firing_rate[firing_rate > 0].min():.4f}, {firing_ra
 # %%
 # SAE Reconstruction Accuracy - model performance with SAE-reconstructed activations
 
-acc_metrics = compute_sae_reconstruction_accuracy(
+acc_metrics = compute_sae_reconstruction_accuracy( 
     model=model,
     sae=sae,
-    val_dl=val_dl,
+    val_dl=val_dl, # MUST use val_dl
     act_mean=act_mean,
     layer_idx=0,
     sep_idx=SEP_TOKEN_INDEX,
@@ -179,7 +184,7 @@ with torch.no_grad():
     alpha_d1_all = []
     alpha_d2_all = []
     
-    for inputs, _ in tqdm(val_dl, desc="Extracting attention weights", leave=False):
+    for inputs, _ in tqdm(all_dl, desc="Extracting attention weights", leave=False):
         inputs = inputs.to(DEVICE)
         
         # Run model with attention cache
@@ -486,7 +491,8 @@ for d1_val, d2_val in test_pairs:
         continue
     idx = torch.where(mask)[0][0].item()
     
-    inputs_i = val_ds.tensors[0][idx:idx+1].to(DEVICE)
+    # Get inputs from all_ds (since idx is from all_dl)
+    inputs_i = all_ds[idx][0].unsqueeze(0).to(DEVICE)
     z_orig = sae_acts_all[idx].clone().to(DEVICE)
     order_feat_orig = z_orig[special_feat_idx].item()
     
