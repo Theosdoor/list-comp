@@ -430,7 +430,16 @@ def identify_special_features(sae_acts_all, alpha_d1_all, alpha_d2_all, threshol
             correlations.append(0.0)
             continue
         
-        corr = np.corrcoef(feat_acts, alpha_diff)[0, 1]
+        # Compute correlation, handling NaN cases
+        try:
+            corr_matrix = np.corrcoef(feat_acts, alpha_diff)
+            corr = corr_matrix[0, 1]
+            # Replace NaN with 0 (happens when feature has 0 variance)
+            if np.isnan(corr):
+                corr = 0.0
+        except (ValueError, RuntimeWarning):
+            corr = 0.0
+        
         correlations.append(corr)
         
         if abs(corr) > threshold:
@@ -441,12 +450,18 @@ def identify_special_features(sae_acts_all, alpha_d1_all, alpha_d2_all, threshol
             })
     
     correlations = np.array(correlations)
+    # Replace NaNs in correlations array
+    correlations = np.nan_to_num(correlations, nan=0.0)
+    
+    # Handle case where all correlations are 0
+    max_corr = float(np.abs(correlations).max()) if len(correlations) > 0 else 0.0
+    mean_corr = float(np.abs(correlations).mean()) if len(correlations) > 0 else 0.0
     
     return {
         "special_features": special_features,
         "n_special_features": len(special_features),
-        "max_correlation": float(np.abs(correlations).max()),
-        "mean_abs_correlation": float(np.abs(correlations).mean()),
+        "max_correlation": max_corr,
+        "mean_abs_correlation": mean_corr,
         "all_correlations": correlations,
     }
 
