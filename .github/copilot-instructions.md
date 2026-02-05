@@ -36,7 +36,7 @@ Two formats are parsed by `parse_model_name()` in [src/models/transformer.py](sr
 2. **Old format**: `{layers}layer_{digits}dig_{d_model}d[_...]`
    - Example: `2layer_100dig_64d.pt` (always assumes `list_len=2`)
 
-Use `parse_model_name_safe()` for robust parsing with fallback.
+Use `infer_model_config()` for robust parsing with fallback.
 
 ## Accuracy Calculation
 **Model accuracy must only be evaluated on output positions, NOT all tokens:**

@@ -56,7 +56,7 @@ USE_WV = inferred['use_wv']
 USE_WO = inferred['use_wo']
 
 # Derive data parameters from inferred vocab size and model name
-from model_utils import parse_model_name_safe
+from src.models.transformer import parse_model_name_safe
 parsed = parse_model_name_safe(MODEL_NAME)
 N_DIGITS = VOCAB - 2  # vocab = digits + MASK + SEP
 LIST_LEN = parsed.list_len  # parsed from model name, defaults to 2
