@@ -117,6 +117,7 @@ top_n = min(30, n_active)
 # %%
 SPECIAL_FEAT_IDX = 30
 
+# %%
 results = feature_steering_experiment(
     model=model, sae=sae, act_mean=act_mean,
     feature_idx=SPECIAL_FEAT_IDX,
@@ -140,8 +141,166 @@ results = feature_steering_experiment(
 # 
 
 # %%
-# let's focus on the logit at o_1 for a particular input example (91, 83).
-# plot red line for d2=83 logit, blue line for d1=91 logit, and grey lines for all other logits
-# ==> should be 100 lines in total! x axis (feature 30 scale) should go from -1 to 2 
+# let's focus on the logits for a particular input example, and see all the other ligt lines
 
-input_example_idx = 0 # get idx for (91,83) in the dataset all_ds
+# Find index for example input
+d1_val, d2_val = 15, 10
+mask = (d1_all == d1_val) & (d2_all == d2_val)
+if mask.sum() == 0:
+    print(f"Input ({d1_val}, {d2_val}) not found in dataset!")
+else:
+    input_idx = torch.where(mask)[0][0].item()
+    print(f"Found input ({d1_val}, {d2_val}) at index {input_idx}")
+    
+    # Get the input and original SAE activations
+    inputs_i = all_ds[input_idx][0].unsqueeze(0).to(DEVICE)
+    z_orig = sae_acts_all[input_idx].clone().to(DEVICE)
+    feat_orig = z_orig[SPECIAL_FEAT_IDX].item()
+    
+    print(f"Original feature {SPECIAL_FEAT_IDX} activation: {feat_orig:.4f}")
+    
+    # Test scale factors from -1 to 2
+    scale_factors = np.linspace(-1.0, 2.0, 30)
+    
+    # Storage for all logits at o1 and o2
+    all_logits_o1 = []  # Will be shape [n_scales, n_digits]
+    all_logits_o2 = []  # Will be shape [n_scales, n_digits]
+    
+    hook_name_resid = f"blocks.0.hook_resid_post"
+    
+    for scale in tqdm(scale_factors, desc="Testing scales"):
+        z_scaled = z_orig.clone()
+        z_scaled[SPECIAL_FEAT_IDX] = feat_orig * scale
+        
+        recon = sae.decode(z_scaled.unsqueeze(0))
+        
+        with torch.no_grad():
+            patched_logits = model.run_with_hooks(
+                inputs_i,
+                fwd_hooks=[(hook_name_resid, make_sae_patch_hook(recon, act_mean, SEP_TOKEN_INDEX))]
+            )
+        
+        # Get logits at o1 (position -2) and o2 (position -1) for ALL digits
+        logits_o1 = patched_logits[0, -2, :N_DIGITS].cpu().numpy()
+        logits_o2 = patched_logits[0, -1, :N_DIGITS].cpu().numpy()
+        all_logits_o1.append(logits_o1)
+        all_logits_o2.append(logits_o2)
+    
+    all_logits_o1 = np.array(all_logits_o1)  # [n_scales, n_digits]
+    all_logits_o2 = np.array(all_logits_o2)  # [n_scales, n_digits]
+    
+    # Create 2-row plot
+    fig, axes = plt.subplots(2, 1, figsize=(10, 10))
+    
+    # Plot o1 logits (top row)
+    ax1 = axes[0]
+    
+    # Plot all other logits in grey
+    for digit in range(N_DIGITS):
+        if digit != d1_val and digit != d2_val:
+            ax1.plot(scale_factors, all_logits_o1[:, digit], 'grey', alpha=0.2, linewidth=0.5)
+    
+    # Plot d1 and d2 logits on top
+    ax1.plot(scale_factors, all_logits_o1[:, d1_val], 'b-', linewidth=2, label=f'd1={d1_val} logit')
+    ax1.plot(scale_factors, all_logits_o1[:, d2_val], 'r-', linewidth=2, label=f'd2={d2_val} logit')
+    
+    # Mark original activation point
+    ax1.axvline(x=1.0, color='green', linestyle='--', alpha=0.5, label='Original')
+    ax1.axvline(x=0.0, color='black', linestyle=':', alpha=0.5, label='Ablated')
+    
+    ax1.set_xlabel(f'Feature {SPECIAL_FEAT_IDX} Scale Factor')
+    ax1.set_ylabel('Logit at o1')
+    ax1.set_title(f'All Logits at Output Position 1\nInput: ({d1_val}, {d2_val}), Original f{SPECIAL_FEAT_IDX}={feat_orig:.3f}')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    
+    # Plot o2 logits (bottom row)
+    ax2 = axes[1]
+    
+    # Plot all other logits in grey
+    for digit in range(N_DIGITS):
+        if digit != d1_val and digit != d2_val:
+            ax2.plot(scale_factors, all_logits_o2[:, digit], 'grey', alpha=0.2, linewidth=0.5)
+    
+    # Plot d1 and d2 logits on top
+    ax2.plot(scale_factors, all_logits_o2[:, d1_val], 'b-', linewidth=2, label=f'd1={d1_val} logit')
+    ax2.plot(scale_factors, all_logits_o2[:, d2_val], 'r-', linewidth=2, label=f'd2={d2_val} logit')
+    
+    # Mark original activation point
+    ax2.axvline(x=1.0, color='green', linestyle='--', alpha=0.5, label='Original')
+    ax2.axvline(x=0.0, color='black', linestyle=':', alpha=0.5, label='Ablated')
+    
+    ax2.set_xlabel(f'Feature {SPECIAL_FEAT_IDX} Scale Factor')
+    ax2.set_ylabel('Logit at o2')
+    ax2.set_title(f'All Logits at Output Position 2')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    ax2.set_xlabel(f'Feature {SPECIAL_FEAT_IDX} Scale Factor')
+    ax2.set_ylabel('Logit at o2')
+    ax2.set_title(f'All Logits at Output Position 2')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    if SAVE_DIR:
+        plt.savefig(os.path.join(SAVE_DIR, f'all_logits_o1_o2_f{SPECIAL_FEAT_IDX}_input_{d1_val}_{d2_val}.png'), dpi=150, bbox_inches='tight')
+    plt.show()
+    
+    # Get original outputs (at scale=1.0)
+    original_scale_idx = np.argmin(np.abs(scale_factors - 1.0))
+    original_output_o1 = all_logits_o1[original_scale_idx].argmax()
+    original_output_o2 = all_logits_o2[original_scale_idx].argmax()
+    
+    # Print crossover points for both positions
+    d1_logits_o1 = all_logits_o1[:, d1_val]
+    d2_logits_o1 = all_logits_o1[:, d2_val]
+    diff_o1 = d1_logits_o1 - d2_logits_o1
+    
+    d1_logits_o2 = all_logits_o2[:, d1_val]
+    d2_logits_o2 = all_logits_o2[:, d2_val]
+    diff_o2 = d1_logits_o2 - d2_logits_o2
+    
+    print("\n" + "="*60)
+    print("CROSSOVER ANALYSIS")
+    print("="*60)
+    print(f"\nOriginal model output: ({original_output_o1}, {original_output_o2})")
+    print(f"Input: ({d1_val}, {d2_val})")
+    
+    # Find where sign changes (crossover) for o1
+    sign_changes_o1 = np.where(np.diff(np.sign(diff_o1)))[0]
+    if len(sign_changes_o1) > 0:
+        crossover_idx_o1 = sign_changes_o1[0]
+        crossover_scale_o1 = scale_factors[crossover_idx_o1]
+        output_o1_at_crossover = all_logits_o1[crossover_idx_o1].argmax()
+        output_o2_at_crossover_o1 = all_logits_o2[crossover_idx_o1].argmax()
+        print(f"\n📍 O1 Logits cross over at scale ≈ {crossover_scale_o1:.3f}")
+        print(f"   At this point: d1 logit = {d1_logits_o1[crossover_idx_o1]:.3f}, d2 logit = {d2_logits_o1[crossover_idx_o1]:.3f}")
+        print(f"   Model output: ({output_o1_at_crossover}, {output_o2_at_crossover_o1})  [original: ({original_output_o1}, {original_output_o2})]")
+    else:
+        print(f"\n❌ O1: No crossover detected in range [{scale_factors[0]:.1f}, {scale_factors[-1]:.1f}]")
+        if d1_logits_o1[0] > d2_logits_o1[0]:
+            print("   d1 logit remains higher throughout")
+        else:
+            print("   d2 logit remains higher throughout")
+    
+    # Find where sign changes (crossover) for o2
+    sign_changes_o2 = np.where(np.diff(np.sign(diff_o2)))[0]
+    if len(sign_changes_o2) > 0:
+        crossover_idx_o2 = sign_changes_o2[0]
+        crossover_scale_o2 = scale_factors[crossover_idx_o2]
+        output_o1_at_crossover_o2 = all_logits_o1[crossover_idx_o2].argmax()
+        output_o2_at_crossover = all_logits_o2[crossover_idx_o2].argmax()
+        print(f"\n📍 O2 Logits cross over at scale ≈ {crossover_scale_o2:.3f}")
+        print(f"   At this point: d1 logit = {d1_logits_o2[crossover_idx_o2]:.3f}, d2 logit = {d2_logits_o2[crossover_idx_o2]:.3f}")
+        print(f"   Model output: ({output_o1_at_crossover_o2}, {output_o2_at_crossover})  [original: ({original_output_o1}, {original_output_o2})]")
+    else:
+        print(f"\n❌ O2: No crossover detected in range [{scale_factors[0]:.1f}, {scale_factors[-1]:.1f}]")
+        if d1_logits_o2[0] > d2_logits_o2[0]:
+            print("   d1 logit remains higher throughout")
+        else:
+            print("   d2 logit remains higher throughout")
+
+# %%
+
+# %%

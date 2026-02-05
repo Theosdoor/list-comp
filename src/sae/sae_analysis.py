@@ -734,7 +734,7 @@ def feature_steering_experiment(
             - 'order_feat_orig': Original feature activation
     """
     if scale_factors is None:
-        scale_factors = np.array([-1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0])
+        scale_factors = np.linspace(-1.0, 2.0, 30)
     
     # Auto-detect device from model if not specified
     if device is None:
@@ -819,8 +819,8 @@ def feature_steering_experiment(
             
             # Top row: Logits at o1 position
             ax1 = axes[0, col]
-            ax1.plot(scales, result['logit_d1_o1'], 'b-o', label=f'd1={d1} logit', markersize=4)
-            ax1.plot(scales, result['logit_d2_o1'], 'r-s', label=f'd2={d2} logit', markersize=4)
+            ax1.plot(scales, result['logit_d1_o1'], 'b-o', label=f'd1={d1} logit')
+            ax1.plot(scales, result['logit_d2_o1'], 'r-s', label=f'd2={d2} logit')
             ax1.axvline(x=1.0, color='gray', linestyle='--', alpha=0.5, label='Original')
             ax1.axvline(x=0.0, color='red', linestyle=':', alpha=0.5)
             ax1.set_xlabel(f'Feature {feature_idx} Scale')
@@ -831,8 +831,8 @@ def feature_steering_experiment(
             
             # Bottom row: Logits at o2 position
             ax2 = axes[1, col]
-            ax2.plot(scales, result['logit_d1_o2'], 'b-o', label=f'd1={d1} logit', markersize=4)
-            ax2.plot(scales, result['logit_d2_o2'], 'r-s', label=f'd2={d2} logit', markersize=4)
+            ax2.plot(scales, result['logit_d1_o2'], 'b-o', label=f'd1={d1} logit')
+            ax2.plot(scales, result['logit_d2_o2'], 'r-s', label=f'd2={d2} logit')
             ax2.axvline(x=1.0, color='gray', linestyle='--', alpha=0.5, label='Original')
             ax2.axvline(x=0.0, color='red', linestyle=':', alpha=0.5)
             ax2.set_xlabel(f'Feature {feature_idx} Scale')
