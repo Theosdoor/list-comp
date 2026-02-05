@@ -38,10 +38,16 @@ def get_valid_attention_positions(mask_bias, mask_bias_l0, seq_len, n_layers):
     return valid_positions
 
 
-def _make_silent_pattern_hook(mask_2d, head_index=None, set_to=0.0, renorm=False, eps=1e-12):
+def _make_pattern_hook(mask_2d, head_index=None, set_to=0.0, renorm=False, eps=1e-12):
     """
-    Silent version of make_pattern_hook (no print statements).
     Returns a forward hook that ablates specified attention positions.
+    
+    Args:
+        mask_2d: Bool tensor [Q, K]
+        head_index: int to affect a single head, or None to affect all heads
+        set_to: value to write into masked entries (usually 0.0)
+        renorm: whether to renormalize rows after masking
+        eps: epsilon for numerical stability when renormalizing
     """
     mask_2d = mask_2d.detach()
 
@@ -75,11 +81,7 @@ def _make_silent_pattern_hook(mask_2d, head_index=None, set_to=0.0, renorm=False
 
 def _build_qk_mask_from_positions(positions, seq_len):
     """Create a boolean mask where True = ablate this (q, k) position."""
-    mask = torch.zeros(seq_len, seq_len, dtype=torch.bool)
-    for q, k in positions:
-        if 0 <= q < seq_len and 0 <= k < seq_len:
-            mask[q, k] = True
-    return mask
+    return build_qk_mask(positions=positions, seq_len=seq_len)
 
 
 def _run_ablation_and_get_accuracy(model, inputs, targets, ablation_dict, seq_len, list_len, 
@@ -107,8 +109,8 @@ def _run_ablation_and_get_accuracy(model, inputs, targets, ablation_dict, seq_le
             continue
         mask = _build_qk_mask_from_positions(positions, seq_len)
         hook_name = utils.get_act_name("pattern", layer_idx)
-        fwd_hooks.append((hook_name, _make_silent_pattern_hook(mask, head_index=head_index, 
-                                                               set_to=0.0, renorm=renorm)))
+        fwd_hooks.append((hook_name, _make_pattern_hook(mask, head_index=head_index, 
+                                                        set_to=0.0, renorm=renorm)))
     
     with torch.no_grad():
         if fwd_hooks:
@@ -476,47 +478,22 @@ def build_qk_mask(positions=None, queries=None, keys=None, seq_len=5):
             mask[q, keys] = True
     return mask
 
+
 def make_pattern_hook(mask_2d: torch.Tensor, head_index=None, set_to=0.0, renorm=True, eps=1e-12):
     """
-    Returns a fwd hook for the 'pattern' activation that:
-      - sets masked entries to set_to (default 0.0)
-      - optionally renormalizes rows so they sum to 1 again (per head, per batch, per query row)
+    Returns a fwd hook for the 'pattern' activation that ablates specified positions.
+    
+    This is a wrapper around _make_pattern_hook with renorm=True by default for
+    backward compatibility with legacy code.
+    
     Args:
-      mask_2d: Bool tensor [Q, K]
-      head_index: int to affect a single head, or None to affect all heads
-      set_to: value to write into masked entries (usually 0.0)
-      renorm: whether to renormalize rows after masking
+        mask_2d: Bool tensor [Q, K]
+        head_index: int to affect a single head, or None to affect all heads
+        set_to: value to write into masked entries (usually 0.0)
+        renorm: whether to renormalize rows after masking (default True)
+        eps: epsilon for numerical stability when renormalizing
     """
-    mask_2d = mask_2d.detach()
-
-    def hook(pattern, hook):
-        # pattern: [batch, n_heads, Q, K]
-        B, H, Q, K = pattern.shape
-        m4_all = mask_2d.to(pattern.device).view(1, 1, Q, K)  # broadcastable
-
-        if head_index is None:
-            pattern = torch.where(m4_all, torch.as_tensor(set_to, device=pattern.device), pattern)
-        else:
-            m3 = m4_all.squeeze(1)  # [1, Q, K]
-            ph = pattern[:, head_index]  # [B, Q, K]
-            ph = torch.where(m3, torch.as_tensor(set_to, device=pattern.device), ph)
-            pattern[:, head_index] = ph
-
-        if renorm:
-            # Renormalize only rows whose query index has any masked key
-            rows_to_fix = mask_2d.any(dim=-1)  # [Q]
-            if rows_to_fix.any():
-                rows_idx = rows_to_fix.nonzero(as_tuple=False).squeeze(-1)  # [Nr]
-                heads = range(H) if head_index is None else [head_index]
-                for h in heads:
-                    # p: [B, Nr, K]
-                    p = pattern[:, h, rows_idx, :]
-                    s = p.sum(dim=-1, keepdim=True).clamp_min(eps)   # [B, Nr, 1]
-                    pattern[:, h, rows_idx, :] = p / s
-
-        return pattern
-
-    return hook
+    return _make_pattern_hook(mask_2d, head_index=head_index, set_to=set_to, renorm=renorm, eps=eps)
 
 
 def gen_attn_flow(
@@ -834,65 +811,6 @@ def plot_sep_attention_vs_accuracy(
             fig, axes = plt.subplots(n_plots, 1, figsize=figsize, dpi=dpi)
         else:  # 'row'
             fig, axes = plt.subplots(1, n_plots, figsize=figsize, dpi=dpi)
-    
-    ok = all_correct.astype(bool)
-    c_ok, c_bad = "#1f77b4", "#DC2626"  # blue, red
-    ms, a_ok, a_bad = 24, 0.35, 0.55
-    
-    # Plot each pair
-    for idx, (d1_pos, d2_pos, title) in enumerate(position_pairs):
-        ax = axes[idx]
-        
-        attn_vals = scores[:, sep_position, [d1_pos, d2_pos]].detach().cpu().numpy()  # [B, 2]
-        x, y = attn_vals[:, 0], attn_vals[:, 1]
-        x_ok, y_ok = x[ok], y[ok]
-        x_bad, y_bad = x[~ok], y[~ok]
-        
-        # Axes limits (robust to outliers)
-        x_lo, x_hi = np.percentile(x, [1, 99])
-        y_lo, y_hi = np.percentile(y, [1, 99])
-        pad_x = 0.06 * max(1e-6, x_hi - x_lo)
-        pad_y = 0.06 * max(1e-6, y_hi - y_lo)
-        
-        # Scatter
-        if len(x_ok):
-            ax.scatter(x_ok, y_ok, s=ms, c=c_ok, alpha=a_ok, edgecolors="none", label="Correct")
-        if len(x_bad):
-            ax.scatter(x_bad, y_bad, s=ms, c=c_bad, alpha=a_bad, edgecolors="none", label="Incorrect")
-        
-        # Reference lines at 0
-        ax.axvline(0, color="#94A3B8", lw=0.8, ls="--", alpha=0.8)
-        ax.axhline(0, color="#94A3B8", lw=0.8, ls="--", alpha=0.8)
-        
-        # Labels, limits, legend
-        ax.set_xlabel(f"SEP → d{d1_pos+1} attention score")
-        ax.set_ylabel(f"SEP → d{d2_pos+1} attention score")
-        ax.set_xlim(x_lo - pad_x, x_hi + pad_x)
-        ax.set_ylim(y_lo - pad_y, y_hi + pad_y)
-        ax.grid(True, linestyle=":", alpha=0.8)
-        if title:
-            ax.set_title(title)
-        if idx == 0:
-            ax.legend(frameon=True, loc="best")
-    
-    plt.tight_layout()
-    
-    if show_plot:
-        plt.show()
-        # Print statistics
-        acc = all_correct.mean()
-        print(f"Total samples: {len(all_correct)}")
-        print(f"Correct predictions: {all_correct.sum()}")
-        print(f"Accuracy: {acc:.3f}")
-    
-    if return_fig:
-        stats = {
-            'accuracy': all_correct.mean(),
-            'total': len(all_correct),
-            'correct': all_correct.sum(),
-            'incorrect': (~all_correct).sum(),
-        }
-        return fig, axes if n_plots > 1 else axes[0], stats
     
     ok = all_correct.astype(bool)
     c_ok, c_bad = "#1f77b4", "#DC2626"  # blue, red

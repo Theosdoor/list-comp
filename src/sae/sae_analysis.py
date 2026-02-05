@@ -19,9 +19,66 @@ import wandb
 from dictionary_learning.trainers.batch_top_k import BatchTopKSAE
 
 
+# ============================================================================
+# Helper Functions (internal)
+# ============================================================================
+
+def _encode_through_sae(activations, sae, act_mean, decode=False, use_threshold=True):
+    """
+    Helper to encode (and optionally decode) activations through SAE.
+    
+    Args:
+        activations: Input activations [batch, d_model]
+        sae: Trained SAE model
+        act_mean: Activation mean for centering
+        decode: Whether to decode back to activation space
+        use_threshold: Whether to use threshold in encoding
+    
+    Returns:
+        If decode=True: reconstructed activations [batch, d_model]
+        If decode=False: SAE latent codes [batch, d_sae]
+    """
+    activations_centered = activations - act_mean.to(activations.device)
+    sae_z = sae.encode(activations_centered, use_threshold=use_threshold)
+    
+    if decode:
+        reconstructed = sae.decode(sae_z)
+        return reconstructed
+    return sae_z
+
+
+def _extract_activations(model, inputs, layer_idx, hook_name, stop_at_layer=None):
+    """
+    Helper to extract activations from model via cache.
+    
+    Args:
+        model: Base transformer model
+        inputs: Input tensor
+        layer_idx: Layer index to extract from
+        hook_name: Name of the hook to extract
+        stop_at_layer: Layer to stop at (defaults to layer_idx + 1)
+    
+    Returns:
+        Activations tensor from the specified hook
+    """
+    if stop_at_layer is None:
+        stop_at_layer = layer_idx + 1
+    
+    _, cache = model.run_with_cache(
+        inputs,
+        stop_at_layer=stop_at_layer,
+        names_filter=[hook_name]
+    )
+    return cache[hook_name]
+
+
+# ============================================================================
+# Hook Creation Functions
+# ============================================================================
+
 def make_sae_patch_hook(reconstructed_acts, act_mean, sep_idx):
     """
-    Create a hook that patches SAE-reconstructed activations at the SEP token position.
+    Create a hook that patches pre-computed SAE-reconstructed activations at the SEP token position.
     
     Args:
         reconstructed_acts: SAE-decoded activations (mean-centered)
@@ -37,6 +94,34 @@ def make_sae_patch_hook(reconstructed_acts, act_mean, sep_idx):
         activations[:, sep_idx, :] = reconstructed_acts + act_mean.to(activations.device)
         return activations
     return hook_fn
+
+
+def make_dynamic_sae_patch_hook(sae, act_mean, sep_idx):
+    """
+    Create a hook that dynamically encodes/decodes activations through SAE during forward pass.
+    
+    Args:
+        sae: Trained SAE model
+        act_mean: Activation mean for centering
+        sep_idx: SEP token position
+    
+    Returns:
+        hook_fn: Hook function that can be used with model.run_with_hooks
+    """
+    def hook_fn(activations, hook):
+        activations = activations.clone()
+        # Get SEP token activations and reconstruct through SAE
+        sep_acts = activations[:, sep_idx, :]
+        reconstructed = _encode_through_sae(sep_acts, sae, act_mean, decode=True)
+        # Replace with reconstruction (add mean back)
+        activations[:, sep_idx, :] = reconstructed + act_mean.to(reconstructed.device)
+        return activations
+    return hook_fn
+
+
+# ============================================================================
+# SAE Activation Collection & Analysis
+# ============================================================================
 
 
 def collect_sae_activations(model, sae, val_dl, act_mean, layer_idx=0, sep_idx=2, device="cuda"):
@@ -72,16 +157,10 @@ def collect_sae_activations(model, sae, val_dl, act_mean, layer_idx=0, sep_idx=2
             d2 = inputs[:, 1]
             
             # Get SEP token activations
-            _, cache = model.run_with_cache(
-                inputs,
-                stop_at_layer=layer_idx + 1,
-                names_filter=[hook_name_resid]
-            )
-            sep_acts = cache[hook_name_resid][:, sep_idx, :]
+            sep_acts = _extract_activations(model, inputs, layer_idx, hook_name_resid)[:, sep_idx, :]
             
             # Run SAE encoding
-            sep_acts_centered = sep_acts - act_mean.to(sep_acts.device)
-            sae_z = sae.encode(sep_acts_centered, use_threshold=True)
+            sae_z = _encode_through_sae(sep_acts, sae, act_mean, decode=False)
             
             # Store
             all_d1.append(d1.cpu())
@@ -197,17 +276,11 @@ def compute_reconstruction_metrics(model, sae, val_dl, act_mean, layer_idx=0, se
             inputs = inputs.to(device)
             
             # Get original activations
-            _, cache = model.run_with_cache(
-                inputs,
-                stop_at_layer=layer_idx + 1,
-                names_filter=[hook_name_resid]
-            )
-            sep_acts = cache[hook_name_resid][:, sep_idx, :]
+            sep_acts = _extract_activations(model, inputs, layer_idx, hook_name_resid)[:, sep_idx, :]
             
             # Encode and decode through SAE
             sep_acts_centered = sep_acts - act_mean.to(sep_acts.device)
-            sae_z = sae.encode(sep_acts_centered, use_threshold=True)
-            reconstructed = sae.decode(sae_z)
+            reconstructed = _encode_through_sae(sep_acts, sae, act_mean, decode=True)
             
             # Compute MSE per sample
             mse = ((sep_acts_centered - reconstructed) ** 2).mean(dim=1)
@@ -269,18 +342,7 @@ def compute_sae_reconstruction_accuracy(model, sae, val_dl, act_mean, layer_idx=
     
     # 2. Accuracy with SAE reconstruction
     correct_recon = 0
-    
-    def reconstruction_hook(activations, hook):
-        """Replace activations with SAE reconstruction at SEP position."""
-        # Get SEP token activations
-        sep_acts = activations[:, sep_idx, :]
-        # Center and reconstruct
-        sep_acts_centered = sep_acts - act_mean.to(sep_acts.device)
-        sae_z = sae.encode(sep_acts_centered, use_threshold=True)
-        reconstructed = sae.decode(sae_z)
-        # Replace with reconstruction (add mean back)
-        activations[:, sep_idx, :] = reconstructed + act_mean.to(reconstructed.device)
-        return activations
+    reconstruction_hook = make_dynamic_sae_patch_hook(sae, act_mean, sep_idx)
     
     with torch.no_grad():
         for inputs, targets in tqdm(val_dl, desc="Computing SAE reconstruction accuracy", leave=False):
@@ -330,14 +392,8 @@ def collect_attention_patterns(model, val_dl, layer_idx=0, sep_idx=2, device="cu
         for inputs, _ in tqdm(val_dl, desc="Collecting attention patterns", leave=False):
             inputs = inputs.to(device)
             
-            _, cache = model.run_with_cache(
-                inputs,
-                stop_at_layer=layer_idx + 1,
-                names_filter=[hook_name_attn]
-            )
-            
             # Get attention pattern: [batch, n_heads, seq, seq]
-            attn_pattern = cache[hook_name_attn][:, 0, :, :]  # [batch, seq, seq] (single head)
+            attn_pattern = _extract_activations(model, inputs, layer_idx, hook_name_attn)[:, 0, :, :]  # [batch, seq, seq] (single head)
             alpha_d1 = attn_pattern[:, sep_idx, 0]  # SEP attending to d1
             alpha_d2 = attn_pattern[:, sep_idx, 1]  # SEP attending to d2
             
@@ -419,6 +475,84 @@ def create_firing_rate_histogram(sae_acts_all, figsize=(10, 6)):
     ax.grid(True, alpha=0.3)
     
     return fig
+
+
+# ============================================================================
+# SAE Loading Functions
+# ============================================================================
+
+def load_sae_from_local(sae_name, d_model, device="cuda", sae_dir="../results/sae_models"):
+    """
+    Load a Sparse Autoencoder (SAE) from local checkpoint.
+    
+    Args:
+        sae_name: Name of the SAE file (e.g., 'sae_d100_k4_50ksteps_2layer_100dig_64d.pt')
+        d_model: Dimension of model activations
+        device: Device to load SAE on
+        sae_dir: Directory containing SAE checkpoints
+    
+    Returns:
+        dict with keys:
+            - sae: Loaded BatchTopKSAE model
+            - act_mean: Activation mean for centering
+            - config: SAE configuration dict
+            - checkpoint: Full checkpoint dict
+    """
+    # Load checkpoint
+    sae_path = os.path.join(sae_dir, sae_name)
+    checkpoint = torch.load(sae_path, map_location=device, weights_only=False)
+    
+    # Extract config
+    sae_cfg = checkpoint.get("cfg", {})
+    d_sae = sae_cfg.get("dict_size", sae_cfg.get("d_sae", 256))
+    top_k = sae_cfg.get("k", 4)
+    
+    # Create SAE instance
+    sae = BatchTopKSAE(
+        activation_dim=d_model,
+        dict_size=d_sae,
+        k=top_k
+    ).to(device)
+    
+    # Load state dict (handle both old and new formats)
+    state_dict = checkpoint["state_dict"]
+    if "W_enc" in state_dict:
+        # Legacy format conversion
+        new_state_dict = {
+            "encoder.weight": state_dict["W_enc"].T,
+            "encoder.bias": state_dict["b_enc"],
+            "decoder.weight": state_dict["W_dec"],
+            "decoder.bias": state_dict["b_dec"],
+        }
+        sae.load_state_dict(new_state_dict)
+    else:
+        # New format
+        sae.load_state_dict(state_dict)
+    
+    # Extract activation mean
+    act_mean = checkpoint.get("act_mean", torch.zeros(d_model)).to(device)
+    
+    print(f"✓ Loaded SAE from {sae_path}")
+    print(f"  - Dictionary size: {d_sae}")
+    print(f"  - Top-K: {top_k}")
+    if "final_loss" in checkpoint:
+        print(f"  - Final loss: {checkpoint['final_loss']:.6f}")
+    if "final_l0" in checkpoint:
+        print(f"  - Final L0: {checkpoint['final_l0']:.2f}")
+    
+    return {
+        "sae": sae,
+        "act_mean": act_mean,
+        "config": {
+            "dict_size": d_sae,
+            "d_sae": d_sae,
+            "k": top_k,
+            "top_k": top_k,
+            "activation_dim": d_model,
+            **sae_cfg
+        },
+        "checkpoint": checkpoint,
+    }
 
 
 def load_sae_from_wandb_run(run_id, project="theo-farrell99-durham-university/list-comp", 
@@ -517,8 +651,6 @@ def load_sae_from_wandb_run(run_id, project="theo-farrell99-durham-university/li
         "checkpoint": checkpoint,
     }
 
-
-# NOTE - USE from src.utils.nb_utils import load_sae for local loading
 
 def compare_sweep_runs(project="theo-farrell99-durham-university/list-comp", 
                        sweep_id="wmhceuqf"):

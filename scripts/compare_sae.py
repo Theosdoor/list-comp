@@ -395,12 +395,10 @@ def main():
     )
     print(f"✓ Loaded base model from {model_path}")
     
-    # Get validation data
-    val_ds, _ = get_dataset(
+    # Get validation data (use defaults: train_split=0.8, no_dupes=False)
+    _, val_ds = get_dataset(
         list_len=LIST_LEN,
         n_digits=N_DIGITS,
-        train_split=1.0,
-        no_dupes=False
     )
     val_dl = DataLoader(val_ds, batch_size=2048, shuffle=False)
     
