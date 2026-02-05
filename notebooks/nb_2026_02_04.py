@@ -42,15 +42,9 @@ DEVICE = setup_notebook(seed=42)
 # --- Configuration ---
 MODEL_NAME = '2layer_100dig_64d'
 # looking at:
-# SAE_NAME = "sae_d50_k1_lr0.0001_seed44_2layer_100dig_64d.pt" # MSE: 0.1770, Recon Acc: 0.3217
-# SAE_NAME = "sae_d100_k1_lr0.0003_seed42_2layer_100dig_64d.pt" # MSE: 0.1347, Recon Acc: 0.3886 (boring)
-# SAE_NAME = "sae_d50_k2_lr0.001_seed44_2layer_100dig_64d.pt" # MSE: 0.1378, Recon Acc: 0.4728
-# SAE_NAME = "sae_d50_k2_lr0.001_seed42_2layer_100dig_64d.pt" # MSE: 0.1399, Recon Acc: 0.4658
-# SAE_NAME = "sae_d100_k2_lr0.0003_seed44_2layer_100dig_64d.pt" # MSE: 0.0246, Recon Acc: 0.7365 (boring)
-# SAE_NAME = "sae_d100_k2_lr0.0001_seed42_2layer_100dig_64d.pt" # MSE: 0.0291, Recon Acc: 0.7102
-SAE_NAME = "sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt" # MSE: 0.0042, Recon Acc: 0.9312 (hmm dont know)
-# SAE_NAME = "sae_d256_k1_2layer_100dig_64d.pt"
-# SAE_NAME = "sae_d100_k4_50ksteps_2layer_100dig_64d.pt" # (classic)
+SAE_NAME = "sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt" # MSE: 0.0042, Recon Acc: 0.8688 (old - not as high accuracy as below)
+SAE_NAME = "sae_d100_k3_lr0.0001_seed43_2layer_100dig_64d.pt" # MSE: 0.0036, Recon Acc: 0.8752
+# SAE_NAME = "sae_d100_k4_50ksteps_2layer_100dig_64d.pt" # (classic - best recon accuracy of 0.8885) 
 
 
 # Output Config

@@ -118,6 +118,20 @@ SAEs use BatchTopK architecture from `dictionary_learning` library (see [scripts
 
 **Always** match dataset config to how the model was trained when evaluating.
 
+### Critical: Validation Split for Accurate Metrics
+**DO NOT use `train_split=1.0` when evaluating models** - this inflates accuracy by ~4% because it includes training data.
+
+For proper validation:
+```python
+# CORRECT - uses default train_split=0.8 (matches training)
+_, val_ds = get_dataset(list_len=2, n_digits=100)
+
+# WRONG - evaluates on ALL data including training set
+val_ds, _ = get_dataset(list_len=2, n_digits=100, train_split=1.0)
+```
+
+True validation accuracy for `2layer_100dig_64d.pt` is **91.45%**, not ~95% (which is train+val combined).
+
 ## Development Workflows
 
 ### Training a model

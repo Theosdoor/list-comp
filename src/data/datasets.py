@@ -12,6 +12,20 @@ def get_dataset(
     sep_tok=None, # special seperator token for the model to think about the input 
     seed=0, # seed for reproducible shuffle
 ):
+    """
+    Generate train/validation datasets for list comparison tasks.
+    
+    Returns:
+        (train_ds, val_ds): Tuple of TensorDataset objects
+    
+    Important for evaluation:
+        To get validation data matching training config, use defaults:
+            _, val_ds = get_dataset(list_len=2, n_digits=100)
+        
+        DO NOT use train_split=1.0 for evaluation - this includes training data
+        and inflates accuracy by ~4%. The default train_split=0.8 matches how
+        models were trained.
+    """
     # Set seed for reproducible dataset generation
     torch.manual_seed(seed)
     
