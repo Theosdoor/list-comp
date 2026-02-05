@@ -207,15 +207,15 @@ def train_sae_sweep():
             layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
         )
         
-        # 1. Feature heatmaps (only if d_sae is not too large)
-        print("  - Creating feature heatmaps...")
-        if d_sae <= 256:  # Only create if reasonable size
-            fig = create_feature_heatmaps(d1_all, d2_all, sae_acts_all, n_digits=N_DIGITS)
-            # Convert plotly figure to static image for W&B
-            wandb.log({"feature_heatmaps": wandb.Plotly(fig)})
-            print(f"    ✓ Logged feature heatmaps ({d_sae} features)")
-        else:
-            print(f"    ⊘ Skipped heatmaps (d_sae={d_sae} too large for visualization)")
+        # 1. Feature heatmaps (skip for now)
+        # print("  - Creating feature heatmaps...")
+        # if d_sae <= 256:  # Only create if reasonable size
+        #     fig = create_feature_heatmaps(d1_all, d2_all, sae_acts_all, n_digits=N_DIGITS)
+        #     # Convert plotly figure to static image for W&B
+        #     wandb.log({"feature_heatmaps": wandb.Plotly(fig)})
+        #     print(f"    ✓ Logged feature heatmaps ({d_sae} features)")
+        # else:
+        #     print(f"    ⊘ Skipped heatmaps (d_sae={d_sae} too large for visualization)")
         
         # 2. Basic sparsity metrics
         l0 = (sae_acts_all > 0).float().sum(dim=1).mean()
@@ -252,9 +252,8 @@ def train_sae_sweep():
             wandb.summary["accuracy_drop"] = recon_acc_metrics["accuracy_drop"]
         except Exception as e:
             print(f"    ⚠ Warning: Could not compute SAE reconstruction accuracy - {e}")
-            wandb.summary["baseline_accuracy"] = "NA"
-            wandb.summary["sae_reconstruction_accuracy"] = "NA"
-            wandb.summary["accuracy_drop"] = "NA"
+            wandb.summary["sae_reconstruction_accuracy"] = 0
+            wandb.summary["accuracy_drop"] = 100
         
         # 4. Special features (correlated with attention)
         print("  - Identifying special features...")
