@@ -174,6 +174,46 @@ def collect_sae_activations(model, sae, val_dl, act_mean, layer_idx=0, sep_idx=2
     return d1_all, d2_all, sae_acts_all
 
 
+def collect_attention_weights(model, dataloader, sep_idx, device="cuda"):
+    """
+    Collect attention weights from SEP token to input positions (d1 and d2).
+    
+    Args:
+        model: Base transformer model
+        dataloader: DataLoader with input data
+        sep_idx: SEP token position
+        device: Device to use
+    
+    Returns:
+        alpha_d1_all: Tensor of attention weights from SEP to d1 [n_samples]
+        alpha_d2_all: Tensor of attention weights from SEP to d2 [n_samples]
+    """
+    alpha_d1_all = []
+    alpha_d2_all = []
+    
+    with torch.no_grad():
+        for inputs, _ in tqdm(dataloader, desc="Extracting attention weights", leave=False):
+            inputs = inputs.to(device)
+            
+            # Run model with attention cache
+            logits, cache = model.run_with_cache(inputs)
+            
+            # Get attention scores from SEP token in layer 0
+            attn_layer0 = cache["blocks.0.attn.hook_attn_scores"]  # [batch, n_heads, seq_len, seq_len]
+            
+            # SEP attends to d1 (position 0) and d2 (position 1)
+            alpha_d1 = attn_layer0[:, :, sep_idx, 0].mean(dim=1)  # Average over heads
+            alpha_d2 = attn_layer0[:, :, sep_idx, 1].mean(dim=1)
+            
+            alpha_d1_all.append(alpha_d1.cpu())
+            alpha_d2_all.append(alpha_d2.cpu())
+    
+    alpha_d1_all = torch.cat(alpha_d1_all)
+    alpha_d2_all = torch.cat(alpha_d2_all)
+    
+    return alpha_d1_all, alpha_d2_all
+
+
 def create_feature_heatmaps(d1_all, d2_all, sae_acts_all, n_digits=100, figsize=(25, 25)):
     """
     Create interactive grid of heatmaps showing activation patterns for all SAE features.
@@ -665,6 +705,168 @@ def load_sae_from_wandb_run(run_id, project="theo-farrell99-durham-university/li
         "run_config": run_config,
         "checkpoint": checkpoint,
     }
+
+
+def feature_steering_experiment(
+    model, sae, act_mean, feature_idx,
+    d1_all, d2_all, sae_acts_all, dataset,
+    layer_idx=0, sep_idx=2, n_digits=100,
+    scale_factors=None, n_test_cases=5, seed=42,
+    device=None, plot=True, save_dir=None
+):
+    """
+    Perform feature steering experiment by scaling a specific SAE feature's activation.
+    
+    Tests how scaling a feature's activation affects model outputs across different inputs.
+    Samples test cases from inputs where the feature actually fires.
+    
+    Args:
+        model: Base transformer model
+        sae: Trained SAE
+        act_mean: Activation mean for centering
+        feature_idx: Index of the SAE feature to steer
+        d1_all: Tensor of d1 values [n_samples]
+        d2_all: Tensor of d2 values [n_samples]
+        sae_acts_all: SAE activations [n_samples, d_sae]
+        dataset: PyTorch dataset for getting inputs
+        layer_idx: Layer to patch activations at
+        sep_idx: SEP token position
+        n_digits: Number of possible digit values
+        scale_factors: Array of scale factors to test (default: [-1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0])
+        n_test_cases: Number of test cases to sample
+        seed: Random seed for sampling
+        device: Device to use (default: auto-detect from model)
+        plot: Whether to create visualization
+        save_dir: Directory to save plot (if None and plot=True, shows plot)
+    
+    Returns:
+        all_results: List of dicts with keys:
+            - 'd1', 'd2': Input pair
+            - 'scales': Scale factors used
+            - 'logit_d1_o1', 'logit_d2_o1': Logits at output position 1
+            - 'logit_d1_o2', 'logit_d2_o2': Logits at output position 2
+            - 'output_o1', 'output_o2': Predicted outputs
+            - 'order_feat_orig': Original feature activation
+    """
+    if scale_factors is None:
+        scale_factors = np.linspace(-1.0, 2.0, 30)
+    
+    # Auto-detect device from model if not specified
+    if device is None:
+        device = next(model.parameters()).device
+    
+    # Select test cases where the feature actually fires
+    active_indices = torch.where(sae_acts_all[:, feature_idx] > 0)[0]
+    print(f"Feature {feature_idx} fires on {len(active_indices)} / {len(d1_all)} inputs")
+    
+    # Sample from active inputs only
+    np.random.seed(seed)
+    n_samples = min(n_test_cases, len(active_indices))
+    test_indices = np.random.choice(active_indices.numpy(), size=n_samples, replace=False)
+    test_pairs = [(d1_all[i].item(), d2_all[i].item()) for i in test_indices]
+    
+    hook_name_resid = f"blocks.{layer_idx}.hook_resid_post"
+    
+    # Storage for results
+    all_results = []
+    
+    for d1_val, d2_val in test_pairs:
+        # Find this pair in dataset
+        mask = (d1_all == d1_val) & (d2_all == d2_val)
+        if mask.sum() == 0:
+            continue
+        idx = torch.where(mask)[0][0].item()
+        
+        # Get inputs from dataset
+        inputs_i = dataset[idx][0].unsqueeze(0).to(device)
+        z_orig = sae_acts_all[idx].clone().to(device)
+        feat_orig = z_orig[feature_idx].item()
+        
+        logit_d1_at_o1 = []
+        logit_d2_at_o1 = []
+        logit_d1_at_o2 = []
+        logit_d2_at_o2 = []
+        output_o1 = []
+        output_o2 = []
+        
+        for scale in scale_factors:
+            z_scaled = z_orig.clone()
+            z_scaled[feature_idx] = feat_orig * scale
+            
+            recon = sae.decode(z_scaled.unsqueeze(0))
+            
+            with torch.no_grad():
+                patched_logits = model.run_with_hooks(
+                    inputs_i,
+                    fwd_hooks=[(hook_name_resid, make_sae_patch_hook(recon, act_mean, sep_idx))]
+                )
+            
+            # Get logits at o1 (position -2) and o2 (position -1)
+            logits_o1 = patched_logits[0, -2, :n_digits]
+            logits_o2 = patched_logits[0, -1, :n_digits]
+            
+            logit_d1_at_o1.append(logits_o1[d1_val].item())
+            logit_d2_at_o1.append(logits_o1[d2_val].item())
+            logit_d1_at_o2.append(logits_o2[d1_val].item())
+            logit_d2_at_o2.append(logits_o2[d2_val].item())
+            output_o1.append(logits_o1.argmax().item())
+            output_o2.append(logits_o2.argmax().item())
+        
+        all_results.append({
+            'd1': d1_val, 'd2': d2_val,
+            'scales': scale_factors,
+            'logit_d1_o1': logit_d1_at_o1,
+            'logit_d2_o1': logit_d2_at_o1,
+            'logit_d1_o2': logit_d1_at_o2,
+            'logit_d2_o2': logit_d2_at_o2,
+            'output_o1': output_o1,
+            'output_o2': output_o2,
+            'order_feat_orig': feat_orig,
+        })
+    
+    # Create visualization if requested
+    if plot and len(all_results) > 0:
+        fig, axes = plt.subplots(2, len(all_results), figsize=(4*len(all_results), 8), squeeze=False)
+        
+        for col, result in enumerate(all_results):
+            d1, d2 = result['d1'], result['d2']
+            scales = result['scales']
+            
+            # Top row: Logits at o1 position
+            ax1 = axes[0, col]
+            ax1.plot(scales, result['logit_d1_o1'], 'b-o', label=f'd1={d1} logit')
+            ax1.plot(scales, result['logit_d2_o1'], 'r-s', label=f'd2={d2} logit')
+            ax1.axvline(x=1.0, color='gray', linestyle='--', alpha=0.5, label='Original')
+            ax1.axvline(x=0.0, color='red', linestyle=':', alpha=0.5)
+            ax1.set_xlabel(f'Feature {feature_idx} Scale')
+            ax1.set_ylabel('Logit at o1')
+            ax1.set_title(f'Input ({d1}, {d2})\nf{feature_idx}_orig={result["order_feat_orig"]:.2f}')
+            ax1.legend(fontsize=8)
+            ax1.grid(True, alpha=0.3)
+            
+            # Bottom row: Logits at o2 position
+            ax2 = axes[1, col]
+            ax2.plot(scales, result['logit_d1_o2'], 'b-o', label=f'd1={d1} logit')
+            ax2.plot(scales, result['logit_d2_o2'], 'r-s', label=f'd2={d2} logit')
+            ax2.axvline(x=1.0, color='gray', linestyle='--', alpha=0.5, label='Original')
+            ax2.axvline(x=0.0, color='red', linestyle=':', alpha=0.5)
+            ax2.set_xlabel(f'Feature {feature_idx} Scale')
+            ax2.set_ylabel('Logit at o2')
+            ax2.set_title(f'Logits at Output Position 2')
+            ax2.legend(fontsize=8)
+            ax2.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        
+        if save_dir:
+            import os
+            save_path = os.path.join(save_dir, f'feature_{feature_idx}_logit_steering.png')
+            plt.savefig(save_path, dpi=150, bbox_inches='tight')
+            print(f"Saved plot to {save_path}")
+        else:
+            plt.show()
+    
+    return all_results
 
 
 def compare_sweep_runs(project="theo-farrell99-durham-university/list-comp", 

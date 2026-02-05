@@ -132,12 +132,43 @@ val_ds, _ = get_dataset(list_len=2, n_digits=100, train_split=1.0)
 
 True validation accuracy for `2layer_100dig_64d.pt` is **91.45%**, not ~95% (which is train+val combined).
 
+### SAE Analysis: When to Use All Data vs Validation Split
+**Different analysis types have different data requirements:**
+
+✅ **Use combined dataset (train + val) for:**
+- SAE activation pattern visualization (`collect_sae_activations()` for heatmaps)
+- Feature interpretability analysis (digit distributions, firing rates)
+- L0 sparsity, dead features, activation statistics
+- Understanding *what* the SAE learned across the full input space
+
+```python
+# Combine datasets for activation analysis
+all_ds = torch.utils.data.ConcatDataset([train_ds, val_ds])
+all_dl = DataLoader(all_ds, batch_size=128, shuffle=False)
+d1_all, d2_all, sae_acts_all = collect_sae_activations(model, sae, all_dl, ...)
+```
+
+❌ **Use validation split ONLY for:**
+- Model accuracy evaluation (`compute_sae_reconstruction_accuracy()`)
+- Reconstruction quality metrics (`compute_reconstruction_metrics()`)
+- Any performance comparison or quantitative benchmarking
+- Anything that measures *how well* the model/SAE performs
+
+```python
+# Use validation split for accuracy metrics
+_, val_ds = get_dataset(list_len=2, n_digits=100)  # Default train_split=0.8
+val_dl = DataLoader(val_ds, batch_size=128, shuffle=False)
+acc_metrics = compute_sae_reconstruction_accuracy(model, sae, val_dl, ...)
+```
+
+**Why the distinction?** Activation visualizations benefit from seeing the full input space to understand learned features. Performance metrics must use held-out data to avoid data leakage and inflated accuracy estimates.
+
 ## Development Workflows
 
 ### Training a model
 ```bash
-cd scripts
-python train_model.py --n-layers 2 --d-model 64 --n-digits 100 \
+# Run from project root (not inside scripts/)
+python3 scripts/train_model.py --n-layers 2 --d-model 64 --n-digits 100 \
     --lr 1e-3 --max-steps 100000 --early-stop-acc 0.999 \
     --wandb  # Optional W&B logging
 ```
@@ -158,12 +189,15 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path.cwd().parent))  # Add project root to path
 
-from src.utils.nb_utils import setup_notebook, load_model, load_sae
+from src.utils.nb_utils import setup_notebook, load_transformer_model, load_sae
 device = setup_notebook(seed=42, disable_grad=True)
 
 # Then load model/SAE using convenience functions
-model = load_model('2layer_100dig_64d', 'models/')
+model, model_cfg = load_transformer_model('2layer_100dig_64d', device=device)
+sae, sae_cfg = load_sae('sae_d100_k4_50ksteps_2layer_100dig_64d.pt', d_model=64, device=device)
 ```
+
+**Note**: Notebooks are Python files (`.py`) with `#%%` cell markers, not `.ipynb` files. Run interactively in VS Code's Python Interactive window.
 
 ## Key Dependencies
 - `transformer-lens`: Base transformer implementation (HookedTransformer)
@@ -171,12 +205,16 @@ model = load_model('2layer_100dig_64d', 'models/')
 - `wandb`: Experiment tracking (enable with `--wandb` flag)
 - `uv`: Package manager (use `uv add` not `pip install`)
 
+**Device priority**: Auto-detection follows CUDA > MPS (Apple Silicon) > CPU. Use `get_device()` from [src/utils/nb_utils.py](src/utils/nb_utils.py) for consistent device selection.
+
 ## Common Pitfalls
-1. **Forgetting `configure_runtime()`**: Always call before model operations
+1. **Forgetting `configure_runtime()`**: Always call before model operations or you'll get assertion errors
 2. **Mismatched `list_len`**: Ensure dataset, mask, and model use same value
 3. **SEP token indexing**: Position is `list_len` (e.g., index 2 for list_len=2)
 4. **Old vs new notebooks**: Check imports—old code may use deprecated paths like `model_scripts.model_utils`
 5. **Device consistency**: Match model device with data in `DataLoader` or use `.to(device)`
+6. **Custom mask device errors**: If you see errors in `attach_custom_mask()`, ensure `configure_runtime()` was called with correct device before loading model
+7. **Python command**: Always use `python3` not `python` (see project conventions)
 
 ## File Organization
 - `src/`: Reusable modules (models, data, SAE analysis, utilities)
@@ -187,15 +225,23 @@ model = load_model('2layer_100dig_64d', 'models/')
 - `data/`: Pre-generated datasets (`.pt` files)
 
 ## Experiment Logging (Required)
-**Always log experiments to `EXPERIMENTS.md` for reproducibility.** After training models or SAEs:
-
-```bash
-python scripts/log_experiment.py \
+**Alwa3 scripts/log_experiment.py \
     --title "SAE sweep BatchTopK k=4" \
     --command "wandb sweep sweep_configs/sweep.yaml && wandb agent <sweep-id>" \
     --outputs "results/sae_models/" \
     --results "Best: sae_d100_k4 with MSE=0.0044" \
     --notes "Testing d_sae scaling from 50-256"
+```
+
+For manual experiments, either use the script or add entries directly to `EXPERIMENTS.md` with: command, outputs, key results, git commit.
+
+## Python Environment & Tools
+- **Package manager**: Use `uv` for all dependency management (`uv add`, `uv remove`, `uv sync`)
+- **Python command**: Always use `python3` not bare `python`
+- **Virtual environment**: Project uses `.venv/` (managed by uv)
+- **Python version**: Requires Python >=3.10, <3.12 (see [pyproject.toml](pyproject.toml))
+- **Progress bars**: Use `tqdm` for loops/iterables
+- **Plotting**: Prefer `seaborn` or `plotly` over `matplotlib` for statistical visualizations
 ```
 
 For manual experiments, either use the script or add entries directly to `EXPERIMENTS.md` with: command, outputs, key results, git commit.
