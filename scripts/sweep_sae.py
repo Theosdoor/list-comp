@@ -28,6 +28,7 @@ from src.sae.sae_analysis import (
     collect_sae_activations, 
     create_feature_heatmaps,
     compute_reconstruction_metrics,
+    compute_sae_reconstruction_accuracy,
     collect_attention_patterns,
     identify_special_features,
     create_firing_rate_histogram,
@@ -69,6 +70,10 @@ def train_sae_sweep():
     warmup_steps = config.warmup_steps
     batch_size = config.batch_size
     seed = config.seed
+    
+    # Generate meaningful run name matching the SAE checkpoint name
+    sae_run_name = f'sae_d{d_sae}_k{top_k}_lr{lr}_seed{seed}'
+    run.name = sae_run_name  # Set name on the run object returned by init()
     
     # Set seed for reproducibility
     torch.manual_seed(seed)
@@ -121,7 +126,7 @@ def train_sae_sweep():
     all_acts = all_acts.to(DEVICE)
     
     # Center activations
-    act_mean = all_acts.mean(0)
+    act_mean = all_acts.mean(0)  # Already on DEVICE since all_acts is on DEVICE
     all_acts_centered = all_acts - act_mean
     
     print(f"Collected {len(all_acts)} activations, shape: {all_acts.shape}")
@@ -183,76 +188,108 @@ def train_sae_sweep():
     
     # 6b. Generate and log feature heatmaps
     print("\nGenerating analysis metrics...")
-    val_ds, _ = get_dataset(
-        list_len=LIST_LEN,
-        n_digits=N_DIGITS,
-        train_split=1.0,
-        no_dupes=False
-    )
-    val_dl = DataLoader(val_ds, batch_size=2048, shuffle=False)
-    
-    sae = trainer.ae
-    
-    # Collect SAE activations
-    d1_all, d2_all, sae_acts_all = collect_sae_activations(
-        model, sae, val_dl, act_mean,
-        layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
-    )
-    
-    # 1. Feature heatmaps
-    print("  - Creating feature heatmaps...")
-    fig = create_feature_heatmaps(d1_all, d2_all, sae_acts_all, n_digits=N_DIGITS)
-    wandb.log({"feature_heatmaps": wandb.Image(fig)})
-    plt.close(fig)
-    
-    # 2. Basic sparsity metrics
-    l0 = (sae_acts_all > 0).float().sum(dim=1).mean()
-    dead_features = (sae_acts_all.sum(dim=0) == 0).sum().item()
-    firing_rate = (sae_acts_all > 0).float().mean(dim=0)
-    
-    wandb.summary["avg_l0"] = l0.item()
-    wandb.summary["dead_features"] = dead_features
-    wandb.summary["dead_features_pct"] = 100 * dead_features / d_sae
-    
-    # 3. Reconstruction quality
-    print("  - Computing reconstruction metrics...")
-    recon_metrics = compute_reconstruction_metrics(
-        model, sae, val_dl, act_mean,
-        layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
-    )
-    wandb.summary["reconstruction_mse"] = recon_metrics["mse"]
-    wandb.summary["explained_variance"] = recon_metrics["explained_variance"]
-    
-    # 4. Special features (correlated with attention)
-    print("  - Identifying special features...")
-    alpha_d1_all, alpha_d2_all = collect_attention_patterns(
-        model, val_dl, layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
-    )
-    special_features_info = identify_special_features(
-        sae_acts_all, alpha_d1_all, alpha_d2_all, threshold=0.5
-    )
-    
-    wandb.summary["n_special_features"] = special_features_info["n_special_features"]
-    wandb.summary["special_features_pct"] = 100 * special_features_info["n_special_features"] / d_sae
-    wandb.summary["max_attn_correlation"] = special_features_info["max_correlation"]
-    wandb.summary["mean_abs_attn_correlation"] = special_features_info["mean_abs_correlation"]
-    
-    # Log special features as table
-    if special_features_info["special_features"]:
-        special_features_table = wandb.Table(
-            columns=["feature_idx", "correlation", "type"],
-            data=[[f["feature_idx"], f["correlation"], f["type"]] 
-                  for f in special_features_info["special_features"]]
+    try:
+        # Use ALL data for analysis (not just validation split)
+        all_data_ds, _ = get_dataset(
+            list_len=LIST_LEN,
+            n_digits=N_DIGITS,
+            train_split=1.0,  # Use all data for comprehensive analysis
+            no_dupes=False
         )
-        wandb.log({"special_features": special_features_table})
-    
-    # 5. Firing rate histogram
-    print("  - Creating firing rate histogram...")
-    fig_firing = create_firing_rate_histogram(sae_acts_all)
-    wandb.log({"firing_rate_histogram": wandb.Image(fig_firing)})
-    plt.close(fig_firing)
-    
-    print("✓ Logged all analysis metrics to W&B")
+        analysis_dl = DataLoader(all_data_ds, batch_size=2048, shuffle=False)
+        
+        sae = trainer.ae
+        sae = sae.to(DEVICE)  # Ensure SAE is on correct device
+        
+        # Collect SAE activations
+        d1_all, d2_all, sae_acts_all = collect_sae_activations(
+            model, sae, analysis_dl, act_mean,
+            layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
+        )
+        
+        # 1. Feature heatmaps (skip for now)
+        # print("  - Creating feature heatmaps...")
+        # if d_sae <= 256:  # Only create if reasonable size
+        #     fig = create_feature_heatmaps(d1_all, d2_all, sae_acts_all, n_digits=N_DIGITS)
+        #     # Convert plotly figure to static image for W&B
+        #     wandb.log({"feature_heatmaps": wandb.Plotly(fig)})
+        #     print(f"    ✓ Logged feature heatmaps ({d_sae} features)")
+        # else:
+        #     print(f"    ⊘ Skipped heatmaps (d_sae={d_sae} too large for visualization)")
+        
+        # 2. Basic sparsity metrics
+        l0 = (sae_acts_all > 0).float().sum(dim=1).mean()
+        dead_features = (sae_acts_all.sum(dim=0) == 0).sum().item()
+        firing_rate = (sae_acts_all > 0).float().mean(dim=0)
+        
+        wandb.summary["avg_l0"] = l0.item()
+        wandb.summary["dead_features"] = dead_features
+        wandb.summary["dead_features_pct"] = 100 * dead_features / d_sae
+        
+        # 3. Reconstruction quality
+        print("  - Computing reconstruction metrics...")
+        try:
+            recon_metrics = compute_reconstruction_metrics(
+                model, sae, analysis_dl, act_mean,
+                layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
+            )
+            wandb.summary["reconstruction_mse"] = recon_metrics["mse"]
+            wandb.summary["explained_variance"] = recon_metrics["explained_variance"]
+        except Exception as e:
+            print(f"    ⚠ Warning: Could not compute reconstruction metrics - {e}")
+            wandb.summary["reconstruction_mse"] = "NA"
+            wandb.summary["explained_variance"] = "NA"
+        
+        # 3b. SAE reconstruction accuracy
+        print("  - Computing SAE reconstruction accuracy...")
+        try:
+            recon_acc_metrics = compute_sae_reconstruction_accuracy(
+                model, sae, analysis_dl, act_mean,
+                layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
+            )
+            wandb.summary["baseline_accuracy"] = recon_acc_metrics["baseline_acc"]
+            wandb.summary["sae_reconstruction_accuracy"] = recon_acc_metrics["reconstruction_acc"]
+            wandb.summary["accuracy_drop"] = recon_acc_metrics["accuracy_drop"]
+        except Exception as e:
+            print(f"    ⚠ Warning: Could not compute SAE reconstruction accuracy - {e}")
+            wandb.summary["sae_reconstruction_accuracy"] = 0
+            wandb.summary["accuracy_drop"] = 100
+        
+        # 4. Special features (correlated with attention)
+        print("  - Identifying special features...")
+        try:
+            alpha_d1_all, alpha_d2_all = collect_attention_patterns(
+                model, analysis_dl, layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
+            )
+            special_features_info = identify_special_features(
+                sae_acts_all, alpha_d1_all, alpha_d2_all, threshold=0.5
+            )
+            
+            wandb.summary["n_special_features"] = special_features_info["n_special_features"]
+            wandb.summary["special_features_pct"] = 100 * special_features_info["n_special_features"] / d_sae
+            wandb.summary["max_attn_correlation"] = float(special_features_info["max_correlation"])
+            wandb.summary["mean_abs_attn_correlation"] = float(special_features_info["mean_abs_correlation"])
+            
+            # Log special features as table
+            if special_features_info["special_features"]:
+                special_features_table = wandb.Table(
+                    columns=["feature_idx", "correlation", "type"],
+                    data=[[f["feature_idx"], float(f["correlation"]), f["type"]] 
+                          for f in special_features_info["special_features"]]
+                )
+                wandb.log({"special_features": special_features_table})
+                print(f"    ✓ Identified {special_features_info['n_special_features']} special features")
+        except Exception as e:
+            print(f"    ⚠ Warning: Could not compute special features - {e}")
+            wandb.summary["n_special_features"] = NA
+        
+        print("✓ Logged all analysis metrics to W&B")
+        
+    except Exception as e:
+        print(f"⚠ Error during metric logging: {e}")
+        print("Continuing with SAE save...")
+        import traceback
+        traceback.print_exc()
     
     # 7. Save SAE
     os.makedirs(SAVE_FOLDER, exist_ok=True)

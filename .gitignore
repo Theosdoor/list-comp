@@ -2,7 +2,7 @@
 submit_job.sh
 logs/
 wandb/
-results/sae_models/*_sweep_runs
+results/sae_models/*sweep_runs
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
