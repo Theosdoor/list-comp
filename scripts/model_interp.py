@@ -19,7 +19,8 @@ import pandas as pd, itertools
 from tqdm.auto import tqdm
 
 from transformer_lens import utils
-from src.utils.runtime import configure_runtime, build_attention_mask
+from src.utils.runtime import configure_runtime
+from src.models.transformer import build_attention_mask
 from src.models.utils import load_model, accuracy, infer_model_config
 from src.data.datasets import get_dataset
 
@@ -467,7 +468,7 @@ analyze_o2_errors(ablated_output_predictions, output_targets, inputs=val_inputs)
 # %%
 #  ------ Fig 1 ------
 
-from interp_utils import gen_attn_flow, find_critical_attention_edges
+from src.interpretability.interp_utils import gen_attn_flow, find_critical_attention_edges
 
 # Use a single validation example
 example = val_inputs[sample_idx].unsqueeze(0).to(DEV)
@@ -883,7 +884,7 @@ plt.show()
 
 # %%
 # ------ Fig 3 - SEP attn vs accuracy ------
-from interp_utils import plot_sep_attention_vs_accuracy
+from src.interpretability.interp_utils import plot_sep_attention_vs_accuracy
 
 
 plot_sep_attention_vs_accuracy(
