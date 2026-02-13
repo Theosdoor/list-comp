@@ -711,7 +711,7 @@ def feature_steering_experiment(
     model, sae, act_mean, feature_idx,
     d1_all, d2_all, sae_acts_all, dataset,
     layer_idx=0, sep_idx=2, n_digits=100,
-    scale_factors=None, n_test_cases=5, seed=42,
+    scale_factors=None, scale_range=None, n_test_cases=5, seed=42,
     device=None, plot=True, save_dir=None
 ):
     """
@@ -732,7 +732,8 @@ def feature_steering_experiment(
         layer_idx: Layer to patch activations at
         sep_idx: SEP token position
         n_digits: Number of possible digit values
-        scale_factors: Array of scale factors to test (default: [-1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0])
+        scale_factors: Array of scale factors to test (overrides scale_range if provided)
+        scale_range: Tuple (min, max) for scale factors (default: [-1.0, 5.0])
         n_test_cases: Number of test cases to sample
         seed: Random seed for sampling
         device: Device to use (default: auto-detect from model)
@@ -743,13 +744,17 @@ def feature_steering_experiment(
         all_results: List of dicts with keys:
             - 'd1', 'd2': Input pair
             - 'scales': Scale factors used
+            - 'all_logits_o1': All logits at output position 1 [n_scales, n_digits]
+            - 'all_logits_o2': All logits at output position 2 [n_scales, n_digits]
             - 'logit_d1_o1', 'logit_d2_o1': Logits at output position 1
             - 'logit_d1_o2', 'logit_d2_o2': Logits at output position 2
             - 'output_o1', 'output_o2': Predicted outputs
             - 'order_feat_orig': Original feature activation
     """
     if scale_factors is None:
-        scale_factors = np.linspace(-1.0, 2.0, 30)
+        if scale_range is None:
+            scale_range = [-1.0, 5.0]
+        scale_factors = np.linspace(scale_range[0], scale_range[1], 100)
     
     # Auto-detect device from model if not specified
     if device is None:
@@ -782,12 +787,9 @@ def feature_steering_experiment(
         z_orig = sae_acts_all[idx].clone().to(device)
         feat_orig = z_orig[feature_idx].item()
         
-        logit_d1_at_o1 = []
-        logit_d2_at_o1 = []
-        logit_d1_at_o2 = []
-        logit_d2_at_o2 = []
-        output_o1 = []
-        output_o2 = []
+        # Storage for all logits at o1 and o2 (for ALL digits)
+        all_logits_o1 = []  # Will be shape [n_scales, n_digits]
+        all_logits_o2 = []  # Will be shape [n_scales, n_digits]
         
         for scale in scale_factors:
             z_scaled = z_orig.clone()
@@ -801,32 +803,32 @@ def feature_steering_experiment(
                     fwd_hooks=[(hook_name_resid, make_sae_patch_hook(recon, act_mean, sep_idx))]
                 )
             
-            # Get logits at o1 (position -2) and o2 (position -1)
-            logits_o1 = patched_logits[0, -2, :n_digits]
-            logits_o2 = patched_logits[0, -1, :n_digits]
-            
-            logit_d1_at_o1.append(logits_o1[d1_val].item())
-            logit_d2_at_o1.append(logits_o1[d2_val].item())
-            logit_d1_at_o2.append(logits_o2[d1_val].item())
-            logit_d2_at_o2.append(logits_o2[d2_val].item())
-            output_o1.append(logits_o1.argmax().item())
-            output_o2.append(logits_o2.argmax().item())
+            # Get logits at o1 (position -2) and o2 (position -1) for ALL digits
+            logits_o1 = patched_logits[0, -2, :n_digits].cpu().numpy()
+            logits_o2 = patched_logits[0, -1, :n_digits].cpu().numpy()
+            all_logits_o1.append(logits_o1)
+            all_logits_o2.append(logits_o2)
+        
+        all_logits_o1 = np.array(all_logits_o1)  # [n_scales, n_digits]
+        all_logits_o2 = np.array(all_logits_o2)  # [n_scales, n_digits]
         
         all_results.append({
             'd1': d1_val, 'd2': d2_val,
             'scales': scale_factors,
-            'logit_d1_o1': logit_d1_at_o1,
-            'logit_d2_o1': logit_d2_at_o1,
-            'logit_d1_o2': logit_d1_at_o2,
-            'logit_d2_o2': logit_d2_at_o2,
-            'output_o1': output_o1,
-            'output_o2': output_o2,
+            'all_logits_o1': all_logits_o1,
+            'all_logits_o2': all_logits_o2,
+            'logit_d1_o1': all_logits_o1[:, d1_val],
+            'logit_d2_o1': all_logits_o1[:, d2_val],
+            'logit_d1_o2': all_logits_o2[:, d1_val],
+            'logit_d2_o2': all_logits_o2[:, d2_val],
+            'output_o1': all_logits_o1.argmax(axis=1),
+            'output_o2': all_logits_o2.argmax(axis=1),
             'order_feat_orig': feat_orig,
         })
     
     # Create visualization if requested
     if plot and len(all_results) > 0:
-        fig, axes = plt.subplots(2, len(all_results), figsize=(4*len(all_results), 8), squeeze=False)
+        fig, axes = plt.subplots(2, len(all_results), figsize=(4*len(all_results), 10), squeeze=False)
         
         for col, result in enumerate(all_results):
             d1, d2 = result['d1'], result['d2']
@@ -834,26 +836,46 @@ def feature_steering_experiment(
             
             # Top row: Logits at o1 position
             ax1 = axes[0, col]
-            ax1.plot(scales, result['logit_d1_o1'], 'b-o', label=f'd1={d1} logit')
-            ax1.plot(scales, result['logit_d2_o1'], 'r-s', label=f'd2={d2} logit')
-            ax1.axvline(x=1.0, color='gray', linestyle='--', alpha=0.5, label='Original')
-            ax1.axvline(x=0.0, color='red', linestyle=':', alpha=0.5)
-            ax1.set_xlabel(f'Feature {feature_idx} Scale')
+            
+            # Plot all other logits in grey
+            for digit in range(n_digits):
+                if digit != d1 and digit != d2:
+                    ax1.plot(scales, result['all_logits_o1'][:, digit], 'grey', alpha=0.2, linewidth=0.5)
+            
+            # Plot d1 and d2 logits on top
+            ax1.plot(scales, result['logit_d1_o1'], 'b-', linewidth=2, label=f'd1={d1} logit')
+            ax1.plot(scales, result['logit_d2_o1'], 'r-', linewidth=2, label=f'd2={d2} logit')
+            
+            # Mark original activation point
+            ax1.axvline(x=1.0, color='green', linestyle='--', alpha=0.5, label='Original')
+            ax1.axvline(x=0.0, color='black', linestyle=':', alpha=0.5, label='Ablated')
+            
+            ax1.set_xlabel(f'Feature {feature_idx} Scale Factor')
             ax1.set_ylabel('Logit at o1')
-            ax1.set_title(f'Input ({d1}, {d2})\nf{feature_idx}_orig={result["order_feat_orig"]:.2f}')
-            ax1.legend(fontsize=8)
+            ax1.set_title(f'All Logits at Output Position 1\nInput: ({d1}, {d2}), Original f{feature_idx}={result["order_feat_orig"]:.3f}')
+            ax1.legend()
             ax1.grid(True, alpha=0.3)
             
             # Bottom row: Logits at o2 position
             ax2 = axes[1, col]
-            ax2.plot(scales, result['logit_d1_o2'], 'b-o', label=f'd1={d1} logit')
-            ax2.plot(scales, result['logit_d2_o2'], 'r-s', label=f'd2={d2} logit')
-            ax2.axvline(x=1.0, color='gray', linestyle='--', alpha=0.5, label='Original')
-            ax2.axvline(x=0.0, color='red', linestyle=':', alpha=0.5)
-            ax2.set_xlabel(f'Feature {feature_idx} Scale')
+            
+            # Plot all other logits in grey
+            for digit in range(n_digits):
+                if digit != d1 and digit != d2:
+                    ax2.plot(scales, result['all_logits_o2'][:, digit], 'grey', alpha=0.2, linewidth=0.5)
+            
+            # Plot d1 and d2 logits on top
+            ax2.plot(scales, result['logit_d1_o2'], 'b-', linewidth=2, label=f'd1={d1} logit')
+            ax2.plot(scales, result['logit_d2_o2'], 'r-', linewidth=2, label=f'd2={d2} logit')
+            
+            # Mark original activation point
+            ax2.axvline(x=1.0, color='green', linestyle='--', alpha=0.5, label='Original')
+            ax2.axvline(x=0.0, color='black', linestyle=':', alpha=0.5, label='Ablated')
+            
+            ax2.set_xlabel(f'Feature {feature_idx} Scale Factor')
             ax2.set_ylabel('Logit at o2')
-            ax2.set_title(f'Logits at Output Position 2')
-            ax2.legend(fontsize=8)
+            ax2.set_title(f'All Logits at Output Position 2')
+            ax2.legend()
             ax2.grid(True, alpha=0.3)
         
         plt.tight_layout()
