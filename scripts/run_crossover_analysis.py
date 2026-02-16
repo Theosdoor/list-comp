@@ -15,12 +15,7 @@ from datetime import datetime
 # Import project utilities
 from src.utils.nb_utils import setup_notebook, load_transformer_model, load_sae
 from src.data.datasets import get_dataset
-from src.sae.sae_analysis import (
-    collect_sae_activations,
-    get_xovers_df,
-    get_output_swap_bounds,
-    swap_outputs
-)
+from src.sae import *  # Import all SAE analysis utilities
 
 # Configuration
 MODEL_NAME = '2layer_100dig_64d'
