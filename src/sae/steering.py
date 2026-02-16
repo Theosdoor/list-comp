@@ -15,6 +15,154 @@ from tqdm.auto import tqdm
 from .hooks import make_sae_patch_hook, make_batched_sae_patch_hook
 
 
+def inspect_steered_output(
+    model, sae, act_mean, feature_idx, scale,
+    inputs_i, z_orig, feat_orig,
+    layer_idx=0, sep_idx=2, n_digits=100, device=None
+):
+    """
+    Inspect model output when a specific feature is scaled to a custom factor.
+    
+    Args:
+        model: Base transformer model
+        sae: Trained SAE
+        act_mean: Activation mean for centering
+        feature_idx: Index of the feature being steered
+        scale: Scale factor for the feature (e.g., 2.0 = double activation, 0.0 = ablate)
+        inputs_i: Input tensor [1, seq_len]
+        z_orig: Original SAE activations [d_sae]
+        feat_orig: Original feature activation value
+        layer_idx: Layer to patch
+        sep_idx: SEP token position
+        n_digits: Number of possible digit values
+        device: Device to use
+    
+    Returns:
+        dict with keys:
+            - 'scale': Scale factor used
+            - 'logits_o1': Logits at output position 1 [n_digits]
+            - 'logits_o2': Logits at output position 2 [n_digits]
+            - 'pred_o1': Predicted digit at o1
+            - 'pred_o2': Predicted digit at o2
+            - 'd1_logit_o1', 'd2_logit_o1': Specific logits if needed
+            - 'd1_logit_o2', 'd2_logit_o2': Specific logits if needed
+    """
+    if device is None:
+        device = next(model.parameters()).device
+    
+    hook_name_resid = f"blocks.{layer_idx}.hook_resid_post"
+    
+    # Scale the feature
+    z_scaled = z_orig.clone()
+    z_scaled[feature_idx] = feat_orig * scale
+    
+    # Decode and get reconstructed activations
+    recon = sae.decode(z_scaled.unsqueeze(0))
+    
+    # Run model with patch
+    with torch.no_grad():
+        patched_logits = model.run_with_hooks(
+            inputs_i,
+            fwd_hooks=[(hook_name_resid, make_sae_patch_hook(recon, act_mean, sep_idx))]
+        )
+    
+    # Extract logits at o1 and o2
+    logits_o1 = patched_logits[0, -2, :n_digits].cpu().numpy()
+    logits_o2 = patched_logits[0, -1, :n_digits].cpu().numpy()
+    
+    pred_o1 = int(logits_o1.argmax())
+    pred_o2 = int(logits_o2.argmax())
+    
+    return {
+        'scale': scale,
+        'logits_o1': logits_o1,
+        'logits_o2': logits_o2,
+        'pred_o1': pred_o1,
+        'pred_o2': pred_o2,
+    }
+
+
+def inspect_steered_outputs_batch(
+    model, sae, act_mean, feature_idx, scales,
+    inputs_i, z_orig, feat_orig, d1_val=None, d2_val=None,
+    layer_idx=0, sep_idx=2, n_digits=100, device=None
+):
+    """
+    Inspect model outputs at multiple scale factors (efficient batch version).
+    
+    Args:
+        model: Base transformer model
+        sae: Trained SAE
+        act_mean: Activation mean for centering
+        feature_idx: Index of the feature being steered
+        scales: List of scale factors to test (e.g., [0.0, 0.5, 1.0, 2.0, 5.0])
+        inputs_i: Input tensor [1, seq_len]
+        z_orig: Original SAE activations [d_sae]
+        feat_orig: Original feature activation value
+        d1_val, d2_val: (Optional) Input digits for labeling output
+        layer_idx: Layer to patch
+        sep_idx: SEP token position
+        n_digits: Number of possible digit values
+        device: Device to use
+    
+    Returns:
+        list of dicts with inspection results for each scale, plus a summary dataframe
+    """
+    if device is None:
+        device = next(model.parameters()).device
+    
+    hook_name_resid = f"blocks.{layer_idx}.hook_resid_post"
+    results = []
+    
+    for scale in scales:
+        # Scale the feature
+        z_scaled = z_orig.clone()
+        z_scaled[feature_idx] = feat_orig * scale
+        
+        # Decode
+        recon = sae.decode(z_scaled.unsqueeze(0))
+        
+        # Run model with patch
+        with torch.no_grad():
+            patched_logits = model.run_with_hooks(
+                inputs_i,
+                fwd_hooks=[(hook_name_resid, make_sae_patch_hook(recon, act_mean, sep_idx))]
+            )
+        
+        # Extract logits
+        logits_o1 = patched_logits[0, -2, :n_digits].cpu().numpy()
+        logits_o2 = patched_logits[0, -1, :n_digits].cpu().numpy()
+        
+        pred_o1 = int(logits_o1.argmax())
+        pred_o2 = int(logits_o2.argmax())
+        
+        row = {
+            'scale': scale,
+            'pred_o1': pred_o1,
+            'pred_o2': pred_o2,
+            'logits_o1': logits_o1,
+            'logits_o2': logits_o2,
+        }
+        
+        # Add specific digit logits if provided
+        if d1_val is not None and d2_val is not None:
+            row['d1_logit_o1'] = logits_o1[d1_val]
+            row['d2_logit_o1'] = logits_o1[d2_val]
+            row['d1_logit_o2'] = logits_o2[d1_val]
+            row['d2_logit_o2'] = logits_o2[d2_val]
+        
+        results.append(row)
+    
+    # Create summary dataframe
+    summary_cols = ['scale', 'pred_o1', 'pred_o2']
+    if d1_val is not None and d2_val is not None:
+        summary_cols.extend(['d1_logit_o1', 'd2_logit_o1', 'd1_logit_o2', 'd2_logit_o2'])
+    
+    df = pd.DataFrame(results)[summary_cols]
+    
+    return results, df
+
+
 def find_exact_crossover_bisection(
     model, sae, act_mean, feature_idx,
     inputs_i, z_orig, feat_orig, d1_val, d2_val,
@@ -92,7 +240,7 @@ def feature_steering_experiment(
     model, sae, act_mean, feature_idx,
     d1_all, d2_all, sae_acts_all, dataset,
     layer_idx=0, sep_idx=2, n_digits=100,
-    scale_factors=None, scale_range=[0.0, 10.0], n_test_cases=5, seed=42,
+    scale_factors=None, scale_range=[-1.0, 4.0], n_test_cases=5, seed=42,
     test_pairs=None, device=None, plot=True, save_dir=None
 ):
     """
@@ -239,7 +387,7 @@ def feature_steering_experiment(
             
             ax1.set_xlabel(f'Feature {feature_idx} Scale Factor')
             ax1.set_ylabel('Logit at o1')
-            ax1.set_title(f'All Logits at Output Position 1\\nInput: ({d1}, {d2}), Original f{feature_idx}={result["order_feat_orig"]:.3f}')
+            ax1.set_title(f'All Logits at Output Position 1\nInput: ({d1}, {d2}), Original f{feature_idx}={result["order_feat_orig"]:.3f}')
             ax1.legend()
             ax1.grid(True, alpha=0.3)
             
@@ -275,6 +423,7 @@ def feature_steering_experiment(
             plt.show()
     
     return all_results
+
 
 
 def get_xovers_df(
@@ -315,6 +464,9 @@ def get_xovers_df(
             - o2_crossovers: List of crossover scales at output position 2
             - n_o1_xover: Number of o1 crossovers
             - n_o2_xover: Number of o2 crossovers
+            - scales: Array of scale factors sampled [n_coarse_samples]
+            - argmax_o1: Array of argmax predictions at o1 [n_coarse_samples]
+            - argmax_o2: Array of argmax predictions at o2 [n_coarse_samples]
     """
     if device is None:
         device = next(model.parameters()).device
@@ -381,6 +533,14 @@ def get_xovers_df(
             d2_val = batch_d2[i].item()
             feat_orig = batch_feat_orig[i].item()
             
+            # Get logits for this input [n_scales, n_digits]
+            logits_o1 = batch_logits_o1[i]
+            logits_o2 = batch_logits_o2[i]
+            
+            # Compute argmax at each scale
+            argmax_o1 = logits_o1.argmax(axis=1)  # [n_scales]
+            argmax_o2 = logits_o2.argmax(axis=1)  # [n_scales]
+            
             # Skip if feature doesn't fire
             if feat_orig == 0:
                 all_results.append({
@@ -391,12 +551,11 @@ def get_xovers_df(
                     'o2_crossovers': [],
                     'n_o1_xover': 0,
                     'n_o2_xover': 0,
+                    'scales': scale_factors.tolist(),
+                    'argmax_o1': argmax_o1.tolist(),
+                    'argmax_o2': argmax_o2.tolist(),
                 })
                 continue
-            
-            # Get logits for this input [n_scales, n_digits]
-            logits_o1 = batch_logits_o1[i]
-            logits_o2 = batch_logits_o2[i]
             
             # Find crossovers for o1
             d1_logits_o1 = logits_o1[:, d1_val]
@@ -442,22 +601,25 @@ def get_xovers_df(
                 'o2_crossovers': o2_crossovers,
                 'n_o1_xover': len(o1_crossovers),
                 'n_o2_xover': len(o2_crossovers),
+                'scales': scale_factors.tolist(),
+                'argmax_o1': argmax_o1.tolist(),
+                'argmax_o2': argmax_o2.tolist(),
             })
     
     return pd.DataFrame(all_results)
 
-
-def get_output_swap_bounds(xovers_df, scale_range=[0.0, 10.0]):
+def get_output_swap_bounds(xovers_df):
     """
     Identify scale ranges where outputs should swap from (d1, d2) to (d2, d1).
     
     For outputs to swap:
-    - o1 must predict d2 (d2_logit > d1_logit at o1)
-    - o2 must predict d1 (d1_logit > d2_logit at o2)
+    - o1 must predict d2 (argmax at o1 == d2)
+    - o2 must predict d1 (argmax at o2 == d1)
+    
+    Uses cached argmax predictions from get_xovers_df.
     
     Args:
-        xovers_df: DataFrame from get_xovers_df
-        scale_range: Tuple (min, max) for initial bounds
+        xovers_df: DataFrame from get_xovers_df (must contain scales, argmax_o1, argmax_o2)
     
     Returns:
         pd.DataFrame with columns:
@@ -473,62 +635,37 @@ def get_output_swap_bounds(xovers_df, scale_range=[0.0, 10.0]):
     for _, row in xovers_df.iterrows():
         d1_val = row['d1']
         d2_val = row['d2']
-        o1_xovers = row['o1_crossovers']
-        o2_xovers = row['o2_crossovers']
+        scales = np.array(row['scales'])
+        argmax_o1 = np.array(row['argmax_o1'])
+        argmax_o2 = np.array(row['argmax_o2'])
         
-        # Initialize bounds
-        lower_bound = scale_range[0]
-        upper_bound = scale_range[1]
-        failure_reason = None
+        # Find where d2 is predicted at o1 AND d1 is predicted at o2
+        d2_wins_o1 = (argmax_o1 == d2_val)
+        d1_wins_o2 = (argmax_o2 == d1_val)
+        both_true = d2_wins_o1 & d1_wins_o2
         
-        # Check o1 crossover
-        if len(o1_xovers) == 0:
-            failure_reason = "no_o1_crossover"
-        else:
-            # For simplicity, use first o1 crossover
-            # TODO: Could handle multiple o1 crossovers more sophisticatedly
-            o1_xover = o1_xovers[0]
-            
-            # Need to determine which side of crossover has d2 > d1
-            # We'll check a point slightly left and right of crossover
-            # For now, assume standard behavior: d1 > d2 on left, d2 > d1 on right
-            # This means we want scale >= o1_xover for o1 to predict d2
-            lower_bound = max(lower_bound, o1_xover)
-        
-        # Check o2 crossover(s)
-        if failure_reason is None:
-            if len(o2_xovers) == 0:
-                failure_reason = "no_o2_crossover"
-            else:
-                # Filter o2 crossovers within current bounds
-                valid_o2_xovers = [x for x in o2_xovers if lower_bound <= x <= upper_bound]
-                
-                if len(valid_o2_xovers) == 0:
-                    failure_reason = "no_o2_crossover"
-                else:
-                    # For o2, we need d1 > d2, which typically happens on right side of crossover
-                    # If there are 2 crossovers, the zone is typically between them
-                    if len(valid_o2_xovers) == 1:
-                        # Single crossover: assume d1 > d2 on right
-                        lower_bound = max(lower_bound, valid_o2_xovers[0])
-                    else:
-                        # Multiple crossovers: assume swap zone is between first and last
-                        lower_bound = max(lower_bound, valid_o2_xovers[0])
-                        upper_bound = min(upper_bound, valid_o2_xovers[-1])
-        
-        # Check for invalid bounds
-        if failure_reason is None and lower_bound > upper_bound:
-            failure_reason = "invalid_bounds"
-        
-        # Calculate midpoint and width
-        if failure_reason is None:
-            midpoint = (lower_bound + upper_bound) / 2
-            swap_zone_width = upper_bound - lower_bound
-        else:
-            midpoint = None
-            swap_zone_width = None
+        if not both_true.any():
+            failure_reason = "no_swap_zone"
             lower_bound = None
             upper_bound = None
+            midpoint = None
+            swap_zone_width = None
+        else:
+            # Find contiguous regions where both are true
+            true_indices = np.where(both_true)[0]
+            
+            # Find gaps in the indices
+            gaps = np.diff(true_indices) > 1
+            if gaps.any():
+                # Multiple regions - use the first one
+                first_gap = np.where(gaps)[0][0]
+                true_indices = true_indices[:first_gap + 1]
+            
+            lower_bound = float(scales[true_indices[0]])
+            upper_bound = float(scales[true_indices[-1]])
+            midpoint = (lower_bound + upper_bound) / 2
+            swap_zone_width = upper_bound - lower_bound
+            failure_reason = None
         
         results.append({
             'd1': d1_val,

@@ -368,6 +368,8 @@ print(f"Median swap zone width: {valid_swaps['swap_zone_width'].median():.3f}")
 print(f"\nSample of valid swap zones:")
 display(valid_swaps.head(10))
 
+invalid_swaps = swap_bounds_df[swap_bounds_df['lower_bound'].isna()]
+
 # %% [markdown]
 # so out of the 7054 inputs with xover, theres only 5700 valid swap zones? seems weird
 
@@ -391,14 +393,22 @@ print(f"\nFailed to swap examples:")
 display(swap_results_df[~swap_results_df['swapped']].head(5))
 
 # %%
+invalid_swaps
+
+# %%
+# test specific bad examples
+# test_egs = [(93, 99), (38, 78)]
+test_egs = [(60,44), (75,32), (9,81)]
+
 results = feature_steering_experiment(
     model, sae, act_mean,
-    feature_idx=30,
+    feature_idx=SPECIAL_FEAT_IDX,
     d1_all=d1_all, 
     d2_all=d2_all, 
     sae_acts_all=sae_acts_all, 
     dataset=all_ds,
-    test_pairs=[(93, 99), (38, 78)]
+    scale_range=[-1.0, 4.0],
+    test_pairs=test_egs
 )
 
 crossover_df = analyze_feature_crossovers(
@@ -413,4 +423,35 @@ crossover_df = analyze_feature_crossovers(
     device=DEVICE,
     verbose=True
 )
+
+# %%
+# Inspect outputs at custom scales (e.g., 2x feature activation)
+
+# Test the first example (93, 99) at different scales
+for d1_val, d2_val in test_egs:
+    mask = (d1_all == d1_val) & (d2_all == d2_val)
+    idx = torch.where(mask)[0][0].item()
+    inputs_i = all_ds[idx][0].unsqueeze(0).to(DEVICE)
+    z_orig = sae_acts_all[idx].clone().to(DEVICE)
+    feat_orig = z_orig[SPECIAL_FEAT_IDX].item()
+    
+    print(f"\n{'='*60}")
+    print(f"Input: ({d1_val}, {d2_val}), Original feature {SPECIAL_FEAT_IDX}: {feat_orig:.4f}")
+    print(f"{'='*60}")
+    
+    # Inspect at multiple scales
+    custom_scales = [-1.0, 0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0]
+    result_list, df = inspect_steered_outputs_batch(
+        model=model, sae=sae, act_mean=act_mean,
+        feature_idx=SPECIAL_FEAT_IDX,
+        scales=custom_scales,
+        inputs_i=inputs_i, z_orig=z_orig, feat_orig=feat_orig,
+        d1_val=d1_val, d2_val=d2_val,
+        layer_idx=0, sep_idx=SEP_TOKEN_INDEX, n_digits=N_DIGITS,
+        device=DEVICE
+    )
+    print(df.to_string(index=False))
+
+
+
 # %%

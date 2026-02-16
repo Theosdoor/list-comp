@@ -4,7 +4,7 @@ Crossover Analysis Script
 Runs the crossover analysis pipeline on all inputs and saves results to disk.
 Designed to run on GPU via SLURM job submission.
 """
-
+# %%
 import os
 import sys
 import torch
@@ -32,7 +32,7 @@ BATCH_SIZE = 64  # Batching for efficiency
 
 # Create results directory
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-
+# %%
 print("="*60)
 print("CROSSOVER ANALYSIS - GPU JOB")
 print("="*60)

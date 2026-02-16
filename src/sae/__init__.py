@@ -36,6 +36,8 @@ from .loading import (
 
 # Feature steering and crossover analysis
 from .steering import (
+    inspect_steered_output,
+    inspect_steered_outputs_batch,
     find_exact_crossover_bisection,
     feature_steering_experiment,
     analyze_feature_crossovers,
@@ -65,6 +67,8 @@ __all__ = [
     "load_sae_from_wandb_run",
     "compare_sweep_runs",
     # Feature steering
+    "inspect_steered_output",
+    "inspect_steered_outputs_batch",
     "find_exact_crossover_bisection",
     "feature_steering_experiment",
     "analyze_feature_crossovers",
