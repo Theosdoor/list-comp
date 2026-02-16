@@ -5,6 +5,7 @@ Notebook utilities for loading models and SAEs with consistent configuration.
 import os
 import sys
 import torch
+from pathlib import Path
 from dictionary_learning.trainers.batch_top_k import BatchTopKSAE
 
 from ..models.utils import load_model as _load_model
@@ -51,7 +52,7 @@ def setup_notebook(seed=42, disable_grad=True):
 def load_transformer_model(
     model_name,
     device=None,
-    models_dir="../models",
+    models_dir=None,
     n_heads=1,
     ln=False,
     use_bias=False,
@@ -64,7 +65,7 @@ def load_transformer_model(
     Args:
         model_name: Name of the model file (e.g., '2layer_100dig_64d')
         device: Device to load model on (auto-detected if None)
-        models_dir: Directory containing model files
+        models_dir: Directory containing model files (defaults to project root/models)
         n_heads: Number of attention heads
         ln: Whether to use layer normalization
         use_bias: Whether to use bias terms
@@ -81,6 +82,13 @@ def load_transformer_model(
     """
     if device is None:
         device = get_device()
+    
+    # Determine models directory
+    if models_dir is None:
+        project_root = Path(__file__).parent.parent.parent  # src/utils/ -> project root
+        models_dir = project_root / "models"
+    else:
+        models_dir = Path(models_dir)
     
     # Parse model configuration
     model_cfg = parse_model_name_safe(model_name)
@@ -99,9 +107,9 @@ def load_transformer_model(
     )
     
     # Load model
-    model_path = os.path.join(models_dir, model_name + ".pt")
+    model_path = models_dir / (model_name + ".pt")
     model = _load_model(
-        model_path,
+        str(model_path),
         n_layers=model_cfg.n_layers,
         n_heads=n_heads,
         d_model=model_cfg.d_model,
@@ -130,7 +138,7 @@ def load_sae(
     sae_name,
     d_model,
     device=None,
-    sae_dir="../results/sae_models"
+    sae_dir=None
 ):
     """
     Load a Sparse Autoencoder (SAE) from checkpoint.
@@ -139,7 +147,7 @@ def load_sae(
         sae_name: Name of the SAE file (e.g., 'sae_d100_k4_50ksteps_2layer_100dig_64d.pt')
         d_model: Dimension of model activations
         device: Device to load SAE on (auto-detected if None)
-        sae_dir: Directory containing SAE checkpoints
+        sae_dir: Directory containing SAE checkpoints (defaults to project root/results/sae_models)
     
     Returns:
         tuple: (sae, sae_config) where sae_config contains:
@@ -150,9 +158,16 @@ def load_sae(
     if device is None:
         device = get_device()
     
+    # Determine SAE directory
+    if sae_dir is None:
+        project_root = Path(__file__).parent.parent.parent  # src/utils/ -> project root
+        sae_dir = project_root / "results" / "sae_models"
+    else:
+        sae_dir = Path(sae_dir)
+    
     # Load checkpoint
-    sae_path = os.path.join(sae_dir, sae_name)
-    checkpoint = torch.load(sae_path, map_location=device, weights_only=False)
+    sae_path = sae_dir / sae_name
+    checkpoint = torch.load(str(sae_path), map_location=device, weights_only=False)
     
     # Extract config
     sae_cfg = checkpoint.get("cfg", {})
