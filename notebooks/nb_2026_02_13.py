@@ -1,7 +1,5 @@
 # %%
 # SETUP
-
-from torch._numpy import False_
 import os
 import sys
 
@@ -240,3 +238,72 @@ for i, result in enumerate(coarse_results):
         else:
             print("   d2 logit remains higher throughout")
 # %%
+# CROSSOVER ANALYSIS: Get crossovers for ALL inputs
+from src.sae.sae_analysis import get_xovers_df, get_output_swap_bounds, swap_outputs
+
+xovers_df = get_xovers_df(
+    model=model, sae=sae, act_mean=act_mean,
+    feature_idx=SPECIAL_FEAT_IDX,
+    d1_all=d1_all, d2_all=d2_all, 
+    sae_acts_all=sae_acts_all,
+    dataset=all_ds,
+    layer_idx=0, sep_idx=SEP_TOKEN_INDEX, n_digits=N_DIGITS,
+    device=DEVICE
+)
+
+# Analyze crossover statistics
+print(f"\nTotal inputs: {len(xovers_df)}")
+print(f"Inputs with feature firing: {(xovers_df['feat_orig'] > 0).sum()}")
+print(f"Inputs with no crossovers: {((xovers_df['n_o1_xover'] == 0) & (xovers_df['n_o2_xover'] == 0)).sum()}")
+print(f"\nCrossover pattern distribution:")
+print(xovers_df.groupby(['n_o1_xover', 'n_o2_xover']).size().to_frame('count'))
+
+# Display sample of crossovers
+print(f"\nSample of inputs with crossovers:")
+display(xovers_df[xovers_df['n_o1_xover'] > 0].head(10))
+
+# %%
+# SWAP BOUNDS: Identify swap zones
+swap_bounds_df = get_output_swap_bounds(xovers_df)
+
+print(f"\nTotal inputs processed: {len(swap_bounds_df)}")
+print(f"Valid swap zones found: {swap_bounds_df['failure_reason'].isna().sum()}")
+print(f"\nFailure reason breakdown:")
+print(swap_bounds_df['failure_reason'].value_counts())
+
+# Display successful swap zones
+valid_swaps = swap_bounds_df[swap_bounds_df['failure_reason'].isna()]
+print(f"\nSwap zone statistics:")
+print(f"Mean swap zone width: {valid_swaps['swap_zone_width'].mean():.3f}")
+print(f"Median swap zone width: {valid_swaps['swap_zone_width'].median():.3f}")
+
+print(f"\nSample of valid swap zones:")
+display(valid_swaps.head(10))
+
+# %%
+# VERIFY SWAPS: Check if outputs actually swap at midpoints
+swap_results_df = swap_outputs(
+    model=model, sae=sae, act_mean=act_mean,
+    feature_idx=SPECIAL_FEAT_IDX,
+    swap_bounds_df=swap_bounds_df,
+    d1_all=d1_all, d2_all=d2_all,
+    sae_acts_all=sae_acts_all,
+    dataset=all_ds,
+    layer_idx=0, sep_idx=SEP_TOKEN_INDEX, n_digits=N_DIGITS,
+    device=DEVICE
+)
+
+# Analysis
+total = len(swap_results_df)
+swapped = swap_results_df['swapped'].sum()
+print(f"\nSwap verification results:")
+print(f"Total verified: {total}")
+print(f"Successfully swapped: {swapped} ({swapped/total*100:.1f}%)")
+print(f"Failed to swap: {total - swapped} ({(total-swapped)/total*100:.1f}%)")
+
+# Show some examples
+print(f"\nSuccessfully swapped examples:")
+display(swap_results_df[swap_results_df['swapped']].head(5))
+
+print(f"\nFailed to swap examples:")
+display(swap_results_df[~swap_results_df['swapped']].head(5))
