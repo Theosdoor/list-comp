@@ -237,19 +237,188 @@ for i, result in enumerate(coarse_results):
             print("   d1 logit remains higher throughout")
         else:
             print("   d2 logit remains higher throughout")
-# %%
-# CROSSOVER ANALYSIS: Get crossovers for ALL inputs
-from src.sae.sae_analysis import get_xovers_df, get_output_swap_bounds, swap_outputs
 
-xovers_df = get_xovers_df(
-    model=model, sae=sae, act_mean=act_mean,
+# %%
+# What's the accuracy when special feature is ablated?
+def evaluate_with_ablated_feature(
+    model, sae, act_mean, feature_idx, 
+    dataloader, layer_idx, sep_idx, n_digits, device
+):
+    """
+    Evaluate model accuracy when a specific SAE feature is ablated.
+    
+    Args:
+        model: The transformer model to evaluate
+        sae: Sparse autoencoder for feature extraction
+        act_mean: Mean activation for centering
+        feature_idx: Index of the feature to ablate
+        dataloader: DataLoader containing (inputs, targets) batches
+        layer_idx: Layer index to apply the ablation hook
+        sep_idx: Position of the separator token
+        n_digits: Number of digit tokens in vocabulary
+        device: torch device
+        
+    Returns:
+        tuple: (accuracy, num_correct, num_total)
+    """
+    model.eval()
+    sae.eval()
+    
+    correct = 0
+    total = 0
+    
+    def ablation_hook(module, input, output):
+        """Hook to ablate specific feature at SEP token position."""
+        # Extract activations at SEP token: [batch, d_model]
+        acts = output[:, sep_idx, :].clone()
+        
+        # Center, encode, ablate, decode, and un-center
+        acts_centered = acts - act_mean
+        z = sae.encode(acts_centered)
+        z[:, feature_idx] = 0  # Ablate the feature
+        acts_reconstructed = sae.decode(z) + act_mean
+        
+        # Replace SEP token activations
+        output[:, sep_idx, :] = acts_reconstructed
+        return output
+    
+    with torch.no_grad():
+        for batch in dataloader:
+            inputs, targets = batch[0].to(device), batch[1].to(device)
+            
+            # Register hook, run forward pass, then remove hook
+            hook_handle = model.blocks[layer_idx].register_forward_hook(ablation_hook)
+            
+            try:
+                logits = model(inputs)  # [batch, seq, vocab]
+                
+                # Get predictions for last two positions
+                preds_o1 = logits[:, -2, :n_digits].argmax(dim=-1)
+                preds_o2 = logits[:, -1, :n_digits].argmax(dim=-1)
+                
+                # Get ground truth from targets
+                targets_o1 = targets[:, -2]
+                targets_o2 = targets[:, -1]
+                
+                # Count correct predictions (both positions must match)
+                correct_both = (preds_o1 == targets_o1) & (preds_o2 == targets_o2)
+                correct += correct_both.sum().item()
+                total += inputs.shape[0]
+                
+            finally:
+                hook_handle.remove()
+    
+    accuracy = correct / total
+    return accuracy, correct, total
+
+
+def evaluate_baseline(model, dataloader, n_digits, device):
+    """Evaluate baseline model accuracy without any ablation."""
+    model.eval()
+    correct = 0
+    total = 0
+    
+    with torch.no_grad():
+        for batch in dataloader:
+            inputs, targets = batch[0].to(device), batch[1].to(device)
+            logits = model(inputs)
+            
+            # Get predictions and targets for last two positions
+            preds_o1 = logits[:, -2, :n_digits].argmax(dim=-1)
+            preds_o2 = logits[:, -1, :n_digits].argmax(dim=-1)
+            targets_o1 = targets[:, -2]
+            targets_o2 = targets[:, -1]
+            
+            # Count correct predictions
+            correct_both = (preds_o1 == targets_o1) & (preds_o2 == targets_o2)
+            correct += correct_both.sum().item()
+            total += inputs.shape[0]
+    
+    return correct / total, correct, total
+
+
+val_acc, val_correct, val_total = evaluate_with_ablated_feature(
+    model=model,
+    sae=sae,
+    act_mean=act_mean,
     feature_idx=SPECIAL_FEAT_IDX,
-    d1_all=d1_all, d2_all=d2_all, 
-    sae_acts_all=sae_acts_all,
-    dataset=all_ds,
-    layer_idx=0, sep_idx=SEP_TOKEN_INDEX, n_digits=N_DIGITS,
+    dataloader=val_dl,
+    layer_idx=0,
+    sep_idx=SEP_TOKEN_INDEX,
+    n_digits=N_DIGITS,
     device=DEVICE
 )
+print(f"\nValidation Results (Feature {SPECIAL_FEAT_IDX} Ablated):")
+print(f"  Correct: {val_correct}/{val_total}")
+print(f"  Accuracy: {val_acc:.4f} ({val_acc*100:.2f}%)")
+
+
+baseline_acc, baseline_correct, baseline_total = evaluate_baseline(
+    model=model,
+    dataloader=val_dl,
+    n_digits=N_DIGITS,
+    device=DEVICE
+)
+print(f"\nBaseline Results:")
+print(f"  Correct: {baseline_correct}/{baseline_total}")
+print(f"  Accuracy: {baseline_acc:.4f} ({baseline_acc*100:.2f}%)")
+
+# %%
+# Ablate all features and visualize impact
+
+print("\nEvaluating all features (0-99)...")
+results = []
+
+for feature_idx in tqdm(range(100)):
+    val_acc, _, _ = evaluate_with_ablated_feature(
+        model=model,
+        sae=sae,
+        act_mean=act_mean,
+        feature_idx=feature_idx,
+        dataloader=val_dl,
+        layer_idx=0,
+        sep_idx=SEP_TOKEN_INDEX,
+        n_digits=N_DIGITS,
+        device=DEVICE
+    )
+    results.append({"feature_idx": feature_idx, "accuracy": val_acc})
+
+# Create DataFrame and sort by accuracy (lowest = most impactful)
+df_accuracies = pd.DataFrame(results).sort_values("accuracy").reset_index(drop=True)
+
+# Plot
+plt.figure(figsize=(12, 6))
+sns.barplot(data=df_accuracies, x="feature_idx", y="accuracy", color="steelblue")
+plt.xlabel("Feature Index")
+plt.ylabel("Validation Accuracy")
+plt.title("Validation Accuracy by Ablated Feature (Sorted by Impact)")
+plt.xticks(rotation=90)
+plt.tight_layout()
+plt.show()
+
+# Display most impactful features
+print("\nTop 10 Most Impactful Features (Lowest Accuracy When Ablated):")
+print(df_accuracies.head(10).to_string(index=False))
+
+# %% [markdown]
+# Okay - so F30 reduces val accuracy to 27%, 
+# and the second worst to ablate is F54 which reduces val acc to 70% --> all other features hang around 70% !
+# ==> F30 is defo carrying important info - but why are all the others 'equally' important? 
+
+# %%
+# CROSSOVER ANALYSIS: Load pre-computed results from GPU job
+import ast
+
+# Helper to parse list columns from CSV
+def parse_list_column(df, col_name):
+    """Parse string representation of lists back to actual lists."""
+    df[col_name] = df[col_name].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
+    return df
+
+# Load crossovers
+xovers_df = pd.read_csv(f'../results/xover/xovers_feat{SPECIAL_FEAT_IDX}.csv')
+parse_list_column(xovers_df, 'o1_crossovers')
+parse_list_column(xovers_df, 'o2_crossovers')
 
 # Analyze crossover statistics
 print(f"\nTotal inputs: {len(xovers_df)}")
@@ -262,9 +431,13 @@ print(xovers_df.groupby(['n_o1_xover', 'n_o2_xover']).size().to_frame('count'))
 print(f"\nSample of inputs with crossovers:")
 display(xovers_df[xovers_df['n_o1_xover'] > 0].head(10))
 
+# %% [markdown]
+# 7054 have valid crossovers, and F30 firest on 7054 / 10k inputs 
+# - presumably these are the same set of inputs
+
 # %%
-# SWAP BOUNDS: Identify swap zones
-swap_bounds_df = get_output_swap_bounds(xovers_df)
+# SWAP BOUNDS: Load pre-computed swap zones
+swap_bounds_df = pd.read_csv(f'../results/xover/swap_bounds_feat{SPECIAL_FEAT_IDX}.csv')
 
 print(f"\nTotal inputs processed: {len(swap_bounds_df)}")
 print(f"Valid swap zones found: {swap_bounds_df['failure_reason'].isna().sum()}")
@@ -280,18 +453,12 @@ print(f"Median swap zone width: {valid_swaps['swap_zone_width'].median():.3f}")
 print(f"\nSample of valid swap zones:")
 display(valid_swaps.head(10))
 
+# %% [markdown]
+# so out of the 7054 inputs with xover, theres only 5700 valid swap zones? seems weird
+
 # %%
-# VERIFY SWAPS: Check if outputs actually swap at midpoints
-swap_results_df = swap_outputs(
-    model=model, sae=sae, act_mean=act_mean,
-    feature_idx=SPECIAL_FEAT_IDX,
-    swap_bounds_df=swap_bounds_df,
-    d1_all=d1_all, d2_all=d2_all,
-    sae_acts_all=sae_acts_all,
-    dataset=all_ds,
-    layer_idx=0, sep_idx=SEP_TOKEN_INDEX, n_digits=N_DIGITS,
-    device=DEVICE
-)
+# VERIFY SWAPS: Load pre-computed swap verification results
+swap_results_df = pd.read_csv(f'../results/xover/swap_results_feat{SPECIAL_FEAT_IDX}.csv')
 
 # Analysis
 total = len(swap_results_df)
@@ -307,3 +474,15 @@ display(swap_results_df[swap_results_df['swapped']].head(5))
 
 print(f"\nFailed to swap examples:")
 display(swap_results_df[~swap_results_df['swapped']].head(5))
+
+# %%
+results = feature_steering_experiment(
+    model, sae, act_mean,
+    feature_idx=30,
+    d1_all=d1_all, 
+    d2_all=d2_all, 
+    sae_acts_all=sae_acts_all, 
+    dataset=all_ds,
+    test_pairs=[(93, 99), (38, 78)]
+)
+# %%
