@@ -24,7 +24,7 @@ from src.utils.runtime import configure_runtime
 from src.models.utils import load_model
 from src.models.transformer import parse_model_name_safe
 from src.data.datasets import get_dataset
-from src.sae.sae_analysis import compute_sae_reconstruction_accuracy, identify_special_features
+from src.sae.sae_analysis import compute_sae_patched_accuracy, identify_special_features
 
 #%%
 # --- Configuration ---
@@ -220,7 +220,7 @@ def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all
     acc_metrics = {}
     if COMPUTE_RECON_ACC and model is not None and val_dl is not None:
         print("  Computing reconstruction accuracy...", end="", flush=True)
-        acc_results = compute_sae_reconstruction_accuracy(
+        acc_results = compute_sae_patched_accuracy(
             model, sae, val_dl, act_mean, 
             layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
         )

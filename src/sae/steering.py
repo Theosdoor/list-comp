@@ -640,3 +640,179 @@ def swap_outputs(
         })
     
     return pd.DataFrame(results)
+
+
+def analyze_feature_crossovers(
+    results, model, sae, act_mean, feature_idx,
+    d1_all, d2_all, sae_acts_all, dataset,
+    layer_idx=0, sep_idx=2, n_digits=100,
+    device=None, verbose=True
+):
+    """
+    Analyze crossover points from feature_steering_experiment results using bisection for exact values.
+    
+    Finds exact scale values (to 3 decimal places) where d1 and d2 logits cross at,
+    and verifies whether the model output is swapped at those crossovers.
+    
+    Args:
+        results: List of result dicts returned from feature_steering_experiment().
+                Each dict should have: d1, d2, scales, all_logits_o1, all_logits_o2, output_o1, output_o2
+        model: Base transformer model
+        sae: Trained SAE
+        act_mean: Activation mean for centering
+        feature_idx: Index of the SAE feature being steered
+        d1_all: Tensor of d1 values [n_samples]
+        d2_all: Tensor of d2 values [n_samples]
+        sae_acts_all: SAE activations [n_samples, d_sae]
+        dataset: PyTorch dataset for getting inputs
+        layer_idx: Layer to analyze
+        sep_idx: SEP token position
+        n_digits: Number of possible digit values
+        device: Device to use (default: auto-detect from model)
+        verbose: If True, prints detailed crossover analysis; if False, only returns data
+    
+    Returns:
+        pd.DataFrame with columns:
+            - d1, d2: Input digit pair
+            - feat_orig: Original feature activation
+            - o1_crossovers: List of scale values where o1 logits cross
+            - o2_crossovers: List of scale values where o2 logits cross
+            - o1_swapped: List of boolean for whether output swapped at each o1 crossover
+            - o2_swapped: List of boolean for whether output swapped at each o2 crossover
+    """
+    if device is None:
+        device = next(model.parameters()).device
+    
+    crossover_data = []
+    
+    if verbose:
+        print("\n" + "="*60)
+        print("CROSSOVER ANALYSIS (exact to 3dp)")
+        print("="*60)
+    
+    for i, result in enumerate(results):
+        d1_val = result['d1']
+        d2_val = result['d2']
+        scale_factors = result['scales']
+        all_logits_o1 = result['all_logits_o1']
+        all_logits_o2 = result['all_logits_o2']
+        
+        # Get data needed for bisection
+        mask = (d1_all == d1_val) & (d2_all == d2_val)
+        idx = torch.where(mask)[0][0].item()
+        inputs_i = dataset[idx][0].unsqueeze(0).to(device)
+        z_orig = sae_acts_all[idx].clone().to(device)
+        feat_orig = z_orig[feature_idx].item()
+        
+        # Find original output (at scale = 1.0)
+        original_scale_idx = np.argmin(np.abs(scale_factors - 1.0))
+        original_output_o1 = result['output_o1'][original_scale_idx]
+        original_output_o2 = result['output_o2'][original_scale_idx]
+        
+        if verbose:
+            print(f"\n{'='*60}")
+            print(f"Test Case {i+1}: Input ({d1_val}, {d2_val})")
+            print(f"Original feature {feature_idx} activation: {feat_orig:.4f}")
+            print(f"Original model output: ({original_output_o1}, {original_output_o2})")
+            print(f"{'='*60}")
+        
+        # Extract d1 and d2 logits
+        d1_logits_o1 = all_logits_o1[:, d1_val]
+        d2_logits_o1 = all_logits_o1[:, d2_val]
+        diff_o1 = d1_logits_o1 - d2_logits_o1
+        
+        d1_logits_o2 = all_logits_o2[:, d1_val]
+        d2_logits_o2 = all_logits_o2[:, d2_val]
+        diff_o2 = d1_logits_o2 - d2_logits_o2
+        
+        # Find where sign changes (crossover) for o1
+        o1_crossovers = []
+        o1_swapped = []
+        sign_changes_o1 = np.where(np.diff(np.sign(diff_o1)))[0]
+        
+        if len(sign_changes_o1) > 0:
+            if verbose:
+                print(f"\n📍 O1: Found {len(sign_changes_o1)} crossover point(s)")
+            for j, crossover_idx in enumerate(sign_changes_o1, 1):
+                exact_scale = find_exact_crossover_bisection(
+                    model=model, sae=sae, act_mean=act_mean,
+                    feature_idx=feature_idx,
+                    inputs_i=inputs_i, z_orig=z_orig, feat_orig=feat_orig,
+                    d1_val=d1_val, d2_val=d2_val,
+                    scale_low=scale_factors[crossover_idx],
+                    scale_high=scale_factors[crossover_idx + 1],
+                    output_pos=-2,  # o1 position
+                    layer_idx=layer_idx, sep_idx=sep_idx, n_digits=n_digits,
+                    device=device
+                )
+                o1_crossovers.append(round(exact_scale, 3))
+                
+                pred_o1 = result['output_o1'][crossover_idx]
+                pred_o2 = result['output_o2'][crossover_idx]
+                is_swapped = (pred_o1 == d2_val and pred_o2 == d1_val)
+                o1_swapped.append(is_swapped)
+                
+                swap_indicator = " SWAPPED!" if is_swapped else ""
+                if verbose:
+                    print(f"   Crossover #{j} at scale = {exact_scale:.3f} (3dp)")
+                    print(f"      d1 logit = {d1_logits_o1[crossover_idx]:.3f}, d2 logit = {d2_logits_o1[crossover_idx]:.3f}")
+                    print(f"      → Model output: ({pred_o1}, {pred_o2}){swap_indicator}")
+        else:
+            if verbose:
+                print(f"\n❌ O1: No crossover detected in range [{scale_factors[0]:.1f}, {scale_factors[-1]:.1f}]")
+                if d1_logits_o1[0] > d2_logits_o1[0]:
+                    print("   d1 logit remains higher throughout")
+                else:
+                    print("   d2 logit remains higher throughout")
+        
+        # Find where sign changes (crossover) for o2
+        o2_crossovers = []
+        o2_swapped = []
+        sign_changes_o2 = np.where(np.diff(np.sign(diff_o2)))[0]
+        
+        if len(sign_changes_o2) > 0:
+            if verbose:
+                print(f"\n📍 O2: Found {len(sign_changes_o2)} crossover point(s)")
+            for j, crossover_idx in enumerate(sign_changes_o2, 1):
+                exact_scale = find_exact_crossover_bisection(
+                    model=model, sae=sae, act_mean=act_mean,
+                    feature_idx=feature_idx,
+                    inputs_i=inputs_i, z_orig=z_orig, feat_orig=feat_orig,
+                    d1_val=d1_val, d2_val=d2_val,
+                    scale_low=scale_factors[crossover_idx],
+                    scale_high=scale_factors[crossover_idx + 1],
+                    output_pos=-1,  # o2 position
+                    layer_idx=layer_idx, sep_idx=sep_idx, n_digits=n_digits,
+                    device=device
+                )
+                o2_crossovers.append(round(exact_scale, 3))
+                
+                pred_o1 = result['output_o1'][crossover_idx]
+                pred_o2 = result['output_o2'][crossover_idx]
+                is_swapped = (pred_o1 == d2_val and pred_o2 == d1_val)
+                o2_swapped.append(is_swapped)
+                
+                swap_indicator = " SWAPPED!" if is_swapped else ""
+                if verbose:
+                    print(f"   Crossover #{j} at scale = {exact_scale:.3f} (3dp)")
+                    print(f"      d1 logit = {d1_logits_o2[crossover_idx]:.3f}, d2 logit = {d2_logits_o2[crossover_idx]:.3f}")
+                    print(f"      → Model output: ({pred_o1}, {pred_o2}){swap_indicator}")
+        else:
+            if verbose:
+                print(f"\n❌ O2: No crossover detected in range [{scale_factors[0]:.1f}, {scale_factors[-1]:.1f}]")
+                if d1_logits_o2[0] > d2_logits_o2[0]:
+                    print("   d1 logit remains higher throughout")
+                else:
+                    print("   d2 logit remains higher throughout")
+        
+        crossover_data.append({
+            'd1': d1_val,
+            'd2': d2_val,
+            'feat_orig': feat_orig,
+            'o1_crossovers': o1_crossovers,
+            'o2_crossovers': o2_crossovers,
+            'o1_swapped': o1_swapped,
+            'o2_swapped': o2_swapped,
+        })
+    
+    return pd.DataFrame(crossover_data)

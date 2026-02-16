@@ -30,7 +30,7 @@ from src.sae.sae_analysis import (
     collect_sae_activations,
     create_feature_heatmaps,
     compute_reconstruction_metrics,
-    compute_sae_reconstruction_accuracy,
+    compute_sae_patched_accuracy,
     identify_special_features,
     load_sae_from_wandb_run,
     compare_sweep_runs,
@@ -116,7 +116,7 @@ print(f"Firing rate range: [{firing_rate[firing_rate > 0].min():.4f}, {firing_ra
 # %%
 # SAE Reconstruction Accuracy - model performance with SAE-reconstructed activations
 
-acc_metrics = compute_sae_reconstruction_accuracy( 
+acc_metrics = compute_sae_patched_accuracy( 
     model=model,
     sae=sae,
     val_dl=val_dl, # MUST use val_dl

@@ -28,7 +28,7 @@ from src.sae.sae_analysis import (
     collect_sae_activations, 
     create_feature_heatmaps,
     compute_reconstruction_metrics,
-    compute_sae_reconstruction_accuracy,
+    compute_sae_patched_accuracy,
     collect_attention_patterns,
     identify_special_features,
     create_firing_rate_histogram,
@@ -243,7 +243,7 @@ def train_sae_sweep():
         # 3b. SAE reconstruction accuracy
         print("  - Computing SAE reconstruction accuracy...")
         try:
-            recon_acc_metrics = compute_sae_reconstruction_accuracy(
+            recon_acc_metrics = compute_sae_patched_accuracy(
                 model, sae, analysis_dl, act_mean,
                 layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
             )

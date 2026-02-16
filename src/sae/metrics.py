@@ -63,7 +63,7 @@ def compute_reconstruction_metrics(model, sae, val_dl, act_mean, layer_idx=0, se
     }
 
 
-def compute_sae_reconstruction_accuracy(model, sae, val_dl, act_mean, layer_idx=0, sep_idx=2, device="cuda"):
+def compute_sae_patched_accuracy(model, sae, val_dl, act_mean, layer_idx=0, sep_idx=2, device="cuda"):
     """
     Compute model accuracy when using SAE-reconstructed activations instead of original.
     

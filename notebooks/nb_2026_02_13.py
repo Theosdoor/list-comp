@@ -137,106 +137,21 @@ coarse_results = feature_steering_experiment(
     save_dir=None
 )
 
-# Perform crossover analysis with bisection for exact values
-print("\n" + "="*60)
-print("CROSSOVER ANALYSIS (exact to 3dp)")
-print("="*60)
+# Perform crossover analysis with bisection for exact values (using new refactored function)
+from src.sae.steering import analyze_feature_crossovers
 
-for i, result in enumerate(coarse_results):
-    d1_val = result['d1']
-    d2_val = result['d2']
-    scale_factors = result['scales']
-    all_logits_o1 = result['all_logits_o1']
-    all_logits_o2 = result['all_logits_o2']
-    
-    # Get data needed for bisection
-    mask = (d1_all == d1_val) & (d2_all == d2_val)
-    idx = torch.where(mask)[0][0].item()
-    inputs_i = all_ds[idx][0].unsqueeze(0).to(DEVICE)
-    z_orig = sae_acts_all[idx].clone().to(DEVICE)
-    feat_orig = z_orig[SPECIAL_FEAT_IDX].item()
-    
-    # Find original output (at scale = 1.0)
-    original_scale_idx = np.argmin(np.abs(scale_factors - 1.0))
-    original_output_o1 = result['output_o1'][original_scale_idx]
-    original_output_o2 = result['output_o2'][original_scale_idx]
-    
-    print(f"\n{'='*60}")
-    print(f"Test Case {i+1}: Input ({d1_val}, {d2_val})")
-    print(f"Original feature {SPECIAL_FEAT_IDX} activation: {feat_orig:.4f}")
-    print(f"Original model output: ({original_output_o1}, {original_output_o2})")
-    print(f"{'='*60}")
-    
-    # Extract d1 and d2 logits
-    d1_logits_o1 = all_logits_o1[:, d1_val]
-    d2_logits_o1 = all_logits_o1[:, d2_val]
-    diff_o1 = d1_logits_o1 - d2_logits_o1
-    
-    d1_logits_o2 = all_logits_o2[:, d1_val]
-    d2_logits_o2 = all_logits_o2[:, d2_val]
-    diff_o2 = d1_logits_o2 - d2_logits_o2
-    
-    # Find where sign changes (crossover) for o1
-    sign_changes_o1 = np.where(np.diff(np.sign(diff_o1)))[0]
-    if len(sign_changes_o1) > 0:
-        print(f"\n📍 O1: Found {len(sign_changes_o1)} crossover point(s)")
-        for j, crossover_idx in enumerate(sign_changes_o1, 1):
-            # Use bisection to find exact crossover (to 3dp)
-            exact_scale = find_exact_crossover_bisection(
-                model=model, sae=sae, act_mean=act_mean,
-                feature_idx=SPECIAL_FEAT_IDX,
-                inputs_i=inputs_i, z_orig=z_orig, feat_orig=feat_orig,
-                d1_val=d1_val, d2_val=d2_val,
-                scale_low=scale_factors[crossover_idx],
-                scale_high=scale_factors[crossover_idx + 1],
-                output_pos=-2,  # o1 position
-                layer_idx=0, sep_idx=SEP_TOKEN_INDEX, n_digits=N_DIGITS,
-                device=DEVICE
-            )
-            pred_o1 = result['output_o1'][crossover_idx]
-            pred_o2 = result['output_o2'][crossover_idx]
-            is_swapped = (pred_o1 == d2_val and pred_o2 == d1_val)
-            swap_indicator = " SWAPPED!" if is_swapped else ""
-            print(f"   Crossover #{j} at scale = {exact_scale:.3f} (3dp)")
-            print(f"      d1 logit = {d1_logits_o1[crossover_idx]:.3f}, d2 logit = {d2_logits_o1[crossover_idx]:.3f}")
-            print(f"      → Model output: ({pred_o1}, {pred_o2}){swap_indicator}")
-    else:
-        print(f"\n❌ O1: No crossover detected in range [{scale_factors[0]:.1f}, {scale_factors[-1]:.1f}]")
-        if d1_logits_o1[0] > d2_logits_o1[0]:
-            print("   d1 logit remains higher throughout")
-        else:
-            print("   d2 logit remains higher throughout")
-    
-    # Find where sign changes (crossover) for o2
-    sign_changes_o2 = np.where(np.diff(np.sign(diff_o2)))[0]
-    if len(sign_changes_o2) > 0:
-        print(f"\n📍 O2: Found {len(sign_changes_o2)} crossover point(s)")
-        for j, crossover_idx in enumerate(sign_changes_o2, 1):
-            # Use bisection to find exact crossover
-            exact_scale = find_exact_crossover_bisection(
-                model=model, sae=sae, act_mean=act_mean,
-                feature_idx=SPECIAL_FEAT_IDX,
-                inputs_i=inputs_i, z_orig=z_orig, feat_orig=feat_orig,
-                d1_val=d1_val, d2_val=d2_val,
-                scale_low=scale_factors[crossover_idx],
-                scale_high=scale_factors[crossover_idx + 1],
-                output_pos=-1,  # o2 position
-                layer_idx=0, sep_idx=SEP_TOKEN_INDEX, n_digits=N_DIGITS,
-                device=DEVICE
-            )
-            pred_o1 = result['output_o1'][crossover_idx]
-            pred_o2 = result['output_o2'][crossover_idx]
-            is_swapped = (pred_o1 == d2_val and pred_o2 == d1_val)
-            swap_indicator = " SWAPPED!" if is_swapped else ""
-            print(f"   Crossover #{j} at scale = {exact_scale:.3f} (3dp)")
-            print(f"      d1 logit = {d1_logits_o2[crossover_idx]:.3f}, d2 logit = {d2_logits_o2[crossover_idx]:.3f}")
-            print(f"      → Model output: ({pred_o1}, {pred_o2}){swap_indicator}")
-    else:
-        print(f"\n❌ O2: No crossover detected in range [{scale_factors[0]:.1f}, {scale_factors[-1]:.1f}]")
-        if d1_logits_o2[0] > d2_logits_o2[0]:
-            print("   d1 logit remains higher throughout")
-        else:
-            print("   d2 logit remains higher throughout")
+crossover_df = analyze_feature_crossovers(
+    results=coarse_results,
+    model=model, sae=sae, act_mean=act_mean,
+    feature_idx=SPECIAL_FEAT_IDX,
+    d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_all,
+    dataset=all_ds,
+    layer_idx=0,
+    sep_idx=SEP_TOKEN_INDEX,
+    n_digits=N_DIGITS,
+    device=DEVICE,
+    verbose=True
+)
 
 # %%
 # What's the accuracy when special feature is ablated?
@@ -484,5 +399,18 @@ results = feature_steering_experiment(
     sae_acts_all=sae_acts_all, 
     dataset=all_ds,
     test_pairs=[(93, 99), (38, 78)]
+)
+
+crossover_df = analyze_feature_crossovers(
+    results=results,
+    model=model, sae=sae, act_mean=act_mean,
+    feature_idx=SPECIAL_FEAT_IDX,
+    d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_all,
+    dataset=all_ds,
+    layer_idx=0,
+    sep_idx=SEP_TOKEN_INDEX,
+    n_digits=N_DIGITS,
+    device=DEVICE,
+    verbose=True
 )
 # %%

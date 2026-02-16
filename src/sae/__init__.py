@@ -24,7 +24,7 @@ from .visualization import (
 # Metrics
 from .metrics import (
     compute_reconstruction_metrics,
-    compute_sae_reconstruction_accuracy,
+    compute_sae_patched_accuracy,
 )
 
 # SAE loading
@@ -38,6 +38,7 @@ from .loading import (
 from .steering import (
     find_exact_crossover_bisection,
     feature_steering_experiment,
+    analyze_feature_crossovers,
     get_xovers_df,
     get_output_swap_bounds,
     swap_outputs,
@@ -58,7 +59,7 @@ __all__ = [
     "create_firing_rate_histogram",
     # Metrics
     "compute_reconstruction_metrics",
-    "compute_sae_reconstruction_accuracy",
+    "compute_sae_patched_accuracy",
     # SAE loading
     "load_sae_from_local",
     "load_sae_from_wandb_run",
@@ -66,6 +67,7 @@ __all__ = [
     # Feature steering
     "find_exact_crossover_bisection",
     "feature_steering_experiment",
+    "analyze_feature_crossovers",
     "get_xovers_df",
     "get_output_swap_bounds",
     "swap_outputs",

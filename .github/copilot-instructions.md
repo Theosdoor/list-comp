@@ -82,7 +82,7 @@ hits = (preds == targets).sum().item()  # ❌ Wrong denominator
   - `collect_sae_activations()` - Extract SAE latent activations for all validation data
   - `create_feature_heatmaps()` - Visualize feature activation patterns across input space
   - `compute_reconstruction_metrics()` - MSE, explained variance for SAE reconstructions
-  - `compute_sae_reconstruction_accuracy()` - Model accuracy when using SAE-reconstructed activations
+  - `compute_sae_patched_accuracy()` - Model accuracy when using SAE-reconstructed activations
   - `identify_special_features()` - Find features correlated with attention patterns
   - `load_sae_from_local()` / `load_sae_from_wandb_run()` - Load trained SAE checkpoints
 
@@ -149,7 +149,7 @@ d1_all, d2_all, sae_acts_all = collect_sae_activations(model, sae, all_dl, ...)
 ```
 
 ❌ **Use validation split ONLY for:**
-- Model accuracy evaluation (`compute_sae_reconstruction_accuracy()`)
+- Model accuracy evaluation (`compute_sae_patched_accuracy()`)
 - Reconstruction quality metrics (`compute_reconstruction_metrics()`)
 - Any performance comparison or quantitative benchmarking
 - Anything that measures *how well* the model/SAE performs
@@ -158,7 +158,7 @@ d1_all, d2_all, sae_acts_all = collect_sae_activations(model, sae, all_dl, ...)
 # Use validation split for accuracy metrics
 _, val_ds = get_dataset(list_len=2, n_digits=100)  # Default train_split=0.8
 val_dl = DataLoader(val_ds, batch_size=128, shuffle=False)
-acc_metrics = compute_sae_reconstruction_accuracy(model, sae, val_dl, ...)
+acc_metrics = compute_sae_patched_accuracy(model, sae, val_dl, ...)
 ```
 
 **Why the distinction?** Activation visualizations benefit from seeing the full input space to understand learned features. Performance metrics must use held-out data to avoid data leakage and inflated accuracy estimates.
