@@ -1,6 +1,7 @@
 # %%
 # SETUP
 
+from torch._numpy import False_
 import os
 import sys
 
@@ -110,30 +111,52 @@ top_n = min(30, n_active)
 
 
 # %%
+# see rough results
 SPECIAL_FEAT_IDX = 30
 
-results = feature_steering_experiment(
+results=feature_steering_experiment(
     model=model, sae=sae, act_mean=act_mean,
     feature_idx=SPECIAL_FEAT_IDX,
     d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_all,
     dataset=all_ds,
     sep_idx=SEP_TOKEN_INDEX,
     n_digits=N_DIGITS,
-    plot=True,
-    save_dir=SAVE_DIR
+    save_dir=None
 )
 
-# Perform crossover analysis for all inputs in results
+# %%
+# bisection for exact crossover points (to 3dp)
+
+coarse_results = feature_steering_experiment(
+    model=model, sae=sae, act_mean=act_mean,
+    feature_idx=SPECIAL_FEAT_IDX,
+    d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_all,
+    dataset=all_ds,
+    sep_idx=SEP_TOKEN_INDEX,
+    n_digits=N_DIGITS,
+    plot=False,  # Don't plot since we're finding exact values
+    scale_factors=np.linspace(0, 10, 20),  # Coarse sampling just to find regions
+    save_dir=None
+)
+
+# Perform crossover analysis with bisection for exact values
 print("\n" + "="*60)
-print("CROSSOVER ANALYSIS")
+print("CROSSOVER ANALYSIS (exact to 3dp)")
 print("="*60)
 
-for i, result in enumerate(results):
+for i, result in enumerate(coarse_results):
     d1_val = result['d1']
     d2_val = result['d2']
     scale_factors = result['scales']
     all_logits_o1 = result['all_logits_o1']
     all_logits_o2 = result['all_logits_o2']
+    
+    # Get data needed for bisection
+    mask = (d1_all == d1_val) & (d2_all == d2_val)
+    idx = torch.where(mask)[0][0].item()
+    inputs_i = all_ds[idx][0].unsqueeze(0).to(DEVICE)
+    z_orig = sae_acts_all[idx].clone().to(DEVICE)
+    feat_orig = z_orig[SPECIAL_FEAT_IDX].item()
     
     # Find original output (at scale = 1.0)
     original_scale_idx = np.argmin(np.abs(scale_factors - 1.0))
@@ -142,7 +165,7 @@ for i, result in enumerate(results):
     
     print(f"\n{'='*60}")
     print(f"Test Case {i+1}: Input ({d1_val}, {d2_val})")
-    print(f"Original feature {SPECIAL_FEAT_IDX} activation: {result['order_feat_orig']:.4f}")
+    print(f"Original feature {SPECIAL_FEAT_IDX} activation: {feat_orig:.4f}")
     print(f"Original model output: ({original_output_o1}, {original_output_o2})")
     print(f"{'='*60}")
     
@@ -160,12 +183,23 @@ for i, result in enumerate(results):
     if len(sign_changes_o1) > 0:
         print(f"\n📍 O1: Found {len(sign_changes_o1)} crossover point(s)")
         for j, crossover_idx in enumerate(sign_changes_o1, 1):
-            crossover_scale = scale_factors[crossover_idx]
+            # Use bisection to find exact crossover (to 3dp)
+            exact_scale = find_exact_crossover_bisection(
+                model=model, sae=sae, act_mean=act_mean,
+                feature_idx=SPECIAL_FEAT_IDX,
+                inputs_i=inputs_i, z_orig=z_orig, feat_orig=feat_orig,
+                d1_val=d1_val, d2_val=d2_val,
+                scale_low=scale_factors[crossover_idx],
+                scale_high=scale_factors[crossover_idx + 1],
+                output_pos=-2,  # o1 position
+                layer_idx=0, sep_idx=SEP_TOKEN_INDEX, n_digits=N_DIGITS,
+                device=DEVICE
+            )
             pred_o1 = result['output_o1'][crossover_idx]
             pred_o2 = result['output_o2'][crossover_idx]
             is_swapped = (pred_o1 == d2_val and pred_o2 == d1_val)
             swap_indicator = " SWAPPED!" if is_swapped else ""
-            print(f"   Crossover #{j} at scale ≈ {crossover_scale:.3f}")
+            print(f"   Crossover #{j} at scale = {exact_scale:.3f} (3dp)")
             print(f"      d1 logit = {d1_logits_o1[crossover_idx]:.3f}, d2 logit = {d2_logits_o1[crossover_idx]:.3f}")
             print(f"      → Model output: ({pred_o1}, {pred_o2}){swap_indicator}")
     else:
@@ -180,12 +214,23 @@ for i, result in enumerate(results):
     if len(sign_changes_o2) > 0:
         print(f"\n📍 O2: Found {len(sign_changes_o2)} crossover point(s)")
         for j, crossover_idx in enumerate(sign_changes_o2, 1):
-            crossover_scale = scale_factors[crossover_idx]
+            # Use bisection to find exact crossover
+            exact_scale = find_exact_crossover_bisection(
+                model=model, sae=sae, act_mean=act_mean,
+                feature_idx=SPECIAL_FEAT_IDX,
+                inputs_i=inputs_i, z_orig=z_orig, feat_orig=feat_orig,
+                d1_val=d1_val, d2_val=d2_val,
+                scale_low=scale_factors[crossover_idx],
+                scale_high=scale_factors[crossover_idx + 1],
+                output_pos=-1,  # o2 position
+                layer_idx=0, sep_idx=SEP_TOKEN_INDEX, n_digits=N_DIGITS,
+                device=DEVICE
+            )
             pred_o1 = result['output_o1'][crossover_idx]
             pred_o2 = result['output_o2'][crossover_idx]
             is_swapped = (pred_o1 == d2_val and pred_o2 == d1_val)
             swap_indicator = " SWAPPED!" if is_swapped else ""
-            print(f"   Crossover #{j} at scale ≈ {crossover_scale:.3f}")
+            print(f"   Crossover #{j} at scale = {exact_scale:.3f} (3dp)")
             print(f"      d1 logit = {d1_logits_o2[crossover_idx]:.3f}, d2 logit = {d2_logits_o2[crossover_idx]:.3f}")
             print(f"      → Model output: ({pred_o1}, {pred_o2}){swap_indicator}")
     else:

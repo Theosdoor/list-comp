@@ -707,11 +707,84 @@ def load_sae_from_wandb_run(run_id, project="theo-farrell99-durham-university/li
     }
 
 
+def find_exact_crossover_bisection(
+    model, sae, act_mean, feature_idx,
+    inputs_i, z_orig, feat_orig, d1_val, d2_val,
+    scale_low, scale_high, output_pos,
+    layer_idx=0, sep_idx=2, n_digits=100,
+    tol=0.0005, max_iter=20, device=None
+):
+    """
+    Use bisection to find exact scale where d1 and d2 logits cross.
+    
+    Args:
+        model: Base transformer model
+        sae: Trained SAE
+        act_mean: Activation mean for centering
+        feature_idx: Index of the feature being steered
+        inputs_i: Input tensor [1, seq_len]
+        z_orig: Original SAE activations [d_sae]
+        feat_orig: Original feature activation value
+        d1_val: d1 digit value
+        d2_val: d2 digit value
+        scale_low: Lower bound of scale range
+        scale_high: Upper bound of scale range
+        output_pos: Output position (-2 for o1, -1 for o2)
+        layer_idx: Layer to patch
+        sep_idx: SEP token position
+        n_digits: Number of possible digits
+        tol: Tolerance for convergence (default: 0.0005 for 3dp accuracy)
+        max_iter: Maximum iterations
+        device: Device to use
+    
+    Returns:
+        exact_scale: Scale value where crossover occurs (to 3 decimal places)
+    """
+    if device is None:
+        device = next(model.parameters()).device
+    
+    hook_name_resid = f"blocks.{layer_idx}.hook_resid_post"
+    
+    def get_logit_diff_at_scale(scale):
+        """Helper: Run model at given scale and return d1_logit - d2_logit"""
+        z_scaled = z_orig.clone()
+        z_scaled[feature_idx] = feat_orig * scale
+        recon = sae.decode(z_scaled.unsqueeze(0))
+        
+        with torch.no_grad():
+            patched_logits = model.run_with_hooks(
+                inputs_i,
+                fwd_hooks=[(hook_name_resid, make_sae_patch_hook(recon, act_mean, sep_idx))]
+            )
+        
+        logits = patched_logits[0, output_pos, :n_digits].cpu().numpy()
+        return logits[d1_val] - logits[d2_val]
+    
+    # Bisection loop
+    for _ in range(max_iter):
+        if scale_high - scale_low < tol:
+            break
+        
+        scale_mid = (scale_low + scale_high) / 2
+        diff_mid = get_logit_diff_at_scale(scale_mid)
+        diff_low = get_logit_diff_at_scale(scale_low)
+        
+        # Check which half contains the root
+        if diff_mid * diff_low > 0:
+            # Same sign, root is in upper half
+            scale_low = scale_mid
+        else:
+            # Different sign, root is in lower half
+            scale_high = scale_mid
+    
+    return (scale_low + scale_high) / 2
+
+
 def feature_steering_experiment(
     model, sae, act_mean, feature_idx,
     d1_all, d2_all, sae_acts_all, dataset,
     layer_idx=0, sep_idx=2, n_digits=100,
-    scale_factors=None, scale_range=None, n_test_cases=5, seed=42,
+    scale_factors=None, scale_range=[-1.0, 4.0], n_test_cases=5, seed=42,
     device=None, plot=True, save_dir=None
 ):
     """
@@ -752,8 +825,6 @@ def feature_steering_experiment(
             - 'order_feat_orig': Original feature activation
     """
     if scale_factors is None:
-        if scale_range is None:
-            scale_range = [-1.0, 5.0]
         scale_factors = np.linspace(scale_range[0], scale_range[1], 100)
     
     # Auto-detect device from model if not specified
