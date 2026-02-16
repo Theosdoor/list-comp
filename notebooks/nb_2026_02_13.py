@@ -22,7 +22,7 @@ from src.utils.runtime import configure_runtime
 from src.models.transformer import parse_model_name_safe, build_attention_mask
 from src.models.utils import load_model
 from src.data.datasets import get_dataset
-from src.sae.sae_analysis import *
+from src.sae import *  # Import all SAE analysis utilities
 
 # Setup device and seeds
 DEVICE = setup_notebook(seed=42)
@@ -121,6 +121,49 @@ results=feature_steering_experiment(
     n_digits=N_DIGITS,
     save_dir=None
 )
+
+# %%
+# lets check how linear the logit lines are in the graph
+def verify_linearity(results_list):
+    """
+    Evaluates linearity using R^2 and Maximum Residual Error.
+    """
+    from scipy.stats import linregress
+    for i, res in enumerate(results_list):
+        scales = res['scales']
+        print(f"--- Input pair ({res['d1']}, res['d2']) ---")
+        
+        # Test targets
+        targets = {
+            'logit_d1_o1': res['logit_d1_o1'],
+            'logit_d2_o1': res['logit_d2_o1'],
+            'logit_d1_o2': res['logit_d1_o2'],
+            'logit_d2_o2': res['logit_d2_o2']
+        }
+        
+        for name, logits in targets.items():
+            # Fit Ordinary Least Squares regression
+            slope, intercept, r_value, p_value, std_err = linregress(scales, logits)
+            r_squared = r_value ** 2
+            
+            # Calculate residuals (actual - predicted)
+            predicted_logits = (slope * scales) + intercept
+            max_residual = np.max(np.abs(logits - predicted_logits))
+            
+            # Formatting output
+            is_linear = r_squared > 0.9999
+            status = "STRAIGHT" if is_linear else "CURVED"
+            
+            print(f"  {name:11} -> {status} | R^2: {r_squared:.6f} | Max Residual: {max_residual:.2e}")
+        print()
+
+verify_linearity(results)
+
+# TODO will need to do this for all inputs (not just these) for rigour in paper
+# but I think it's pretty clear that the o1 position lines are straight, and o2 ones are curved
+
+# %%
+# TODO check what polynomial best fits the o2 lines (maybe quartic?) - good to include in paper
 
 # %%
 # bisection for exact crossover points (to 3dp)
@@ -371,26 +414,26 @@ display(valid_swaps.head(10))
 invalid_swaps = swap_bounds_df[swap_bounds_df['lower_bound'].isna()]
 
 # %% [markdown]
-# so out of the 7054 inputs with xover, theres only 5700 valid swap zones? seems weird
+# so out of the 7054 inputs with xover, theres only 5596 valid swap zones? seems weird
 
 # %%
-# VERIFY SWAPS: Load pre-computed swap verification results
-swap_results_df = pd.read_csv(f'../results/xover/swap_results_feat{SPECIAL_FEAT_IDX}.csv')
+# # VERIFY SWAPS: Load pre-computed swap verification results
+# swap_results_df = pd.read_csv(f'../results/xover/swap_results_feat{SPECIAL_FEAT_IDX}.csv')
 
-# Analysis
-total = len(swap_results_df)
-swapped = swap_results_df['swapped'].sum()
-print(f"\nSwap verification results:")
-print(f"Total verified: {total}")
-print(f"Successfully swapped: {swapped} ({swapped/total*100:.1f}%)")
-print(f"Failed to swap: {total - swapped} ({(total-swapped)/total*100:.1f}%)")
+# # Analysis
+# total = len(swap_results_df)
+# swapped = swap_results_df['swapped'].sum()
+# print(f"\nSwap verification results:")
+# print(f"Total verified: {total}")
+# print(f"Successfully swapped: {swapped} ({swapped/total*100:.1f}%)")
+# print(f"Failed to swap: {total - swapped} ({(total-swapped)/total*100:.1f}%)")
 
-# Show some examples
-print(f"\nSuccessfully swapped examples:")
-display(swap_results_df[swap_results_df['swapped']].head(5))
+# # Show some examples
+# print(f"\nSuccessfully swapped examples:")
+# display(swap_results_df[swap_results_df['swapped']].head(5))
 
-print(f"\nFailed to swap examples:")
-display(swap_results_df[~swap_results_df['swapped']].head(5))
+# print(f"\nFailed to swap examples:")
+# display(swap_results_df[~swap_results_df['swapped']].head(5))
 
 # %%
 invalid_swaps
@@ -398,7 +441,8 @@ invalid_swaps
 # %%
 # test specific bad examples
 # test_egs = [(93, 99), (38, 78)]
-test_egs = [(60,44), (75,32), (9,81)]
+# test_egs = [(60,44), (75,32), (9,81), (32,75)]
+test_egs = [(4,29), (49,19)]
 
 results = feature_steering_experiment(
     model, sae, act_mean,
@@ -427,7 +471,7 @@ crossover_df = analyze_feature_crossovers(
 # %%
 # Inspect outputs at custom scales (e.g., 2x feature activation)
 
-# Test the first example (93, 99) at different scales
+# Test the egs at different scales
 for d1_val, d2_val in test_egs:
     mask = (d1_all == d1_val) & (d2_all == d2_val)
     idx = torch.where(mask)[0][0].item()
@@ -441,6 +485,7 @@ for d1_val, d2_val in test_egs:
     
     # Inspect at multiple scales
     custom_scales = [-1.0, 0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0]
+    # custom_scales = [2.2,2.3]
     result_list, df = inspect_steered_outputs_batch(
         model=model, sae=sae, act_mean=act_mean,
         feature_idx=SPECIAL_FEAT_IDX,
@@ -455,3 +500,25 @@ for d1_val, d2_val in test_egs:
 
 
 # %%
+# get input pairs that F30 doesn't activate for
+inactive_mask = sae_acts_all[:, SPECIAL_FEAT_IDX] == 0
+inactive_d1 = d1_all[inactive_mask].cpu().numpy()
+inactive_d2 = d2_all[inactive_mask].cpu().numpy()
+inactive_pairs = set(zip(inactive_d1, inactive_d2)) 
+
+print(f"Number of inactive pairs for feature {SPECIAL_FEAT_IDX}: {len(inactive_pairs)}")
+print(f"Sample inactive pairs: {list(inactive_pairs)}")
+
+# %% [markdown]
+# (75,32) doesnt activate F30, but (32,75) does - is this weird?
+# Model learns an attn pattern for 75,32 input, which needn't be same as input 32,75
+# ==> makes sense that swapping behaviour controlled by attn pattern wouldn't be necc related
+
+# %% [markdown]
+# So we have (out of 10k inputs):
+# - 5596 inputs activate F30 & swap predictably (56%)
+# - 2946 don't activate F30 at all (29%)
+# - 1458 (i.e. the rest) activate F30 but don't have valid swap zones (15%) 
+#   eg. no xover for o1 and/or o2, or some other error
+
+# Looking at that 15% without 
