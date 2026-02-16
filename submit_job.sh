@@ -18,8 +18,8 @@ python3 -c "import torch; print(f'CUDA Available: {torch.cuda.is_available()}');
 echo "------------------------------------------------------"
 
 # run
-# python3 scripts/train_model.py --n-layers 3 --list-len 4 --n-digits 50 --max-retries 6 --wandb
-# python3 scripts/train_sae.py --d_sae 256 --top_k 1
+python3 scripts/run_crossover_analysis.py
 
-wandb agent theo-farrell99-durham-university/list-comp/fib2y4u8
-python3 scripts/compare_sae.py
+# SAE sweep (comment/uncomment as needed)
+# wandb agent theo-farrell99-durham-university/list-comp/fib2y4u8
+# python3 scripts/compare_sae.py
