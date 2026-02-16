@@ -1,5 +1,4 @@
 *.err
-submit_job.sh
 logs/
 wandb/
 results/sae_models/*sweep_runs
