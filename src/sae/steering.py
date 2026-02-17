@@ -569,7 +569,7 @@ def get_xovers_df(
     
     for batch_idx in tqdm(range(n_batches), desc="Finding crossovers (batched)", leave=True):
         batch_start = batch_idx * batch_size
-        batch_end = min(batch_start + batch_size, n_samples)
+        batch_end = min(batch_start + batch_size, n_data_samples)
         batch_indices = range(batch_start, batch_end)
         current_batch_size = batch_end - batch_start
         
