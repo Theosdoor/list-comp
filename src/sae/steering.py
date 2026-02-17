@@ -817,10 +817,11 @@ def get_output_swap_bounds(xovers_df, scale_range=[0.0, 10.0]):
     Identify scale ranges where outputs should swap from (d1, d2) to (d2, d1).
     
     For outputs to swap:
-    - o1 must predict d2 (d2_logit > d1_logit at o1)
-    - o2 must predict d1 (d1_logit > d2_logit at o2)
+    - o1 must predict d2 (argmax at o1 == d2)
+    - o2 must predict d1 (argmax at o2 == d1)
     
-    Uses crossover information and bound types to determine valid swap zones.
+    Uses both crossover information AND argmax dominance to determine valid swap zones.
+    A third digit becoming dominant (e.g., 70) will constrain the bounds.
     
     Args:
         xovers_df: DataFrame from get_xovers_df
@@ -844,6 +845,50 @@ def get_output_swap_bounds(xovers_df, scale_range=[0.0, 10.0]):
     return pd.DataFrame(results)
 
 
+def _find_argmax_dominance_ranges(scales, argmax_seq, target_val):
+    """
+    Find scale ranges where argmax equals target_val.
+    
+    Returns list of (lower, upper) tuples representing contiguous ranges
+    where argmax == target_val.
+    """
+    ranges = []
+    in_range = False
+    range_start = None
+    
+    for i, (scale, argmax) in enumerate(zip(scales, argmax_seq)):
+        if argmax == target_val:
+            if not in_range:
+                in_range = True
+                range_start = scale
+        else:
+            if in_range:
+                # Range ended at previous scale
+                ranges.append((range_start, scales[i-1]))
+                in_range = False
+    
+    # Handle range extending to end
+    if in_range:
+        ranges.append((range_start, scales[-1]))
+    
+    return ranges
+
+
+def _intersect_ranges(ranges1, ranges2):
+    """
+    Compute intersection of two lists of (lower, upper) ranges.
+    Returns list of (lower, upper) tuples.
+    """
+    result = []
+    for r1_lo, r1_hi in ranges1:
+        for r2_lo, r2_hi in ranges2:
+            lo = max(r1_lo, r2_lo)
+            hi = min(r1_hi, r2_hi)
+            if lo <= hi:
+                result.append((lo, hi))
+    return result
+
+
 def _determine_swap_bounds_for_sample(row, scale_range):
     """Determine swap bounds for a single sample."""
     d1_val = row['d1']
@@ -855,7 +900,12 @@ def _determine_swap_bounds_for_sample(row, scale_range):
     o1_bound_types = _parse_list_field(row['o1_bound_types'])
     o2_bound_types = _parse_list_field(row['o2_bound_types'])
     
-    # Initialize bounds
+    # Parse scales and argmax sequences for dominance check
+    scales = _parse_list_field(row['scales'])
+    argmax_o1 = _parse_list_field(row['argmax_o1'])
+    argmax_o2 = _parse_list_field(row['argmax_o2'])
+    
+    # Initialize bounds from crossovers
     lower_bound = scale_range[0]
     upper_bound = scale_range[1]
     failure_reason = None
@@ -889,9 +939,38 @@ def _determine_swap_bounds_for_sample(row, scale_range):
                     elif bound_type == 'ub':
                         upper_bound = min(upper_bound, xover)
     
-    # Check for invalid bounds
+    # Check for invalid bounds from crossovers
     if failure_reason is None and lower_bound > upper_bound:
         failure_reason = "invalid_bounds"
+    
+    # Now constrain by argmax dominance (d1/d2 must actually be the top prediction)
+    if failure_reason is None:
+        # Find ranges where o1 predicts d2 AND o2 predicts d1
+        o1_d2_ranges = _find_argmax_dominance_ranges(scales, argmax_o1, d2_val)
+        o2_d1_ranges = _find_argmax_dominance_ranges(scales, argmax_o2, d1_val)
+        
+        if len(o1_d2_ranges) == 0:
+            failure_reason = "o1_never_predicts_d2"
+        elif len(o2_d1_ranges) == 0:
+            failure_reason = "o2_never_predicts_d1"
+        else:
+            # Find intersection of o1 and o2 dominance ranges
+            swap_ranges = _intersect_ranges(o1_d2_ranges, o2_d1_ranges)
+            
+            if len(swap_ranges) == 0:
+                failure_reason = "no_overlapping_dominance"
+            else:
+                # Filter swap_ranges to those overlapping with crossover bounds
+                crossover_bounds = [(lower_bound, upper_bound)]
+                valid_swap_ranges = _intersect_ranges(swap_ranges, crossover_bounds)
+                
+                if len(valid_swap_ranges) == 0:
+                    failure_reason = "dominance_outside_crossover_bounds"
+                else:
+                    # Use the first valid range (usually there's only one)
+                    # Could also use the widest one if there are multiple
+                    best_range = max(valid_swap_ranges, key=lambda r: r[1] - r[0])
+                    lower_bound, upper_bound = best_range
     
     # Calculate midpoint and width
     if failure_reason is None:
