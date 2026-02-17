@@ -300,7 +300,7 @@ def feature_steering_experiment(
     model, sae, act_mean, feature_idx,
     d1_all, d2_all, sae_acts_all, dataset,
     layer_idx=0, sep_idx=DEFAULT_SEP_IDX, n_digits=DEFAULT_N_DIGITS,
-    scale_factors=None, scale_range=[-1.0, 4.0], n_test_cases=5, seed=42,
+    scale_factors=None, scale_range=[-1.0, 4.0], sample_step_size=0.05, n_test_cases=5, seed=42,
     test_pairs=None, device=None, plot=True, save_dir=None
 ):
     """
@@ -346,8 +346,7 @@ def feature_steering_experiment(
     _validate_inputs(model, sae, d1_all, d2_all, sae_acts_all, dataset, feature_idx)
     
     if scale_factors is None:
-        step_size = 0.1
-        num_steps = int(round((scale_range[0] - scale_range[1]) / step_size)) + 1
+        num_steps = int(round((scale_range[0] - scale_range[1]) / sample_step_size)) + 1
         scale_factors = np.linspace(scale_range[0], scale_range[1], num_steps)
     
     device = _get_device(model, device)
@@ -513,7 +512,7 @@ def get_xovers_df(
     model, sae, act_mean, feature_idx,
     d1_all, d2_all, sae_acts_all, dataset,
     layer_idx=0, sep_idx=DEFAULT_SEP_IDX, n_digits=DEFAULT_N_DIGITS,
-    scale_range=[0.0, 10.0], sample_step_size = 0.1,
+    scale_range=[0.0, 10.0], sample_step_size = 0.05,
     batch_size=64, device=None
 ):
     """
