@@ -1,9 +1,4 @@
-"""
-Crossover Analysis Script
 
-Runs the crossover analysis pipeline on all inputs and saves results to disk.
-Designed to run on GPU via SLURM job submission.
-"""
 # %%
 import os
 import sys

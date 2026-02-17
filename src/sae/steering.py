@@ -346,8 +346,21 @@ def feature_steering_experiment(
     _validate_inputs(model, sae, d1_all, d2_all, sae_acts_all, dataset, feature_idx)
     
     if scale_factors is None:
-        num_steps = int(round((scale_range[0] - scale_range[1]) / sample_step_size)) + 1
-        scale_factors = np.linspace(scale_range[0], scale_range[1], num_steps)
+        if sample_step_size <= 0:
+            raise ValueError(f"sample_step_size must be > 0, got {sample_step_size}")
+        if scale_range is None or len(scale_range) != 2:
+            raise ValueError(
+                f"scale_range must be a length-2 sequence [min, max], got {scale_range}"
+            )
+
+        scale_min, scale_max = scale_range[0], scale_range[1]
+        if scale_max < scale_min:
+            raise ValueError(
+                f"scale_range max must be >= min, got min={scale_min}, max={scale_max}"
+            )
+
+        num_steps = int(round((scale_max - scale_min) / sample_step_size)) + 1
+        scale_factors = np.linspace(scale_min, scale_max, num_steps)
     
     device = _get_device(model, device)
     hook_name_resid = f"blocks.{layer_idx}.hook_resid_post"
@@ -688,13 +701,13 @@ def _analyze_single_sample_crossovers(
     
     # Find crossovers for both output positions
     o1_crossovers, o1_bound_types = _find_crossovers_for_position(
-        logits_o1, d1_val, d2_val, scale_factors, 
+        logits_o1, d1_val, d2_val, scale_factors, argmax_o1,
         model, sae, act_mean, feature_idx, inputs_i, z_orig, feat_orig,
         OUTPUT_POS_O1, layer_idx, sep_idx, n_digits, device
     )
     
     o2_crossovers, o2_bound_types = _find_crossovers_for_position(
-        logits_o2, d1_val, d2_val, scale_factors,
+        logits_o2, d1_val, d2_val, scale_factors, argmax_o2,
         model, sae, act_mean, feature_idx, inputs_i, z_orig, feat_orig,
         OUTPUT_POS_O2, layer_idx, sep_idx, n_digits, device
     )
@@ -716,7 +729,7 @@ def _analyze_single_sample_crossovers(
 
 
 def _find_crossovers_for_position(
-    logits, d1_val, d2_val, scale_factors,
+    logits, d1_val, d2_val, scale_factors, argmax,
     model, sae, act_mean, feature_idx, inputs_i, z_orig, feat_orig,
     output_pos, layer_idx, sep_idx, n_digits, device
 ):
@@ -726,10 +739,13 @@ def _find_crossovers_for_position(
     For o1: We want d2 > d1 (so output predicts d2)
     For o2: We want d1 > d2 (so output predicts d1)
     This creates the swap pattern (d2, d1)
+    
+    Args:
+        argmax: Array of argmax predictions at each scale [n_scales]
     """
     d1_logits = logits[:, d1_val]
     d2_logits = logits[:, d2_val]
-    diff = d1_logits - d2_logits
+    diff = d1_logits - d2_logits  # d1 - d2
     sign_changes = np.where(np.diff(np.sign(diff)))[0]
     
     crossovers = []
@@ -746,75 +762,54 @@ def _find_crossovers_for_position(
         exact_scale = round(exact_scale, 3)
         crossovers.append(exact_scale)
         
-        # Determine bound type by checking +/- 5.0 from crossover
-        bound_type = _determine_bound_type(
-            exact_scale, output_pos, d1_val, d2_val,
-            model, sae, act_mean, feature_idx, inputs_i, z_orig, feat_orig,
-            layer_idx, sep_idx, n_digits, device
+        # Determine bound type using logit difference at grid points
+        bound_type = _determine_bound_type_from_diff(
+            idx, output_pos, diff
         )
         bound_types.append(bound_type)
     
     return crossovers, bound_types
 
 
-def _determine_bound_type(
-    exact_scale, output_pos, d1_val, d2_val,
-    model, sae, act_mean, feature_idx, inputs_i, z_orig, feat_orig,
-    layer_idx, sep_idx, n_digits, device
-):
+def _determine_bound_type_from_diff(crossover_idx, output_pos, diff):
     """
-    Determine if crossover is an upper bound (ub) or lower bound (lb).
+    Determine if crossover is an upper bound (ub) or lower bound (lb) using logit differences.
     
-    Tests scales at crossover ± 5.0 to see which side satisfies the swap condition.
+    The crossover occurs between diff[crossover_idx] and diff[crossover_idx+1]
+    where diff = d1_logits - d2_logits.
     
-    For o1: We want d2_logit > d1_logit (output predicts d2)
-        - If this holds at scale - 5.0, crossover is upper bound
-        - If this holds at scale + 5.0, crossover is lower bound
+    For o1: We want d2 > d1, i.e., diff < 0
+        - If diff < 0 on left side: swap condition holds → upper bound
+        - If diff < 0 on right side: swap condition holds → lower bound
     
-    For o2: We want d1_logit > d2_logit (output predicts d1)
-        - If this holds at scale - 5.0, crossover is upper bound
-        - If this holds at scale + 5.0, crossover is lower bound
+    For o2: We want d1 > d2, i.e., diff > 0
+        - If diff > 0 on left side: swap condition holds → upper bound
+        - If diff > 0 on right side: swap condition holds → lower bound
+    
+    Args:
+        crossover_idx: Index where sign change detected (crossover between idx and idx+1)
+        output_pos: OUTPUT_POS_O1 or OUTPUT_POS_O2
+        diff: Array of d1_logits - d2_logits at each scale [n_scales]
+    
+    Returns:
+        'lb' or 'ub' (never 'unknown' since we know there's a sign change)
     """
-    hook_name_resid = f"blocks.{layer_idx}.hook_resid_post"
+    # At crossover_idx and crossover_idx+1, diff has opposite signs
+    diff_left = diff[crossover_idx]
+    diff_right = diff[crossover_idx + 1]
     
-    # Batch test both scale - 5.0 and scale + 5.0
-    z_test = z_orig.unsqueeze(0).repeat(2, 1)
-    z_test[0, feature_idx] = feat_orig * (exact_scale - 5.0)
-    z_test[1, feature_idx] = feat_orig * (exact_scale + 5.0)
-    
-    recon_test = sae.decode(z_test)
-    inputs_test = inputs_i.repeat(2, 1)
-    
-    with torch.no_grad():
-        logits_test = model.run_with_hooks(
-            inputs_test,
-            fwd_hooks=[(hook_name_resid, make_batched_sae_patch_hook(recon_test, act_mean, sep_idx))]
-        )
-    
-    # Extract logits at the specific output position
-    l_minus = logits_test[0, output_pos, :n_digits].cpu().numpy()
-    l_plus = logits_test[1, output_pos, :n_digits].cpu().numpy()
-    
-    d1_logit_minus = l_minus[d1_val]
-    d2_logit_minus = l_minus[d2_val]
-    d1_logit_plus = l_plus[d1_val]
-    d2_logit_plus = l_plus[d2_val]
-    
-    # Check swap conditions based on output position
     if output_pos == OUTPUT_POS_O1:
-        # For o1, we want d2 > d1
-        if d2_logit_minus > d1_logit_minus:
-            return 'ub'  # Condition holds on left side
-        elif d2_logit_plus > d1_logit_plus:
-            return 'lb'  # Condition holds on right side
+        # For o1: want d2 > d1, i.e., diff < 0
+        if diff_left < 0:
+            return 'ub'  # Swap condition holds on left
+        else:  # diff_right < 0
+            return 'lb'  # Swap condition holds on right
     else:  # OUTPUT_POS_O2
-        # For o2, we want d1 > d2
-        if d1_logit_minus > d2_logit_minus:
-            return 'ub'  # Condition holds on left side
-        elif d1_logit_plus > d2_logit_plus:
-            return 'lb'  # Condition holds on right side
-    
-    return 'unknown'
+        # For o2: want d1 > d2, i.e., diff > 0
+        if diff_left > 0:
+            return 'ub'  # Swap condition holds on left
+        else:  # diff_right > 0
+            return 'lb'  # Swap condition holds on right
 
 
 def get_output_swap_bounds(xovers_df, scale_range=[0.0, 10.0]):
@@ -854,48 +849,45 @@ def _determine_swap_bounds_for_sample(row, scale_range):
     d1_val = row['d1']
     d2_val = row['d2']
     
-    # Parse crossover lists
+    # Parse crossover lists and bound types
     o1_xovers = _parse_list_field(row['o1_crossovers'])
     o2_xovers = _parse_list_field(row['o2_crossovers'])
+    o1_bound_types = _parse_list_field(row['o1_bound_types'])
+    o2_bound_types = _parse_list_field(row['o2_bound_types'])
     
     # Initialize bounds
     lower_bound = scale_range[0]
     upper_bound = scale_range[1]
     failure_reason = None
     
-    # Process o1 crossover (there should be exactly 1 for linear logits)
+    # Process o1 crossovers using pre-computed bound types
     if len(o1_xovers) == 0:
         failure_reason = "no_o1_crossover"
     else:
-        o1_xover = o1_xovers[0]
-        scales_list = _parse_list_field(row['scales'])
-        argmax_o1 = _parse_list_field(row['argmax_o1'])
-        
-        # Determine which side of crossover has d2 > d1
-        bound_update = _determine_o1_bound(o1_xover, scales_list, argmax_o1, d1_val, d2_val)
-        if bound_update['success']:
-            lower_bound = max(lower_bound, bound_update['lower'])
-            upper_bound = min(upper_bound, bound_update['upper'])
-        else:
-            failure_reason = bound_update['reason']
+        for xover, bound_type in zip(o1_xovers, o1_bound_types):
+            if bound_type == 'lb':
+                lower_bound = max(lower_bound, xover)
+            elif bound_type == 'ub':
+                upper_bound = min(upper_bound, xover)
+            # 'unknown' bound types are ignored
     
-    # Process o2 crossovers
+    # Process o2 crossovers using pre-computed bound types
     if failure_reason is None:
         if len(o2_xovers) == 0:
             failure_reason = "no_o2_crossover"
         else:
-            # Filter o2 crossovers within current bounds
-            valid_o2_xovers = [x for x in o2_xovers if lower_bound <= x <= upper_bound]
+            # Filter o2 crossovers within current bounds along with their types
+            valid_o2 = [(x, bt) for x, bt in zip(o2_xovers, o2_bound_types) 
+                        if lower_bound <= x <= upper_bound]
             
-            if len(valid_o2_xovers) == 0:
+            if len(valid_o2) == 0:
                 failure_reason = "no_o2_crossover_in_bounds"
             else:
-                # For o2, we need d1 > d2, typically between crossovers
-                if len(valid_o2_xovers) == 1:
-                    lower_bound = max(lower_bound, valid_o2_xovers[0])
-                else:
-                    lower_bound = max(lower_bound, valid_o2_xovers[0])
-                    upper_bound = min(upper_bound, valid_o2_xovers[-1])
+                for xover, bound_type in valid_o2:
+                    if bound_type == 'lb':
+                        lower_bound = max(lower_bound, xover)
+                    elif bound_type == 'ub':
+                        upper_bound = min(upper_bound, xover)
     
     # Check for invalid bounds
     if failure_reason is None and lower_bound > upper_bound:
@@ -920,35 +912,6 @@ def _determine_swap_bounds_for_sample(row, scale_range):
         'swap_zone_width': swap_zone_width,
         'failure_reason': failure_reason,
     }
-
-
-def _determine_o1_bound(o1_xover, scales_list, argmax_o1, d1_val, d2_val):
-    """
-    Determine how o1 crossover constrains the swap zone.
-    
-    Returns dict with 'success', 'lower', 'upper', and optionally 'reason'.
-    """
-    # Find indices around the crossover
-    idx_after = 0
-    while idx_after < len(scales_list) and scales_list[idx_after] <= o1_xover:
-        idx_after += 1
-    idx_before = max(0, idx_after - 1)
-    
-    # Check which digit wins on each side
-    winner_before = argmax_o1[idx_before]
-    winner_after = argmax_o1[idx_after]
-    
-    # We want d2 to be winning (d2 > d1) for the swap
-    if winner_before == d2_val or winner_after == d1_val:
-        # d2 wins on the left side, so crossover is upper bound
-        return {'success': True, 'lower': -np.inf, 'upper': o1_xover}
-    elif winner_after == d2_val or winner_before == d1_val:
-        # d2 wins on the right side, so crossover is lower bound
-        return {'success': True, 'lower': o1_xover, 'upper': np.inf}
-    else:
-        # Neither d1 nor d2 is winning near the crossover
-        return {'success': False, 'reason': 'cannot_determine_o1_dominance', 
-                'lower': None, 'upper': None}
 
 
 def swap_outputs(

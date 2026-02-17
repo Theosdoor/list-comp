@@ -58,3 +58,15 @@ key points:
       - need to check all other logits - it may look good here but maybe another logit overtakes
       - try 'non-special' features - does the same pattern appear (yes) ==> why is special one 'special'? have i just found a vis to fit my hopes?
       - try actually steering with it --> should be able to predict that we can boost/damp f30 by x% and swap the ouputs logits ==> (maybe) we've got a feature that controls output order
+
+
+
+## Swapping features / crossover stuff
+
+- Studying `sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt` as before
+- Want to sysematically swap outputs by scaling special F30
+- Current way of doing this isnt super efficient - there are defo cleverer ways to do it. 
+  - key idea - all logit lines in o1 position are straight lines (should check this for each)
+  - Eg. fit a line to o1 logits and estimate intercept (o1_xover) & line gradient that way. then if grad_d2 > grad_d1 at o1_xover then o1_xover is lower bound on swap region. If grad_d2 < grad_d1 then its an upper bound. If theyre equal then theres either no intersect or d1=d2 - either way, no swap region.
+  - With o1_xover sorted, we look at o2 xovers. If any of them are out of the bound from o1_xover then we can skip it (E.g. o1_xover is lower bound and greater than some o2_xover --> then we can safely label that o2_xover as lower bound too but skip it because it's out of the region)
+  - then move in steps of size eg. 0.05 from o1_xover and check if outputs swap. We terminate if they swap, OR 1) we reach a point where d1,d2 aren't dominant anymore or 2) we reach the next o2_xover (if applicable) - these 1) and 2) are our opposite bound to o1_xover
