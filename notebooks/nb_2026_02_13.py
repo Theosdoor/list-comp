@@ -412,23 +412,23 @@ invalid_swaps = swap_bounds_df[swap_bounds_df['lower_bound'].isna()]
 # so out of the 7054 inputs with xover, theres only 5596 valid swap zones? seems weird
 
 # %%
-# # VERIFY SWAPS: Load pre-computed swap verification results
-# swap_results_df = pd.read_csv(f'../results/xover/swap_results_feat{SPECIAL_FEAT_IDX}.csv')
+# VERIFY SWAPS: Load pre-computed swap verification results
+swap_results_df = pd.read_csv(f'../results/xover/swap_results_feat{SPECIAL_FEAT_IDX}.csv')
 
-# # Analysis
-# total = len(swap_results_df)
-# swapped = swap_results_df['swapped'].sum()
-# print(f"\nSwap verification results:")
-# print(f"Total verified: {total}")
-# print(f"Successfully swapped: {swapped} ({swapped/total*100:.1f}%)")
-# print(f"Failed to swap: {total - swapped} ({(total-swapped)/total*100:.1f}%)")
+# Analysis
+total = len(swap_results_df)
+swapped = swap_results_df['swapped'].sum()
+print(f"\nSwap verification results:")
+print(f"Total verified: {total}")
+print(f"Successfully swapped: {swapped} ({swapped/total*100:.1f}%)")
+print(f"Failed to swap: {total - swapped} ({(total-swapped)/total*100:.1f}%)")
 
-# # Show some examples
-# print(f"\nSuccessfully swapped examples:")
-# display(swap_results_df[swap_results_df['swapped']].head(5))
+# Show some examples
+print(f"\nSuccessfully swapped examples:")
+display(swap_results_df[swap_results_df['swapped']].head(5))
 
-# print(f"\nFailed to swap examples:")
-# display(swap_results_df[~swap_results_df['swapped']].head(5))
+print(f"\nFailed to swap examples:")
+display(swap_results_df[~swap_results_df['swapped']].head(5))
 
 # %%
 invalid_swaps
@@ -437,7 +437,7 @@ invalid_swaps
 # test specific bad examples
 # test_egs = [(93, 99), (38, 78)]
 # test_egs = [(60,44), (75,32), (9,81), (32,75)]
-test_egs = [(4,29), (49,19)]
+test_egs = [(4,29), (49,19), (19,17), (10,10)]
 
 results = feature_steering_experiment(
     model, sae, act_mean,
@@ -446,7 +446,7 @@ results = feature_steering_experiment(
     d2_all=d2_all, 
     sae_acts_all=sae_acts_all, 
     dataset=all_ds,
-    scale_range=[-1.0, 4.0],
+    scale_range=[-1.0, 10.0],
     test_pairs=test_egs
 )
 
@@ -479,7 +479,7 @@ for d1_val, d2_val in test_egs:
     print(f"{'='*60}")
     
     # Inspect at multiple scales
-    custom_scales = [-1.0, 0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0]
+    custom_scales = [-1.0, 0.0, 0.5, 1.0, 1.5, 2.0, 2.2, 3.0, 5.0]
     # custom_scales = [2.2,2.3]
     result_list, df = inspect_steered_outputs_batch(
         model=model, sae=sae, act_mean=act_mean,

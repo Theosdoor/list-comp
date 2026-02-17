@@ -346,7 +346,9 @@ def feature_steering_experiment(
     _validate_inputs(model, sae, d1_all, d2_all, sae_acts_all, dataset, feature_idx)
     
     if scale_factors is None:
-        scale_factors = np.linspace(scale_range[0], scale_range[1], 100)
+        step_size = 0.1
+        num_steps = int(round((scale_range[0] - scale_range[1]) / step_size)) + 1
+        scale_factors = np.linspace(scale_range[0], scale_range[1], num_steps)
     
     device = _get_device(model, device)
     hook_name_resid = f"blocks.{layer_idx}.hook_resid_post"
@@ -511,7 +513,7 @@ def get_xovers_df(
     model, sae, act_mean, feature_idx,
     d1_all, d2_all, sae_acts_all, dataset,
     layer_idx=0, sep_idx=DEFAULT_SEP_IDX, n_digits=DEFAULT_N_DIGITS,
-    scale_range=[0.0, 10.0], n_coarse_samples=20,
+    scale_range=[0.0, 10.0], sample_step_size = 0.1,
     batch_size=64, device=None
 ):
     """
@@ -533,7 +535,7 @@ def get_xovers_df(
         sep_idx: SEP token position (default: 2)
         n_digits: Number of possible digit values (default: 100)
         scale_range: Tuple (min, max) for scale range (default: [0.0, 10.0])
-        n_coarse_samples: Number of coarse samples for initial search (default: 20)
+        sample_step_size: Step size for coarse grid search (default: 0.1)
         batch_size: Batch size for processing (default: 64)
         device: Device to use (default: auto-detect)
     
@@ -555,11 +557,15 @@ def get_xovers_df(
     
     device = _get_device(model, device)
     hook_name_resid = f"blocks.{layer_idx}.hook_resid_post"
-    scale_factors = np.linspace(scale_range[0], scale_range[1], n_coarse_samples)
-    n_samples = len(d1_all)
     
+    # Create scale factors for grid search
+    n_scale_points = int(round((scale_range[1] - scale_range[0]) / sample_step_size)) + 1
+    scale_factors = np.linspace(scale_range[0], scale_range[1], n_scale_points)
+    
+    # Process all data samples in batches
+    n_data_samples = len(d1_all)
     all_results = []
-    n_batches = (n_samples + batch_size - 1) // batch_size
+    n_batches = (n_data_samples + batch_size - 1) // batch_size
     
     for batch_idx in tqdm(range(n_batches), desc="Finding crossovers (batched)", leave=True):
         batch_start = batch_idx * batch_size
