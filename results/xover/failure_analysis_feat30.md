@@ -6,28 +6,26 @@ Pipeline: `get_xovers_df` → `get_output_swap_bounds`. Correctness is the base 
 
 | failure_reason | both_correct | partial | both_wrong | total | % of all |
 |---|---|---|---|---|---|
-| `success` | 5495 | 524 | 21 | 6040 | 60.4% |
+| `success` | 5495 | 537 | 26 | 6058 | 60.6% |
 | `feat_zero` | 2698 | 236 | 12 | 2946 | 29.5% |
 | `d1_eq_d2` | 83 | 0 | 0 | 83 | 0.8% |
-| `o1_negative_scale` | 243 | 276 | 8 | 527 | 5.3% |
 | `o1_extrapolated` | 1 | 18 | 0 | 19 | 0.2% |
-| `no_o2_crossover` | 13 | 29 | 0 | 42 | 0.4% |
-| `no_o2_crossover_in_bounds` | 122 | 75 | 1 | 198 | 2.0% |
+| `no_o2_crossover` | 20 | 169 | 2 | 191 | 1.9% |
+| `no_o2_crossover_in_bounds` | 358 | 195 | 1 | 554 | 5.5% |
 | `no_overlapping_dominance` | 10 | 30 | 2 | 42 | 0.4% |
 | `o1_never_predicts_d2` | 3 | 84 | 1 | 88 | 0.9% |
-| `o2_never_predicts_d1` | 2 | 11 | 1 | 14 | 0.1% |
-| `invalid_bounds` | 0 | 1 | 0 | 1 | 0.0% |
+| `o2_never_predicts_d1` | 2 | 15 | 2 | 19 | 0.2% |
 | **TOTAL** | **8670** | **1284** | **46** | **10000** | 100% |
 
 ## Per-Reason Breakdown
 
-### `success` (6040 samples)
+### `success` (6058 samples)
 
-**Correctness:** 5495 both_correct / 524 partial / 21 both_wrong
+**Correctness:** 5495 both_correct / 537 partial / 26 both_wrong
 
 The pipeline found a valid swap zone: both o1 and o2 crossovers resolved correctly and argmax dominance confirmed a contiguous scale window where o1 predicts d2 and o2 predicts d1.
 
-**Examples** (up to 5 of 6040):
+**Examples** (up to 5 of 6058):
 
 | d1 | d2 | feat_orig | o1_crossovers | o2_crossovers | lower_bound | upper_bound | correctness |
 |---|---|---|---|---|---|---|---|
@@ -69,22 +67,6 @@ Both input digits are the same (d1 == d2). The crossover framework is degenerate
 | 15 | 15 | 2.701 | — | — | — | — | both_correct |
 | 39 | 39 | 0.716 | — | — | — | — | both_correct |
 
-### `o1_negative_scale` (527 samples)
-
-**Correctness:** 243 both_correct / 276 partial / 8 both_wrong
-
-The analytical o1 crossover (linear fit) falls at a negative scale. This means d2 already beats d1 at o1 even at scale=0 — suppressing the feature swaps the output, not amplifying it. **Note:** with the updated `_find_o1_crossover_linear` this case is now returned as a valid crossover rather than a failure; these rows will process on re-run.
-
-**Examples** (up to 5 of 527):
-
-| d1 | d2 | feat_orig | o1_crossovers | o2_crossovers | lower_bound | upper_bound | correctness |
-|---|---|---|---|---|---|---|---|
-| 60 | 44 | 1.030 | — | 0.917, 7.212 | — | — | both_correct |
-| 9 | 81 | 1.185 | — | 0.910, 8.633 | — | — | both_correct |
-| 42 | 33 | 0.791 | — | 0.598, 8.987 | — | — | both_correct |
-| 39 | 35 | 0.531 | — | 0.540 | — | — | partial |
-| 55 | 76 | 1.074 | — | — | — | — | partial |
-
 ### `o1_extrapolated` (19 samples)
 
 **Correctness:** 1 both_correct / 18 partial / 0 both_wrong
@@ -101,37 +83,37 @@ The analytical o1 crossover is beyond scale 20 (2× the grid ceiling). The linea
 | 44 | 39 | 0.769 | — | 1.622 | — | — | partial |
 | 61 | 63 | 1.193 | — | — | — | — | partial |
 
-### `no_o2_crossover` (42 samples)
+### `no_o2_crossover` (191 samples)
 
-**Correctness:** 13 both_correct / 29 partial / 0 both_wrong
+**Correctness:** 20 both_correct / 169 partial / 2 both_wrong
 
 No sign change in the d1−d2 logit diff at o2 across the whole scale grid. Either d1 was already beating d2 at o2 throughout, or d2 was always dominant. The pipeline has a fallback that accepts this if argmax_o2 == d1 somewhere in the o1-constrained window — this failure means even that fallback found nothing.
 
-**Examples** (up to 5 of 42):
+**Examples** (up to 5 of 191):
 
 | d1 | d2 | feat_orig | o1_crossovers | o2_crossovers | lower_bound | upper_bound | correctness |
 |---|---|---|---|---|---|---|---|
+| 55 | 76 | 1.074 | -3.165 | — | — | — | partial |
+| 93 | 16 | 2.293 | -0.194 | — | — | — | partial |
+| 61 | 26 | 1.353 | -6.620 | — | — | — | both_correct |
 | 35 | 88 | 0.595 | 0.777 | — | — | — | both_correct |
-| 18 | 86 | 4.794 | 2.651 | — | — | — | both_correct |
-| 35 | 44 | 0.483 | 12.467 | — | — | — | partial |
-| 30 | 21 | 2.207 | 12.297 | — | — | — | partial |
-| 15 | 11 | 3.158 | 0.143 | — | — | — | partial |
+| 17 | 67 | 1.587 | -0.007 | — | — | — | partial |
 
-### `no_o2_crossover_in_bounds` (198 samples)
+### `no_o2_crossover_in_bounds` (554 samples)
 
-**Correctness:** 122 both_correct / 75 partial / 1 both_wrong
+**Correctness:** 358 both_correct / 195 partial / 1 both_wrong
 
 An o2 crossover exists, but outside the scale window constrained by the o1 crossover. The argmax fallback also found no grid point where argmax_o2 == d1 within the window.
 
-**Examples** (up to 5 of 198):
+**Examples** (up to 5 of 554):
 
 | d1 | d2 | feat_orig | o1_crossovers | o2_crossovers | lower_bound | upper_bound | correctness |
 |---|---|---|---|---|---|---|---|
-| 47 | 31 | 3.737 | 0.098 | 0.751, 4.146 | — | — | partial |
-| 69 | 93 | 3.000 | 0.202 | 0.907, 3.245 | — | — | both_correct |
-| 34 | 11 | 5.226 | 0.529 | 0.830, 2.526 | — | — | both_correct |
-| 68 | 0 | 4.506 | 0.382 | 0.854, 3.437 | — | — | both_correct |
-| 0 | 78 | 3.191 | 0.489 | 1.020, 4.970 | — | — | partial |
+| 60 | 44 | 1.030 | -0.763 | 0.917, 7.212 | — | — | both_correct |
+| 9 | 81 | 1.185 | -0.220 | 0.910, 8.633 | — | — | both_correct |
+| 42 | 33 | 0.791 | -1.325 | 0.598, 8.987 | — | — | both_correct |
+| 39 | 35 | 0.531 | -0.255 | 0.540 | — | — | partial |
+| 87 | 41 | 0.994 | -0.170 | 0.681, 4.696 | — | — | both_correct |
 
 ### `no_overlapping_dominance` (42 samples)
 
@@ -165,13 +147,13 @@ Even though a crossover scale was found for o1, argmax_o1 never actually equals 
 | 6 | 28 | 1.465 | 4.373 | 0.531 | — | — | partial |
 | 21 | 28 | 1.981 | 6.142 | 0.722 | — | — | partial |
 
-### `o2_never_predicts_d1` (14 samples)
+### `o2_never_predicts_d1` (19 samples)
 
-**Correctness:** 2 both_correct / 11 partial / 1 both_wrong
+**Correctness:** 2 both_correct / 15 partial / 2 both_wrong
 
 No grid point has argmax_o2 == d1. A third digit is always dominant at o2, preventing the required swapped output.
 
-**Examples** (up to 5 of 14):
+**Examples** (up to 5 of 19):
 
 | d1 | d2 | feat_orig | o1_crossovers | o2_crossovers | lower_bound | upper_bound | correctness |
 |---|---|---|---|---|---|---|---|
@@ -179,16 +161,4 @@ No grid point has argmax_o2 == d1. A third digit is always dominant at o2, preve
 | 91 | 29 | 6.442 | 0.637 | 0.111, 1.931 | — | — | partial |
 | 91 | 34 | 5.510 | 0.644 | 0.095, 0.684 | — | — | partial |
 | 32 | 3 | 2.099 | 6.452 | 0.205 | — | — | partial |
-| 49 | 43 | 1.636 | 2.657 | 0.189, 8.948 | — | — | partial |
-
-### `invalid_bounds` (1 samples)
-
-**Correctness:** 0 both_correct / 1 partial / 0 both_wrong
-
-After processing all crossovers, lower_bound > upper_bound. Rare edge case where lb and ub crossovers from different positions are inconsistent.
-
-**Examples** (up to 5 of 1):
-
-| d1 | d2 | feat_orig | o1_crossovers | o2_crossovers | lower_bound | upper_bound | correctness |
-|---|---|---|---|---|---|---|---|
-| 75 | 29 | 2.600 | 3.060 | 0.738, 3.028 | — | — | partial |
+| 93 | 28 | 2.343 | -0.364 | 1.777, 1.990 | — | — | partial |

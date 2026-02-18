@@ -19,6 +19,8 @@ echo "------------------------------------------------------"
 
 # run
 python3 scripts/run_crossover_analysis.py
+python3 scripts/analyze_failure_reasons.py
+
 
 # SAE sweep (comment/uncomment as needed)
 # wandb agent theo-farrell99-durham-university/list-comp/fib2y4u8
