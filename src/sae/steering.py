@@ -29,6 +29,17 @@ DEFAULT_BISECTION_MAX_ITER = 50
 DEFAULT_SEP_IDX = 2
 DEFAULT_N_DIGITS = 100
 
+# Linear fit constants for o1 crossover detection
+# R² threshold: require near-perfect fit since o1 logits are empirically linear
+LINEAR_FIT_R2_THRESHOLD = 0.999
+# Slope threshold for declaring lines parallel (unresponsive):
+# 1e-5 logit-diff per scale unit → <0.001 total shift across [0,10], functionally zero
+LINEAR_FIT_SLOPE_EPS = 1e-5
+# Soft upper cap for extrapolated intersections: 2× the default grid ceiling (10.0).
+# Beyond scale 20 the linear model is extrapolating into completely untested territory
+# (20× the original activation), so we flag these rather than accept them silently.
+LINEAR_FIT_SCALE_CAP = 20.0
+
 
 # ============================================================================
 # Helper Functions
@@ -555,22 +566,31 @@ def get_xovers_df(
         pd.DataFrame with columns:
             - d1, d2: Input digit pair
             - feat_orig: Original feature activation
-            - o1_crossovers: List of scale values where o1 logits cross
-            - o2_crossovers: List of scale values where o2 logits cross
-            - o1_bound_types: List of bound types ('ub', 'lb', 'unknown') for o1 crossovers
+            - o1_crossovers: List of scale values where o1 logits cross (analytically via linear fit)
+            - o2_crossovers: List of scale values where o2 logits cross (grid + bisection)
+            - o1_bound_types: List of bound types ('ub', 'lb') for o1 crossovers
             - o2_bound_types: List of bound types ('ub', 'lb', 'unknown') for o2 crossovers
             - n_o1_xover: Number of o1 crossovers
             - n_o2_xover: Number of o2 crossovers
             - scales: List of scale factors used in coarse search
             - argmax_o1: List of argmax predictions at o1 for each scale
             - argmax_o2: List of argmax predictions at o2 for each scale
+            - o1_failure_reason: None if successful, else one of:
+                'feat_zero'         - feature has zero activation (no steering possible)
+                'd1_eq_d2'          - d1 == d2, degenerate input
+                'nonlinear_d1'      - d1 logit at o1 fails R²≥0.999 linearity check
+                'nonlinear_d2'      - d2 logit at o1 fails R²≥0.999 linearity check
+                'unresponsive'      - diff slope < 1e-5, feature has no effect on o1
+                'o1_extrapolated'   - analytical intersection beyond scale cap (20.0)
     """
     _validate_inputs(model, sae, d1_all, d2_all, sae_acts_all, dataset, feature_idx)
-    
+
     device = _get_device(model, device)
     hook_name_resid = f"blocks.{layer_idx}.hook_resid_post"
-    
+
     # Create scale factors for grid search
+    # Note: the grid is used for o2 crossover detection and argmax dominance checks.
+    # o1 crossovers are found analytically from linear fits to the grid logits.
     n_scale_points = int(round((scale_range[1] - scale_range[0]) / sample_step_size)) + 1
     scale_factors = np.linspace(scale_range[0], scale_range[1], n_scale_points)
     
@@ -677,41 +697,48 @@ def _analyze_single_sample_crossovers(
     d1_val = batch_d1[i].item()
     d2_val = batch_d2[i].item()
     feat_orig = batch_feat_orig[i].item()
-    
+
     logits_o1 = batch_logits_o1[i]
     logits_o2 = batch_logits_o2[i]
-    
+
     argmax_o1 = logits_o1.argmax(axis=1)
     argmax_o2 = logits_o2.argmax(axis=1)
-    
-    # Handle zero activation case
-    if feat_orig == 0:
+
+    def _empty_result(failure_reason):
         return {
             'd1': d1_val, 'd2': d2_val, 'feat_orig': feat_orig,
             'o1_crossovers': [], 'o2_crossovers': [],
             'o1_bound_types': [], 'o2_bound_types': [],
             'n_o1_xover': 0, 'n_o2_xover': 0,
             'scales': scale_factors.tolist(),
-            'argmax_o1': argmax_o1.tolist(), 
+            'argmax_o1': argmax_o1.tolist(),
             'argmax_o2': argmax_o2.tolist(),
+            'o1_failure_reason': failure_reason,
         }
-    
+
+    # Degenerate: feature not active
+    if feat_orig == 0:
+        return _empty_result('feat_zero')
+
+    # Degenerate: both digits are the same — logit diff is always ~0
+    if d1_val == d2_val:
+        return _empty_result('d1_eq_d2')
+
+    # --- o1: analytical linear fit ---
+    o1_crossovers, o1_bound_types, o1_failure_reason = _find_o1_crossover_linear(
+        logits_o1, d1_val, d2_val, scale_factors
+    )
+
+    # --- o2: grid + bisection (logits are nonlinear) ---
     inputs_i = dataset[global_idx][0].unsqueeze(0).to(device)
     z_orig = batch_z_orig[i]
-    
-    # Find crossovers for both output positions
-    o1_crossovers, o1_bound_types = _find_crossovers_for_position(
-        logits_o1, d1_val, d2_val, scale_factors, argmax_o1,
-        model, sae, act_mean, feature_idx, inputs_i, z_orig, feat_orig,
-        OUTPUT_POS_O1, layer_idx, sep_idx, n_digits, device
-    )
-    
+
     o2_crossovers, o2_bound_types = _find_crossovers_for_position(
         logits_o2, d1_val, d2_val, scale_factors, argmax_o2,
         model, sae, act_mean, feature_idx, inputs_i, z_orig, feat_orig,
         OUTPUT_POS_O2, layer_idx, sep_idx, n_digits, device
     )
-    
+
     return {
         'd1': d1_val,
         'd2': d2_val,
@@ -725,7 +752,79 @@ def _analyze_single_sample_crossovers(
         'scales': scale_factors.tolist(),
         'argmax_o1': argmax_o1.tolist(),
         'argmax_o2': argmax_o2.tolist(),
+        'o1_failure_reason': o1_failure_reason,
     }
+
+
+def _r_squared(y, y_fit):
+    """Compute R² between observed values and a linear fit."""
+    ss_res = np.sum((y - y_fit) ** 2)
+    ss_tot = np.sum((y - y.mean()) ** 2)
+    if ss_tot == 0:
+        # Constant signal — perfect fit if residuals also zero, else undefined
+        return 1.0 if ss_res == 0 else 0.0
+    return 1.0 - ss_res / ss_tot
+
+
+def _find_o1_crossover_linear(logits_o1, d1_val, d2_val, scale_factors):
+    """
+    Find the o1 crossover analytically by fitting lines to d1 and d2 logits.
+
+    o1 logits are empirically linear in the scale factor, so we:
+      1. Fit a line to each of d1_logit(scale) and d2_logit(scale)
+      2. Verify R² ≥ LINEAR_FIT_R2_THRESHOLD for both — fail with 'nonlinear_d1/d2' otherwise
+      3. Fit a line to the diff (d1-d2) and check |slope| < LINEAR_FIT_SLOPE_EPS → 'unresponsive'
+      4. Compute the analytical intersection scale = -intercept_diff / slope_diff
+      5. If the intersection is outside [0, LINEAR_FIT_SCALE_CAP] → 'o1_extrapolated'
+      6. Determine bound type from diff slope:
+           slope_diff < 0  →  diff is falling  →  d2 overtakes d1 going right  →  'lb'
+           slope_diff > 0  →  diff is rising   →  d2 is beaten back going right →  'ub'
+
+    Returns:
+        crossovers: list with 0 or 1 scale values
+        bound_types: list with 0 or 1 bound type strings
+        failure_reason: None if successful, else a string
+    """
+    d1_logits = logits_o1[:, d1_val].astype(float)
+    d2_logits = logits_o1[:, d2_val].astype(float)
+    x = scale_factors.astype(float)
+
+    # Fit lines
+    slope_d1, intercept_d1 = np.polyfit(x, d1_logits, 1)
+    slope_d2, intercept_d2 = np.polyfit(x, d2_logits, 1)
+
+    d1_fit = slope_d1 * x + intercept_d1
+    d2_fit = slope_d2 * x + intercept_d2
+
+    r2_d1 = _r_squared(d1_logits, d1_fit)
+    r2_d2 = _r_squared(d2_logits, d2_fit)
+
+    if r2_d1 < LINEAR_FIT_R2_THRESHOLD:
+        return [], [], 'nonlinear_d1'
+    if r2_d2 < LINEAR_FIT_R2_THRESHOLD:
+        return [], [], 'nonlinear_d2'
+
+    # Diff line: d1 - d2
+    slope_diff = slope_d1 - slope_d2
+    intercept_diff = intercept_d1 - intercept_d2
+
+    if abs(slope_diff) < LINEAR_FIT_SLOPE_EPS:
+        return [], [], 'unresponsive'
+
+    # Analytical intersection: slope_diff * scale + intercept_diff = 0
+    xover_scale = -intercept_diff / slope_diff
+
+    if xover_scale < 0 or xover_scale > LINEAR_FIT_SCALE_CAP:
+        return [], [], 'o1_extrapolated'
+
+    xover_scale = round(float(xover_scale), 4)
+
+    # Bound type from diff slope:
+    #   slope_diff < 0: diff decreasing → d2 gains on d1 going right → lb (swap starts here)
+    #   slope_diff > 0: diff increasing → d1 gains on d2 going right → ub (swap ends here)
+    bound_type = 'lb' if slope_diff < 0 else 'ub'
+
+    return [xover_scale], [bound_type], None
 
 
 def _find_crossovers_for_position(
@@ -734,12 +833,14 @@ def _find_crossovers_for_position(
     output_pos, layer_idx, sep_idx, n_digits, device
 ):
     """
-    Find all crossovers for a specific output position.
-    
-    For o1: We want d2 > d1 (so output predicts d2)
+    Find all crossovers for a specific output position (grid + bisection).
+
+    Used for o2, whose logits are nonlinear in scale.
+
+    For o1: use _find_o1_crossover_linear instead.
     For o2: We want d1 > d2 (so output predicts d1)
     This creates the swap pattern (d2, d1)
-    
+
     Args:
         argmax: Array of argmax predictions at each scale [n_scales]
     """
@@ -893,24 +994,38 @@ def _determine_swap_bounds_for_sample(row, scale_range):
     """Determine swap bounds for a single sample."""
     d1_val = row['d1']
     d2_val = row['d2']
-    
+
+    # Propagate o1 failure reasons from get_xovers_df directly
+    o1_failure = row.get('o1_failure_reason', None)
+    if o1_failure is not None:
+        return {
+            'd1': d1_val, 'd2': d2_val,
+            'lower_bound': None, 'upper_bound': None,
+            'midpoint': None, 'swap_zone_width': None,
+            'failure_reason': o1_failure,
+        }
+
     # Parse crossover lists and bound types
     o1_xovers = _parse_list_field(row['o1_crossovers'])
     o2_xovers = _parse_list_field(row['o2_crossovers'])
     o1_bound_types = _parse_list_field(row['o1_bound_types'])
     o2_bound_types = _parse_list_field(row['o2_bound_types'])
-    
+
     # Parse scales and argmax sequences for dominance check
     scales = _parse_list_field(row['scales'])
     argmax_o1 = _parse_list_field(row['argmax_o1'])
     argmax_o2 = _parse_list_field(row['argmax_o2'])
-    
-    # Initialize bounds from crossovers
+
+    # Initialize bounds — o1 provides at most one crossover (linear fit)
+    # so lower/upper start unconstrained and are tightened below.
     lower_bound = scale_range[0]
     upper_bound = scale_range[1]
     failure_reason = None
-    
-    # Process o1 crossovers using pre-computed bound types
+
+    # Process o1 crossover (0 or 1 entry from linear fit)
+    # An empty list here means o1_failure_reason was None but no intersection existed
+    # within [0, scale_cap] — this path should not normally be reached because
+    # o1_failure_reason would have been set; guard anyway.
     if len(o1_xovers) == 0:
         failure_reason = "no_o1_crossover"
     else:
