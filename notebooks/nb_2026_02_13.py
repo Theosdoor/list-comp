@@ -437,7 +437,8 @@ invalid_swaps
 # test specific bad examples
 # test_egs = [(93, 99), (38, 78)]
 # test_egs = [(60,44), (75,32), (9,81), (32,75)]
-test_egs = [(4,29), (49,19), (19,17), (10,10)]
+# test_egs = [(4,29), (49,19), (19,17), (10,10)]
+test_egs = [(75,32), (9,81), (89,60)]
 
 results = feature_steering_experiment(
     model, sae, act_mean,
@@ -446,7 +447,7 @@ results = feature_steering_experiment(
     d2_all=d2_all, 
     sae_acts_all=sae_acts_all, 
     dataset=all_ds,
-    scale_range=[-1.0, 10.0],
+    scale_range=[-1.0, 50.0],
     test_pairs=test_egs
 )
 
@@ -517,3 +518,64 @@ print(f"Sample inactive pairs: {list(inactive_pairs)}")
 #   eg. no xover for o1 and/or o2, or some other error
 
 # Looking at that 15% without 
+
+# %%
+# CROSSOVER ANALYSIS FILTERED BY ORIGINAL PREDICTION CORRECTNESS
+# Run baseline inference on all inputs to get ground-truth correctness per example,
+# then join onto swap_results_df (which only covers inputs that had a valid swap zone).
+# This avoids relying on derived columns from xovers_df that may be unreliable,
+# and sidesteps duplicate-(d1,d2) issues in the merge.
+
+model.eval()
+_rows = []
+_offset = 0
+with torch.no_grad():
+    for batch in all_dl:
+        inputs, targets = batch[0].to(DEVICE), batch[1].to(DEVICE)
+        bsz = inputs.shape[0]
+        logits = model(inputs)
+        pred_o1 = logits[:, -2, :N_DIGITS].argmax(dim=-1).cpu()
+        pred_o2 = logits[:, -1, :N_DIGITS].argmax(dim=-1).cpu()
+        tgt_o1  = targets[:, -2].cpu()
+        tgt_o2  = targets[:, -1].cpu()
+        correct = ((pred_o1 == tgt_o1) & (pred_o2 == tgt_o2)).int()
+        d1_batch = d1_all[_offset : _offset + bsz].cpu()
+        d2_batch = d2_all[_offset : _offset + bsz].cpu()
+        _rows.append(torch.stack([d1_batch, d2_batch, correct], dim=1))
+        _offset += bsz
+
+# Build a (d1, d2) -> correct lookup; use majority vote for any repeated pairs
+_pred_df = pd.DataFrame(torch.cat(_rows).numpy(), columns=['d1', 'd2', 'correct'])
+_pred_df = _pred_df.astype(int)
+correctness_lookup = (
+    _pred_df.groupby(['d1', 'd2'])['correct']
+    .mean()                     # fraction of times this pair was correct
+    .ge(0.5)                    # True if correct on the majority of occurrences
+    .reset_index()
+    .rename(columns={'correct': 'orig_correct'})
+)
+
+# Join correctness onto swap_results_df (one row per successfully-swapped input)
+sr = swap_results_df.merge(correctness_lookup, on=['d1', 'd2'], how='left')
+
+# Join correctness onto swap_bounds_df to cover ALL inputs that went into the pipeline
+# (including those that failed to find a swap zone)
+sb = swap_bounds_df.merge(correctness_lookup, on=['d1', 'd2'], how='left')
+sb['swapped'] = sb['failure_reason'].isna()   # valid swap zone ≈ successfully swapped
+
+def swap_summary_full(df, label):
+    total = len(df)
+    swapped = int(df['swapped'].sum())
+    pct = swapped / total * 100 if total > 0 else 0.0
+    print(f"{label}")
+    print(f"  n={total:>5}  |  swapped: {swapped:>5} ({pct:.1f}%)")
+
+print("Swap success rate (out of all inputs processed in the crossover pipeline)")
+print("by whether the model's *original* (unsteered) prediction was correct")
+print("=" * 65)
+swap_summary_full(sb[sb['orig_correct']],  "Originally CORRECT  ")
+swap_summary_full(sb[~sb['orig_correct']], "Originally INCORRECT")
+swap_summary_full(sb,                      "All pipeline inputs (combined)")
+
+
+# %%
