@@ -576,12 +576,13 @@ def get_xovers_df(
             - argmax_o1: List of argmax predictions at o1 for each scale
             - argmax_o2: List of argmax predictions at o2 for each scale
             - o1_failure_reason: None if successful, else one of:
-                'feat_zero'         - feature has zero activation (no steering possible)
-                'd1_eq_d2'          - d1 == d2, degenerate input
-                'nonlinear_d1'      - d1 logit at o1 fails R²≥0.999 linearity check
-                'nonlinear_d2'      - d2 logit at o1 fails R²≥0.999 linearity check
-                'unresponsive'      - diff slope < 1e-5, feature has no effect on o1
-                'o1_extrapolated'   - analytical intersection beyond scale cap (20.0)
+                'feat_zero'           - feature has zero activation (no steering possible)
+                'd1_eq_d2'            - d1 == d2, degenerate input
+                'nonlinear_d1'        - d1 logit at o1 fails R²≥0.999 linearity check
+                'nonlinear_d2'        - d2 logit at o1 fails R²≥0.999 linearity check
+                'unresponsive'        - diff slope < 1e-5, feature has no effect on o1
+                'o1_negative_scale'   - intersection is at scale < 0 (suppression, not amplification, swaps outputs)
+                'o1_extrapolated'     - intersection is beyond scale cap (20.0), implausible extrapolation
     """
     _validate_inputs(model, sae, d1_all, d2_all, sae_acts_all, dataset, feature_idx)
 
@@ -775,7 +776,7 @@ def _find_o1_crossover_linear(logits_o1, d1_val, d2_val, scale_factors):
       2. Verify R² ≥ LINEAR_FIT_R2_THRESHOLD for both — fail with 'nonlinear_d1/d2' otherwise
       3. Fit a line to the diff (d1-d2) and check |slope| < LINEAR_FIT_SLOPE_EPS → 'unresponsive'
       4. Compute the analytical intersection scale = -intercept_diff / slope_diff
-      5. If the intersection is outside [0, LINEAR_FIT_SCALE_CAP] → 'o1_extrapolated'
+      5. If intersection < 0 → 'o1_negative_scale'; if > LINEAR_FIT_SCALE_CAP → 'o1_extrapolated'
       6. Determine bound type from diff slope:
            slope_diff < 0  →  diff is falling  →  d2 overtakes d1 going right  →  'lb'
            slope_diff > 0  →  diff is rising   →  d2 is beaten back going right →  'ub'
@@ -814,7 +815,12 @@ def _find_o1_crossover_linear(logits_o1, d1_val, d2_val, scale_factors):
     # Analytical intersection: slope_diff * scale + intercept_diff = 0
     xover_scale = -intercept_diff / slope_diff
 
-    if xover_scale < 0 or xover_scale > LINEAR_FIT_SCALE_CAP:
+    if xover_scale < 0:
+        # Intersection at negative scale means the swap already occurred before
+        # scale=0 (i.e., suppressing the feature, not amplifying it, would swap outputs).
+        # Flag separately from the too-large extrapolation case.
+        return [], [], 'o1_negative_scale'
+    if xover_scale > LINEAR_FIT_SCALE_CAP:
         return [], [], 'o1_extrapolated'
 
     xover_scale = round(float(xover_scale), 4)
@@ -995,9 +1001,11 @@ def _determine_swap_bounds_for_sample(row, scale_range):
     d1_val = row['d1']
     d2_val = row['d2']
 
-    # Propagate o1 failure reasons from get_xovers_df directly
+    # Propagate o1 failure reasons from get_xovers_df directly.
+    # Use pd.notna() rather than `is not None`: pandas stores Python None as float NaN
+    # in object columns, so `is not None` would fire on success rows loaded from CSV.
     o1_failure = row.get('o1_failure_reason', None)
-    if o1_failure is not None:
+    if pd.notna(o1_failure):
         return {
             'd1': d1_val, 'd2': d2_val,
             'lower_bound': None, 'upper_bound': None,
