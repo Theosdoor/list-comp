@@ -1168,8 +1168,10 @@ def swap_outputs(
     device = _get_device(model, device)
     hook_name_resid = f"blocks.{layer_idx}.hook_resid_post"
     
-    # Filter to only successful swap bounds
-    valid_df = swap_bounds_df[swap_bounds_df['failure_reason'].isna()].copy()
+    # Filter to only successful swap bounds (failure_reason must be null AND midpoint must be non-null)
+    valid_df = swap_bounds_df[
+        swap_bounds_df['failure_reason'].isna() & swap_bounds_df['midpoint'].notna()
+    ].copy()
     
     if len(valid_df) == 0:
         print("Warning: No valid swap bounds found")
@@ -1198,6 +1200,9 @@ def _verify_single_swap(
     d1_val = int(row['d1'])
     d2_val = int(row['d2'])
     scale = row['midpoint']
+
+    if scale is None or (isinstance(scale, float) and pd.isna(scale)):
+        raise ValueError(f"midpoint is None/NaN for ({d1_val}, {d2_val}) — this row should have been filtered out")
     
     # Find this input in the dataset
     idx = _find_input_index(d1_all, d2_all, d1_val, d2_val)
