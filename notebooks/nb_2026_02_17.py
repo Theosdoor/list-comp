@@ -150,7 +150,8 @@ print(f"\nFilterng out d1=d2 too: {len(fires_no_xover)}")
 display(fires_no_xover.head(20))
 # %%
 # lets look at their graphs
-test_egs = [(55,76), (93,16), (61,26)]
+# test_egs = [(55,76), (93,16), (61,26)]
+test_egs = [(75,29)]
 
 results = feature_steering_experiment(
     model, sae, act_mean,

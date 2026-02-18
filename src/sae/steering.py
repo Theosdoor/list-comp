@@ -581,8 +581,8 @@ def get_xovers_df(
                 'nonlinear_d1'        - d1 logit at o1 fails R²≥0.999 linearity check
                 'nonlinear_d2'        - d2 logit at o1 fails R²≥0.999 linearity check
                 'unresponsive'        - diff slope < 1e-5, feature has no effect on o1
-                'o1_negative_scale'   - intersection is at scale < 0 (suppression, not amplification, swaps outputs)
                 'o1_extrapolated'     - intersection is beyond scale cap (20.0), implausible extrapolation
+                (negative intersections are returned as-is; _determine_swap_bounds_for_sample handles them correctly)
     """
     _validate_inputs(model, sae, d1_all, d2_all, sae_acts_all, dataset, feature_idx)
 
@@ -776,7 +776,9 @@ def _find_o1_crossover_linear(logits_o1, d1_val, d2_val, scale_factors):
       2. Verify R² ≥ LINEAR_FIT_R2_THRESHOLD for both — fail with 'nonlinear_d1/d2' otherwise
       3. Fit a line to the diff (d1-d2) and check |slope| < LINEAR_FIT_SLOPE_EPS → 'unresponsive'
       4. Compute the analytical intersection scale = -intercept_diff / slope_diff
-      5. If intersection < 0 → 'o1_negative_scale'; if > LINEAR_FIT_SCALE_CAP → 'o1_extrapolated'
+         (returned even if negative — a negative intersection means d2 already beats d1 at scale=0,
+          so _determine_swap_bounds_for_sample will absorb it correctly via max(lower_bound, xover))
+      5. If intersection > LINEAR_FIT_SCALE_CAP → 'o1_extrapolated'
       6. Determine bound type from diff slope:
            slope_diff < 0  →  diff is falling  →  d2 overtakes d1 going right  →  'lb'
            slope_diff > 0  →  diff is rising   →  d2 is beaten back going right →  'ub'
@@ -815,11 +817,6 @@ def _find_o1_crossover_linear(logits_o1, d1_val, d2_val, scale_factors):
     # Analytical intersection: slope_diff * scale + intercept_diff = 0
     xover_scale = -intercept_diff / slope_diff
 
-    if xover_scale < 0:
-        # Intersection at negative scale means the swap already occurred before
-        # scale=0 (i.e., suppressing the feature, not amplifying it, would swap outputs).
-        # Flag separately from the too-large extrapolation case.
-        return [], [], 'o1_negative_scale'
     if xover_scale > LINEAR_FIT_SCALE_CAP:
         return [], [], 'o1_extrapolated'
 
@@ -941,7 +938,10 @@ def get_output_swap_bounds(xovers_df, scale_range=[0.0, 10.0]):
             - upper_bound: Upper bound of swap zone
             - midpoint: Midpoint of swap zone
             - swap_zone_width: Width of swap zone
-            - failure_reason: None if successful, otherwise reason for failure
+            - failure_reason: None if successful, otherwise reason for failure.
+                When multiple disjoint o2 swap windows exist (multiple o2 crossovers
+                with contradictory bounds) the o2 crossover constraints are dropped
+                and the argmax dominance check selects the correct window.
     """
     results = []
     
@@ -1075,15 +1075,18 @@ def _determine_swap_bounds_for_sample(row, scale_range):
                 if not in_window:
                     failure_reason = "no_o2_crossover_in_bounds"
             else:
+                # Save pre-o2 bounds; if applying all o2 crossovers creates a
+                # contradiction (lower > upper), it means there are multiple disjoint
+                # o2 swap windows. Discard the o2-derived constraints and let the
+                # argmax dominance check below resolve the correct window.
+                pre_o2_lower, pre_o2_upper = lower_bound, upper_bound
                 for xover, bound_type in valid_o2:
                     if bound_type == 'lb':
                         lower_bound = max(lower_bound, xover)
                     elif bound_type == 'ub':
                         upper_bound = min(upper_bound, xover)
-    
-    # Check for invalid bounds from crossovers
-    if failure_reason is None and lower_bound > upper_bound:
-        failure_reason = "invalid_bounds"
+                if lower_bound > upper_bound:
+                    lower_bound, upper_bound = pre_o2_lower, pre_o2_upper
     
     # Now constrain by argmax dominance (d1/d2 must actually be the top prediction)
     if failure_reason is None:
@@ -1284,9 +1287,11 @@ def analyze_feature_crossovers(
         pd.DataFrame with columns:
             - d1, d2: Input digit pair
             - feat_orig: Original feature activation
-            - o1_crossovers: List of scale values where o1 logits cross
-            - o2_crossovers: List of scale values where o2 logits cross
-            - o1_swapped: List of boolean for whether output swapped at each o1 crossover
+            - o1_crossovers: List of scale values where o1 logits cross (analytical linear fit)
+            - o2_crossovers: List of scale values where o2 logits cross (grid + bisection)
+            - o1_bound_types: List of bound types ('lb', 'ub') for o1 crossovers
+            - o1_failure_reason: None if o1 linear fit succeeded, else failure string
+            - o1_swapped: List of boolean for whether output swapped at nearest grid point to each o1 crossover
             - o2_swapped: List of boolean for whether output swapped at each o2 crossover
     """
     device = _get_device(model, device)
@@ -1339,14 +1344,31 @@ def _analyze_single_result_crossovers(
         print(f"Original model output: ({original_output_o1}, {original_output_o2})")
         print(f"{'='*60}")
     
-    # Analyze o1 crossovers
-    o1_crossovers, o1_swapped = _find_and_analyze_crossovers(
-        all_logits_o1, d1_val, d2_val, scale_factors, result['output_o1'], result['output_o2'],
-        model, sae, act_mean, feature_idx, inputs_i, z_orig, feat_orig,
-        OUTPUT_POS_O1, layer_idx, sep_idx, n_digits, device, verbose, "O1"
+    # Analyze o1 crossovers using analytical linear fit (same method as get_xovers_df)
+    scale_factors_arr = np.asarray(scale_factors)
+    o1_crossovers, o1_bound_types, o1_failure_reason = _find_o1_crossover_linear(
+        all_logits_o1, d1_val, d2_val, scale_factors_arr
     )
-    
-    # Analyze o2 crossovers
+    o1_swapped = []
+    if verbose:
+        if o1_failure_reason is not None:
+            print(f"\n\u274c O1: Linear fit failed ({o1_failure_reason})")
+        elif len(o1_crossovers) == 0:
+            print(f"\n\u274c O1: No crossover found")
+        else:
+            print(f"\n\U0001f4cd O1: Found 1 crossover point(s) (linear fit)")
+    for xover_scale, bound_type in zip(o1_crossovers, o1_bound_types):
+        nearest_idx = int(np.argmin(np.abs(scale_factors_arr - xover_scale)))
+        pred_o1 = result['output_o1'][nearest_idx]
+        pred_o2 = result['output_o2'][nearest_idx]
+        is_swapped = (pred_o1 == d2_val and pred_o2 == d1_val)
+        o1_swapped.append(is_swapped)
+        if verbose:
+            swap_indicator = " SWAPPED!" if is_swapped else ""
+            print(f"   Crossover at scale = {xover_scale:.4f} (bound={bound_type})")
+            print(f"      → Model output at nearest grid: ({pred_o1}, {pred_o2}){swap_indicator}")
+
+    # Analyze o2 crossovers (grid + bisection: logits are nonlinear)
     o2_crossovers, o2_swapped = _find_and_analyze_crossovers(
         all_logits_o2, d1_val, d2_val, scale_factors, result['output_o1'], result['output_o2'],
         model, sae, act_mean, feature_idx, inputs_i, z_orig, feat_orig,
@@ -1359,6 +1381,8 @@ def _analyze_single_result_crossovers(
         'feat_orig': feat_orig,
         'o1_crossovers': o1_crossovers,
         'o2_crossovers': o2_crossovers,
+        'o1_bound_types': o1_bound_types,
+        'o1_failure_reason': o1_failure_reason,
         'o1_swapped': o1_swapped,
         'o2_swapped': o2_swapped,
     }
