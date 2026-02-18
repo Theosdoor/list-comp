@@ -1,12 +1,13 @@
 """
 Analyze swap analysis failure reasons for SAE feature crossover results.
 
-Loads xovers and swap_bounds CSVs, classifies base-model correctness at scale=1.0,
-then generates a markdown report breaking down each failure reason with counts,
-correctness distribution, and concrete examples.
+Loads xovers and swap_bounds CSVs, runs the original transformer (no SAE hook)
+to get ground-truth correctness per sample, then generates a markdown report
+breaking down each failure reason with counts, correctness distribution, and
+concrete examples.
 
 Usage:
-    python3 scripts/analyze_failure_reasons.py [--feature 30] [--output results/xover/failure_analysis_feat30.md]
+    python3 scripts/analyze_failure_reasons.py [--feature 30] [--model 2layer_100dig_64d] [--n-digits 100] [--output results/xover/failure_analysis_feat30.md]
 """
 import sys
 import ast
@@ -15,18 +16,23 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import torch
 import numpy as np
 import pandas as pd
 
+from src.utils.nb_utils import setup_notebook, load_transformer_model
+from src.data.datasets import get_dataset
+
 # ── Config ────────────────────────────────────────────────────────────────────
 RESULTS_DIR = Path("results/xover")
-SCALE_START = 0.0
-SCALE_STEP = 0.05
+LIST_LEN = 2
 
 
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--feature", type=int, default=30)
+    p.add_argument("--model", type=str, default="2layer_100dig_64d")
+    p.add_argument("--n-digits", type=int, default=100)
     p.add_argument("--output", type=str, default=None)
     return p.parse_args()
 
@@ -49,34 +55,47 @@ def load_data(feature_idx):
     return xovers_df, bounds_df
 
 
-def get_correctness(xovers_df):
+def get_original_correctness(model_name, n_digits, device):
     """
-    Determine base model correctness at scale=1.0 for each sample.
-    Uses argmax_o1/argmax_o2 at the scale-1.0 grid index from xovers_df.
+    Run the original transformer (no SAE hook) on all inputs and return a
+    DataFrame with columns [d1, d2, correctness] where correctness is one of
+    'both_correct', 'partial', 'both_wrong'.
     """
-    scale_1_idx = int(round((1.0 - SCALE_START) / SCALE_STEP))
+    model, _ = load_transformer_model(model_name, device=device)
+    train_ds, val_ds = get_dataset(n_digits=n_digits, list_len=LIST_LEN)
+    # Use the full dataset (train + val = all n_digits^LIST_LEN pairs)
+    from torch.utils.data import ConcatDataset, DataLoader
+    all_ds = ConcatDataset([train_ds, val_ds])
+    dl = DataLoader(all_ds, batch_size=512, shuffle=False)
+
     rows = []
-    for _, row in xovers_df.iterrows():
-        argmax_o1 = parse_list_field(row["argmax_o1"])
-        argmax_o2 = parse_list_field(row["argmax_o2"])
-        d1, d2 = int(row["d1"]), int(row["d2"])
-        pred_o1 = argmax_o1[scale_1_idx]
-        pred_o2 = argmax_o2[scale_1_idx]
-        o1c = pred_o1 == d1
-        o2c = pred_o2 == d2
-        if o1c and o2c:
-            correctness = "both_correct"
-        elif o1c or o2c:
-            correctness = "partial"
-        else:
-            correctness = "both_wrong"
-        rows.append({"d1": d1, "d2": d2, "correctness": correctness})
+    model.eval()
+    with torch.no_grad():
+        for inputs, targets in dl:
+            inputs = inputs.to(device)
+            logits = model(inputs)  # (batch, seq_len, vocab)
+            # Output positions are the last LIST_LEN tokens
+            preds = logits[:, LIST_LEN + 1:, :n_digits].argmax(-1)  # (batch, LIST_LEN)
+            tgt = targets[:, LIST_LEN + 1:]  # (batch, LIST_LEN)
+            d1s = targets[:, 0].tolist()
+            d2s = targets[:, 1].tolist()
+            o1c = (preds[:, 0] == tgt[:, 0].to(device)).tolist()
+            o2c = (preds[:, 1] == tgt[:, 1].to(device)).tolist()
+            for d1, d2, c1, c2 in zip(d1s, d2s, o1c, o2c):
+                if c1 and c2:
+                    correctness = "both_correct"
+                elif c1 or c2:
+                    correctness = "partial"
+                else:
+                    correctness = "both_wrong"
+                rows.append({"d1": int(d1), "d2": int(d2), "correctness": correctness})
     return pd.DataFrame(rows)
 
 
-def build_merged(xovers_df, bounds_df):
+def build_merged(xovers_df, bounds_df, model_name, n_digits, device):
     """Merge swap bounds (failure reasons) with xovers data and correctness labels."""
-    correctness_df = get_correctness(xovers_df)
+    print("Running original model inference for ground-truth correctness...")
+    correctness_df = get_original_correctness(model_name, n_digits, device)
 
     # Normalise failure_reason: NaN -> 'success'
     bounds_df = bounds_df.copy()
@@ -217,7 +236,7 @@ def generate_markdown(merged, feature_idx):
     lines.append("")
     lines.append(
         "Pipeline: `get_xovers_df` → `get_output_swap_bounds`. "
-        "Correctness is the base model accuracy at scale=1.0 (unsteered), "
+        "Correctness is the original model accuracy (no SAE, no steering), "
         "classified per-position: **both_correct** (o1=d1 and o2=d2), "
         "**partial** (one position correct), **both_wrong**."
     )
@@ -275,11 +294,13 @@ def main():
     feature_idx = args.feature
     output_path = Path(args.output) if args.output else RESULTS_DIR / f"failure_analysis_feat{feature_idx}.md"
 
+    device = setup_notebook(seed=42)
+
     print(f"Loading data for feature {feature_idx}...")
     xovers_df, bounds_df = load_data(feature_idx)
 
     print("Building merged dataset with correctness labels...")
-    merged = build_merged(xovers_df, bounds_df)
+    merged = build_merged(xovers_df, bounds_df, args.model, args.n_digits, device)
 
     print("Generating markdown...")
     md = generate_markdown(merged, feature_idx)
