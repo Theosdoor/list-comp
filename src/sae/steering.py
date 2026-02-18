@@ -924,14 +924,33 @@ def _determine_swap_bounds_for_sample(row, scale_range):
     # Process o2 crossovers using pre-computed bound types
     if failure_reason is None:
         if len(o2_xovers) == 0:
-            failure_reason = "no_o2_crossover"
+            # No o2 logit crossovers at all — valid if argmax_o2 equals d1
+            # somewhere in [lower_bound, upper_bound].
+            in_window = any(
+                argmax_o2[i] == d1_val
+                for i, s in enumerate(scales)
+                if lower_bound <= s <= upper_bound
+            )
+            if not in_window:
+                failure_reason = "no_o2_crossover"
         else:
             # Filter o2 crossovers within current bounds along with their types
             valid_o2 = [(x, bt) for x, bt in zip(o2_xovers, o2_bound_types) 
                         if lower_bound <= x <= upper_bound]
             
             if len(valid_o2) == 0:
-                failure_reason = "no_o2_crossover_in_bounds"
+                # No o2 logit crossover (d1 vs d2) within bounds. This can happen when d1
+                # was already beating d2 at o2 from the start, with only an exit crossover
+                # beyond upper_bound. In that case, argmax_o2 may still equal d1 somewhere
+                # within [lower_bound, upper_bound] — the downstream dominance check will
+                # nail down the exact range. Only fail if o2 never predicts d1 in the window.
+                in_window = any(
+                    argmax_o2[i] == d1_val
+                    for i, s in enumerate(scales)
+                    if lower_bound <= s <= upper_bound
+                )
+                if not in_window:
+                    failure_reason = "no_o2_crossover_in_bounds"
             else:
                 for xover, bound_type in valid_o2:
                     if bound_type == 'lb':

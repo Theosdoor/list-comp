@@ -409,7 +409,7 @@ display(valid_swaps.head(10))
 invalid_swaps = swap_bounds_df[swap_bounds_df['lower_bound'].isna()]
 
 # %% [markdown]
-# so out of the 7054 inputs with xover, theres only 5596 valid swap zones? seems weird
+# so out of the 7054 inputs with xover, theres only 4023 valid swap zones? seems weird
 
 # %%
 # VERIFY SWAPS: Load pre-computed swap verification results
