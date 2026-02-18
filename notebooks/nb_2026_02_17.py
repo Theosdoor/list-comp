@@ -2,6 +2,7 @@
 # SETUP
 import os
 import sys
+import ast
 
 import torch
 import torch.nn.functional as F
@@ -102,28 +103,175 @@ n_active = len(active_features)
 sorted_indices = np.argsort(feature_firing_freq)[::-1]
 top_n = min(30, n_active)
 
-# %%
-# Check how many inputs where d1=d2 activate F30
 SPECIAL_FEAT_IDX = 30
 
-dupe_inputs = (d1_all == d2_all).cpu().numpy()
-feat_activation_on_dupes = sae_acts_all[:, SPECIAL_FEAT_IDX][dupe_inputs]
-activation_rate_on_dupes = (feat_activation_on_dupes > 0).float().mean().item()
-print(f"Feature {SPECIAL_FEAT_IDX} activation rate on duplicate inputs (d1=d2): {activation_rate_on_dupes:.4f}")
+# load crossover stuff
+xovers_df = pd.read_csv(f'../results/xover/xovers_feat{SPECIAL_FEAT_IDX}.csv')
+swap_bounds_df = pd.read_csv(f'../results/xover/swap_bounds_feat{SPECIAL_FEAT_IDX}.csv')
+swap_results_df = pd.read_csv(f'../results/xover/swap_results_feat{SPECIAL_FEAT_IDX}.csv')
+
 
 # %%
-# do feature steering on dupe inputs
-eg_inputs = [(1,1)]
+# CROSSOVER ANALYSIS: Load pre-computed results from GPU job
 
-results=feature_steering_experiment(
+# Helper to parse list columns from CSV
+def parse_list_column(df, col_name):
+    """Parse string representation of lists back to actual lists."""
+    df[col_name] = df[col_name].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
+    return df
+
+# Load crossovers
+parse_list_column(xovers_df, 'o1_crossovers')
+parse_list_column(xovers_df, 'o2_crossovers')
+
+# Analyze crossover statistics
+print(f"\nTotal inputs: {len(xovers_df)}")
+print(f"Inputs with feature firing: {(xovers_df['feat_orig'] > 0).sum()}")
+print(f"Inputs with no crossovers: {((xovers_df['n_o1_xover'] == 0) & (xovers_df['n_o2_xover'] == 0)).sum()}")
+print(f"\nCrossover pattern distribution:")
+print(xovers_df.groupby(['n_o1_xover', 'n_o2_xover']).size().to_frame('count'))
+fires_no_xover = xovers_df[
+    (xovers_df['feat_orig'] > 0) &
+    (xovers_df['n_o1_xover'] == 0) &
+    (xovers_df['n_o2_xover'] == 0) 
+]
+print(f"\nInputs where feature fires but no crossovers: {len(fires_no_xover)}")
+# display(fires_no_xover.head(20))
+
+# %%
+# Display inputs where feature fires but no crossovers found
+fires_no_xover = xovers_df[
+    (xovers_df['feat_orig'] > 0) &
+    (xovers_df['n_o1_xover'] == 0) &
+    (xovers_df['n_o2_xover'] == 0) &
+    (xovers_df['o1_failure_reason'] != 'd1_eq_d2')
+]
+print(f"\nFilterng out d1=d2 too: {len(fires_no_xover)}")
+display(fires_no_xover.head(20))
+# %%
+# lets look at their graphs
+test_egs = [(55,76), (93,16), (61,26)]
+
+results = feature_steering_experiment(
+    model, sae, act_mean,
+    feature_idx=SPECIAL_FEAT_IDX,
+    d1_all=d1_all, 
+    d2_all=d2_all, 
+    sae_acts_all=sae_acts_all, 
+    dataset=all_ds,
+    scale_range=[-10.0, 10.0],
+    test_pairs=test_egs
+)
+
+crossover_df = analyze_feature_crossovers(
+    results=results,
     model=model, sae=sae, act_mean=act_mean,
     feature_idx=SPECIAL_FEAT_IDX,
     d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_all,
     dataset=all_ds,
+    layer_idx=0,
     sep_idx=SEP_TOKEN_INDEX,
     n_digits=N_DIGITS,
-    save_dir=None,
-    test_pairs=eg_inputs,
+    device=DEVICE,
+    verbose=True
+)
+# %%
+# some of these the model gets wrong. Lets filter the ones the model gets wrong originally, and see the swap bounds for those
 
+# Get original (unpatched) predictions for ALL inputs via a direct forward pass
+# Use targets from the dataloader — same as the accuracy() function used during training
+from src.models.utils import accuracy as model_accuracy
+
+all_d1, all_d2, all_o1_pred, all_o2_pred, all_o1_tgt, all_o2_tgt = [], [], [], [], [], []
+
+model.eval()
+with torch.no_grad():
+    for inputs, targets in all_dl:
+        inputs = inputs.to(DEVICE)
+        tgts = targets[:, LIST_LEN + 1:].to(DEVICE)   # same slice as accuracy()
+        logits = model(inputs)[:, LIST_LEN + 1:]
+        preds = logits.argmax(dim=-1)                  # [batch, LIST_LEN]
+        all_d1.extend(inputs[:, 0].cpu().tolist())
+        all_d2.extend(inputs[:, 1].cpu().tolist())
+        all_o1_pred.extend(preds[:, 0].cpu().tolist())
+        all_o2_pred.extend(preds[:, 1].cpu().tolist())
+        all_o1_tgt.extend(tgts[:, 0].cpu().tolist())
+        all_o2_tgt.extend(tgts[:, 1].cpu().tolist())
+
+orig_preds_df = pd.DataFrame({
+    'd1': all_d1, 'd2': all_d2,
+    'orig_o1': all_o1_pred, 'orig_o2': all_o2_pred,
+    'tgt_o1': all_o1_tgt,   'tgt_o2': all_o2_tgt,
+})
+orig_preds_df['o1_correct'] = orig_preds_df['orig_o1'] == orig_preds_df['tgt_o1']
+orig_preds_df['o2_correct'] = orig_preds_df['orig_o2'] == orig_preds_df['tgt_o2']
+orig_preds_df['token_acc'] = (orig_preds_df['o1_correct'].astype(float) + orig_preds_df['o2_correct'].astype(float)) / 2
+
+# Per-token accuracy on val — should match model_accuracy() = 0.9145
+n_val = len(val_ds)
+val_preds_df = orig_preds_df.iloc[-n_val:]
+print(f"Val per-token accuracy: {val_preds_df['token_acc'].mean():.4f}  (reference: 0.9145)")
+print()
+
+n_total = len(orig_preds_df)
+print(f"All inputs: {n_total}")
+print(f"  Per-token accuracy: {orig_preds_df['token_acc'].mean():.4f}")
+print(f"  Both correct:  {(orig_preds_df['token_acc'] == 1.0).sum()} ({(orig_preds_df['token_acc'] == 1.0).mean()*100:.1f}%)")
+print(f"  Partial (1/2): {(orig_preds_df['token_acc'] == 0.5).sum()} ({(orig_preds_df['token_acc'] == 0.5).mean()*100:.1f}%)")
+print(f"  Both wrong:    {(orig_preds_df['token_acc'] == 0.0).sum()} ({(orig_preds_df['token_acc'] == 0.0).mean()*100:.1f}%)")
+
+# Merge into swap_bounds — use 3-way correctness label for breakdown
+def _correctness_label(row):
+    if row['o1_correct'] and row['o2_correct']:
+        return 'both_correct'
+    elif row['o1_correct'] or row['o2_correct']:
+        return 'partial'
+    else:
+        return 'both_wrong'
+
+orig_preds_df['correctness'] = orig_preds_df.apply(_correctness_label, axis=1)
+
+# Merge correctness into swap_bounds (covers ALL rows incl. failures)
+swap_bounds_annotated = swap_bounds_df.merge(
+    orig_preds_df[['d1', 'd2', 'orig_o1', 'orig_o2', 'o1_correct', 'o2_correct', 'token_acc', 'correctness']],
+    on=['d1', 'd2'], how='left'
+).merge(
+    swap_results_df[['d1', 'd2', 'swapped']],
+    on=['d1', 'd2'], how='left'
 )
 
+wrong_bounds = swap_bounds_annotated[swap_bounds_annotated['token_acc'] < 1.0].copy()
+valid_wrong = wrong_bounds['failure_reason'].isna()
+
+print(f"\nSwap bounds for inputs with at least one wrong token: {len(wrong_bounds)}")
+print(f"  Valid swap zones: {valid_wrong.sum()}")
+print(f"  Successfully swapped: {wrong_bounds.loc[valid_wrong, 'swapped'].sum()}")
+print(f"  Swap zone widths (valid):")
+print(wrong_bounds.loc[valid_wrong, 'swap_zone_width'].describe())
+display(wrong_bounds)
+
+# %%
+# Failure reason breakdown by whether model originally got the input correct
+
+# Fill NaN failure_reason with 'success' for readability
+annotated = swap_bounds_annotated.copy()
+annotated['failure_reason'] = annotated['failure_reason'].fillna('success')
+# correctness column already set: 'both_correct', 'partial', 'both_wrong'
+
+breakdown = (
+    annotated
+    .groupby(['failure_reason', 'correctness'])
+    .size()
+    .unstack(fill_value=0)
+)
+# Ensure consistent column order
+for col in ['both_correct', 'partial', 'both_wrong']:
+    if col not in breakdown.columns:
+        breakdown[col] = 0
+breakdown = breakdown[['both_correct', 'partial', 'both_wrong']]
+breakdown['all'] = breakdown.sum(axis=1)
+breakdown.loc['TOTAL'] = breakdown.sum()
+
+print("Failure reason breakdown by original model correctness:")
+display(breakdown)
+# %%
