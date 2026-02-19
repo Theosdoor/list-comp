@@ -312,7 +312,7 @@ def feature_steering_experiment(
     d1_all, d2_all, sae_acts_all, dataset,
     layer_idx=0, sep_idx=DEFAULT_SEP_IDX, n_digits=DEFAULT_N_DIGITS,
     scale_factors=None, scale_range=[-1.0, 4.0], sample_step_size=0.05, n_test_cases=5, seed=42,
-    test_pairs=None, device=None, plot=True, save_dir=None
+    test_pairs=None, device=None, plot=True, save_dir=None, save_path=None
 ):
     """
     Perform feature steering experiment by scaling a specific SAE feature's activation.
@@ -342,6 +342,7 @@ def feature_steering_experiment(
         device: Device to use (default: auto-detect from model)
         plot: Whether to create visualization (default: True)
         save_dir: Directory to save plot (if None and plot=True, shows plot)
+        save_path: Exact file path to save plot (overrides save_dir if provided)
     
     Returns:
         all_results: List of dicts with keys:
@@ -391,7 +392,7 @@ def feature_steering_experiment(
     
     # Create visualization if requested
     if plot and len(all_results) > 0:
-        _plot_steering_results(all_results, feature_idx, n_digits, save_dir)
+        _plot_steering_results(all_results, feature_idx, n_digits, save_dir, save_path=save_path)
     
     return all_results
 
@@ -471,7 +472,7 @@ def _run_steering_for_test_pairs(
     return all_results
 
 
-def _plot_steering_results(all_results, feature_idx, n_digits, save_dir):
+def _plot_steering_results(all_results, feature_idx, n_digits, save_dir, save_path=None):
     """Create visualization of steering results."""
     fig, axes = plt.subplots(2, len(all_results), figsize=(4*len(all_results), 10), squeeze=False)
     
@@ -497,12 +498,19 @@ def _plot_steering_results(all_results, feature_idx, n_digits, save_dir):
     
     plt.tight_layout()
     
-    if save_dir:
-        save_path = os.path.join(save_dir, f'feature_{feature_idx}_logit_steering.png')
+    if save_path:
+        _dir = os.path.dirname(save_path)
+        if _dir:
+            os.makedirs(_dir, exist_ok=True)
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
         print(f"Saved plot to {save_path}")
+    elif save_dir:
+        _path = os.path.join(save_dir, f'feature_{feature_idx}_logit_steering.png')
+        plt.savefig(_path, dpi=150, bbox_inches='tight')
+        print(f"Saved plot to {_path}")
     else:
         plt.show()
+    plt.close()
 
 
 def _plot_output_position(ax, scales, all_logits, logit_d1, logit_d2, 

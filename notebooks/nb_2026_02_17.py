@@ -150,7 +150,8 @@ print(f"\nFilterng out d1=d2 too: {len(fires_no_xover)}")
 display(fires_no_xover.head(20))
 # %%
 # lets look at their graphs
-test_egs = [(55,76), (93,16), (61,26)]
+# test_egs = [(55,76), (93,16), (61,26)]
+test_egs = [(60,44)]
 
 results = feature_steering_experiment(
     model, sae, act_mean,
@@ -159,8 +160,9 @@ results = feature_steering_experiment(
     d2_all=d2_all, 
     sae_acts_all=sae_acts_all, 
     dataset=all_ds,
-    scale_range=[-10.0, 10.0],
-    test_pairs=test_egs
+    scale_range=[-5.0, 10.0],
+    test_pairs=test_egs,
+    # sample_step_size=0.005
 )
 
 crossover_df = analyze_feature_crossovers(
