@@ -426,7 +426,7 @@ def _run_steering_for_test_pairs(
     """Run steering experiment for all test pairs."""
     all_results = []
     
-    for d1_val, d2_val in test_pairs:
+    for d1_val, d2_val in tqdm(test_pairs, desc="Test pairs", leave=True):
         try:
             idx = _find_input_index(d1_all, d2_all, d1_val, d2_val)
         except ValueError:
@@ -441,7 +441,7 @@ def _run_steering_for_test_pairs(
         all_logits_o1 = []
         all_logits_o2 = []
         
-        for scale in scale_factors:
+        for scale in tqdm(scale_factors, desc=f"  Scales ({d1_val},{d2_val})", leave=True):
             patched_logits = _run_model_with_scaled_feature(
                 model, sae, act_mean, inputs_i, z_orig, feature_idx,
                 feat_orig, scale, layer_idx, sep_idx, hook_name_resid
@@ -1298,6 +1298,7 @@ def analyze_feature_crossovers(
             - o1_crossovers: List of scale values where o1 logits cross (analytical linear fit)
             - o2_crossovers: List of scale values where o2 logits cross (grid + bisection)
             - o1_bound_types: List of bound types ('lb', 'ub') for o1 crossovers
+            - o2_bound_types: List of bound types ('lb', 'ub') for o2 crossovers
             - o1_failure_reason: None if o1 linear fit succeeded, else failure string
             - o1_swapped: List of boolean for whether output swapped at nearest grid point to each o1 crossover
             - o2_swapped: List of boolean for whether output swapped at each o2 crossover
@@ -1377,12 +1378,34 @@ def _analyze_single_result_crossovers(
             print(f"      → Model output at nearest grid: ({pred_o1}, {pred_o2}){swap_indicator}")
 
     # Analyze o2 crossovers (grid + bisection: logits are nonlinear)
-    o2_crossovers, o2_swapped = _find_and_analyze_crossovers(
+    o2_crossovers, o2_bound_types, o2_swapped = _find_and_analyze_crossovers(
         all_logits_o2, d1_val, d2_val, scale_factors, result['output_o1'], result['output_o2'],
         model, sae, act_mean, feature_idx, inputs_i, z_orig, feat_orig,
         OUTPUT_POS_O2, layer_idx, sep_idx, n_digits, device, verbose, "O2"
     )
-    
+
+    # Compute and print swap bounds using the same logic as get_output_swap_bounds
+    if verbose:
+        swap_row = {
+            'd1': d1_val, 'd2': d2_val,
+            'o1_crossovers': o1_crossovers,
+            'o2_crossovers': o2_crossovers,
+            'o1_bound_types': o1_bound_types,
+            'o2_bound_types': o2_bound_types,
+            'o1_failure_reason': o1_failure_reason,
+            'scales': list(scale_factors_arr),
+            'argmax_o1': list(result['output_o1']),
+            'argmax_o2': list(result['output_o2']),
+        }
+        scale_range = [float(scale_factors_arr[0]), float(scale_factors_arr[-1])]
+        swap_bounds = _determine_swap_bounds_for_sample(swap_row, scale_range=scale_range)
+        print(f"\n--- Swap bounds ---")
+        if swap_bounds['failure_reason'] is None:
+            print(f"  Scale range: [{swap_bounds['lower_bound']:.4f}, {swap_bounds['upper_bound']:.4f}]")
+            print(f"  Midpoint: {swap_bounds['midpoint']:.4f},  Width: {swap_bounds['swap_zone_width']:.4f}")
+        else:
+            print(f"  No valid swap zone: {swap_bounds['failure_reason']}")
+
     return {
         'd1': d1_val,
         'd2': d2_val,
@@ -1390,6 +1413,7 @@ def _analyze_single_result_crossovers(
         'o1_crossovers': o1_crossovers,
         'o2_crossovers': o2_crossovers,
         'o1_bound_types': o1_bound_types,
+        'o2_bound_types': o2_bound_types,
         'o1_failure_reason': o1_failure_reason,
         'o1_swapped': o1_swapped,
         'o2_swapped': o2_swapped,
@@ -1408,6 +1432,7 @@ def _find_and_analyze_crossovers(
     sign_changes = np.where(np.diff(np.sign(diff)))[0]
     
     crossovers = []
+    bound_types = []
     swapped_list = []
     
     if len(sign_changes) > 0:
@@ -1423,6 +1448,9 @@ def _find_and_analyze_crossovers(
             )
             exact_scale = round(exact_scale, 3)
             crossovers.append(exact_scale)
+
+            bound_type = _determine_bound_type_from_diff(crossover_idx, output_pos, diff)
+            bound_types.append(bound_type)
             
             pred_o1 = output_o1[crossover_idx]
             pred_o2 = output_o2[crossover_idx]
@@ -1431,15 +1459,26 @@ def _find_and_analyze_crossovers(
             
             if verbose:
                 swap_indicator = " SWAPPED!" if is_swapped else ""
-                print(f"   Crossover #{j} at scale = {exact_scale:.3f} (3dp)")
+                print(f"   Crossover #{j} at scale = {exact_scale:.3f} (bound={bound_type})")
                 print(f"      d1 logit = {d1_logits[crossover_idx]:.3f}, d2 logit = {d2_logits[crossover_idx]:.3f}")
                 print(f"      → Model output: ({pred_o1}, {pred_o2}){swap_indicator}")
     else:
         if verbose:
             print(f"\n❌ {position_name}: No crossover detected in range [{scale_factors[0]:.1f}, {scale_factors[-1]:.1f}]")
             if d1_logits[0] > d2_logits[0]:
-                print("   d1 logit remains higher throughout")
+                print("   d1 logit remains higher than d2 throughout")
             else:
-                print("   d2 logit remains higher throughout")
+                print("   d2 logit remains higher than d1 throughout")
+            # Show actual argmax to distinguish d1/d2 dominating vs a 3rd digit dominating
+            actual_argmax = logits.argmax(axis=1)
+            swap_target = d1_val if output_pos == OUTPUT_POS_O2 else d2_val
+            frac_target = (actual_argmax == swap_target).mean()
+            dominant = actual_argmax[0]  # representative value at start of range
+            if frac_target == 1.0:
+                print(f"   Actual argmax = {swap_target} (swap target) throughout — swap condition met at {position_name}")
+            else:
+                unique, counts = np.unique(actual_argmax, return_counts=True)
+                top = unique[counts.argmax()]
+                print(f"   Actual argmax is mostly {top} (swap target={swap_target}, match {frac_target*100:.0f}% of range)")
     
-    return crossovers, swapped_list
+    return crossovers, bound_types, swapped_list

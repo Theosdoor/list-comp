@@ -160,9 +160,9 @@ results = feature_steering_experiment(
     d2_all=d2_all, 
     sae_acts_all=sae_acts_all, 
     dataset=all_ds,
-    scale_range=[-5.0, 10.0],
+    scale_range=[-1.0, 1.0],
     test_pairs=test_egs,
-    # sample_step_size=0.005
+    sample_step_size=0.001
 )
 
 crossover_df = analyze_feature_crossovers(
@@ -178,102 +178,35 @@ crossover_df = analyze_feature_crossovers(
     verbose=True
 )
 # %%
-# some of these the model gets wrong. Lets filter the ones the model gets wrong originally, and see the swap bounds for those
+# Test the egs at different scales
+for d1_val, d2_val in test_egs:
+    mask = (d1_all == d1_val) & (d2_all == d2_val)
+    idx = torch.where(mask)[0][0].item()
+    inputs_i = all_ds[idx][0].unsqueeze(0).to(DEVICE)
+    z_orig = sae_acts_all[idx].clone().to(DEVICE)
+    feat_orig = z_orig[SPECIAL_FEAT_IDX].item()
+    
+    print(f"\n{'='*60}")
+    print(f"Input: ({d1_val}, {d2_val}), Original feature {SPECIAL_FEAT_IDX}: {feat_orig:.4f}")
+    print(f"{'='*60}")
+    
+    # Inspect at multiple scales
+    custom_scales = [-0.7, -0.6, -0.5, -0.3, -0.01, 0.0]
+    # custom_scales = [2.2,2.3]
+    result_list, df = inspect_steered_outputs_batch(
+        model=model, sae=sae, act_mean=act_mean,
+        feature_idx=SPECIAL_FEAT_IDX,
+        scales=custom_scales,
+        inputs_i=inputs_i, z_orig=z_orig, feat_orig=feat_orig,
+        d1_val=d1_val, d2_val=d2_val,
+        layer_idx=0, sep_idx=SEP_TOKEN_INDEX, n_digits=N_DIGITS,
+        device=DEVICE
+    )
+    print(df.to_string(index=False))
 
-# Get original (unpatched) predictions for ALL inputs via a direct forward pass
-# Use targets from the dataloader — same as the accuracy() function used during training
-from src.models.utils import accuracy as model_accuracy
-
-all_d1, all_d2, all_o1_pred, all_o2_pred, all_o1_tgt, all_o2_tgt = [], [], [], [], [], []
-
-model.eval()
-with torch.no_grad():
-    for inputs, targets in all_dl:
-        inputs = inputs.to(DEVICE)
-        tgts = targets[:, LIST_LEN + 1:].to(DEVICE)   # same slice as accuracy()
-        logits = model(inputs)[:, LIST_LEN + 1:]
-        preds = logits.argmax(dim=-1)                  # [batch, LIST_LEN]
-        all_d1.extend(inputs[:, 0].cpu().tolist())
-        all_d2.extend(inputs[:, 1].cpu().tolist())
-        all_o1_pred.extend(preds[:, 0].cpu().tolist())
-        all_o2_pred.extend(preds[:, 1].cpu().tolist())
-        all_o1_tgt.extend(tgts[:, 0].cpu().tolist())
-        all_o2_tgt.extend(tgts[:, 1].cpu().tolist())
-
-orig_preds_df = pd.DataFrame({
-    'd1': all_d1, 'd2': all_d2,
-    'orig_o1': all_o1_pred, 'orig_o2': all_o2_pred,
-    'tgt_o1': all_o1_tgt,   'tgt_o2': all_o2_tgt,
-})
-orig_preds_df['o1_correct'] = orig_preds_df['orig_o1'] == orig_preds_df['tgt_o1']
-orig_preds_df['o2_correct'] = orig_preds_df['orig_o2'] == orig_preds_df['tgt_o2']
-orig_preds_df['token_acc'] = (orig_preds_df['o1_correct'].astype(float) + orig_preds_df['o2_correct'].astype(float)) / 2
-
-# Per-token accuracy on val — should match model_accuracy() = 0.9145
-n_val = len(val_ds)
-val_preds_df = orig_preds_df.iloc[-n_val:]
-print(f"Val per-token accuracy: {val_preds_df['token_acc'].mean():.4f}  (reference: 0.9145)")
-print()
-
-n_total = len(orig_preds_df)
-print(f"All inputs: {n_total}")
-print(f"  Per-token accuracy: {orig_preds_df['token_acc'].mean():.4f}")
-print(f"  Both correct:  {(orig_preds_df['token_acc'] == 1.0).sum()} ({(orig_preds_df['token_acc'] == 1.0).mean()*100:.1f}%)")
-print(f"  Partial (1/2): {(orig_preds_df['token_acc'] == 0.5).sum()} ({(orig_preds_df['token_acc'] == 0.5).mean()*100:.1f}%)")
-print(f"  Both wrong:    {(orig_preds_df['token_acc'] == 0.0).sum()} ({(orig_preds_df['token_acc'] == 0.0).mean()*100:.1f}%)")
-
-# Merge into swap_bounds — use 3-way correctness label for breakdown
-def _correctness_label(row):
-    if row['o1_correct'] and row['o2_correct']:
-        return 'both_correct'
-    elif row['o1_correct'] or row['o2_correct']:
-        return 'partial'
-    else:
-        return 'both_wrong'
-
-orig_preds_df['correctness'] = orig_preds_df.apply(_correctness_label, axis=1)
-
-# Merge correctness into swap_bounds (covers ALL rows incl. failures)
-swap_bounds_annotated = swap_bounds_df.merge(
-    orig_preds_df[['d1', 'd2', 'orig_o1', 'orig_o2', 'o1_correct', 'o2_correct', 'token_acc', 'correctness']],
-    on=['d1', 'd2'], how='left'
-).merge(
-    swap_results_df[['d1', 'd2', 'swapped']],
-    on=['d1', 'd2'], how='left'
-)
-
-wrong_bounds = swap_bounds_annotated[swap_bounds_annotated['token_acc'] < 1.0].copy()
-valid_wrong = wrong_bounds['failure_reason'].isna()
-
-print(f"\nSwap bounds for inputs with at least one wrong token: {len(wrong_bounds)}")
-print(f"  Valid swap zones: {valid_wrong.sum()}")
-print(f"  Successfully swapped: {wrong_bounds.loc[valid_wrong, 'swapped'].sum()}")
-print(f"  Swap zone widths (valid):")
-print(wrong_bounds.loc[valid_wrong, 'swap_zone_width'].describe())
-display(wrong_bounds)
+# %% [markdown]
+# Let's focus on inputs that don't F30 can't steer (no swap bound) & see if another of the topk features activate it
 
 # %%
-# Failure reason breakdown by whether model originally got the input correct
+test_egs = [(74,32)] # (75,32) is an input that doesnt activate f30 at all
 
-# Fill NaN failure_reason with 'success' for readability
-annotated = swap_bounds_annotated.copy()
-annotated['failure_reason'] = annotated['failure_reason'].fillna('success')
-# correctness column already set: 'both_correct', 'partial', 'both_wrong'
-
-breakdown = (
-    annotated
-    .groupby(['failure_reason', 'correctness'])
-    .size()
-    .unstack(fill_value=0)
-)
-# Ensure consistent column order
-for col in ['both_correct', 'partial', 'both_wrong']:
-    if col not in breakdown.columns:
-        breakdown[col] = 0
-breakdown = breakdown[['both_correct', 'partial', 'both_wrong']]
-breakdown['all'] = breakdown.sum(axis=1)
-breakdown.loc['TOTAL'] = breakdown.sum()
-
-print("Failure reason breakdown by original model correctness:")
-display(breakdown)
-# %%
