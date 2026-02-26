@@ -1,66 +1,39 @@
 # Copilot Instructions
 
-## Project Overview
-Mechanistic interpretability research on small transformers trained on a **list-copying task**: given `[d1, d2, SEP, MASK, MASK]`, the model must output `[d1, d2, SEP, d1, d2]`. The goal is to understand how SAE features (especially feature 30) control output order.
+## Scope and Task Shape
+- This repo studies mechanistic behavior in small attention-only transformers on a list-copy task.
+- Canonical sequence format is `[d1, d2, SEP, o1, o2]` where outputs must copy inputs (not sort).
+- Token IDs are conventionally `MASK = n_digits` and `SEP = n_digits + 1`; output slice is `[:, list_len + 1:]`.
 
-## Sequence Format
-```
-[d1, d2, SEP, o1, o2]   # length = list_len * 2 + 1 = 5
-```
-- `MASK = n_digits` (100), `SEP = n_digits + 1` (101)
-- Output positions are the last `list_len` tokens: `[:, list_len + 1:]`
-- "Correct" = model reproduces input exactly at output positions (not sorting)
+## Core Architecture and Data Flow
+- `src/data/datasets.py::get_dataset()` builds all `n_digits^list_len` combinations and returns `(train_ds, val_ds)` with default `train_split=0.8`.
+- `src/models/transformer.py` defines custom attention masks (`build_attention_mask`, `attach_custom_mask`) implementing task-specific routing.
+- `src/utils/runtime.py::configure_runtime()` sets global `_RUNTIME` values used across model/util code; many helpers assert these are configured.
+- `src/utils/nb_utils.py::load_transformer_model()` configures runtime and returns `(model, model_cfg)`; use this as the default loader in analysis code.
+- `src/models/utils.py::accuracy()` is per-token accuracy (each output token contributes independently).
 
-## Accuracy Convention
-**Per-token**, not per-sample — each output position counted independently, matching `src/models/utils.py::accuracy()`. A sample where o1 is right but o2 is wrong contributes 0.5 to accuracy. Val accuracy for `2layer_100dig_64d` ≈ 91.45%.
+## SAE Conventions
+- SAE checkpoints in `results/sae_models/` include `state_dict`, `cfg`, and `act_mean`.
+- Always load and pass `act_mean` when collecting/patching activations (see `scripts/run_crossover_analysis.py`).
+- For feature steering/crossover work, main entry points are in `src/sae/steering.py`: `get_xovers_df`, `get_output_swap_bounds`, `swap_outputs`.
 
-## Naming Conventions
-- **Models**: `{n_layers}layer_{n_digits}dig_{d_model}d` → `models/2layer_100dig_64d.pt`
-- **SAEs**: `sae_d{dict_size}_k{top_k}_lr{lr}_seed{seed}_{model_name}.pt` → `results/sae_models/`
-- **Default SAE** (used for feature 30 analysis): `sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt`
-- **SAE checkpoints** include an `act_mean` key used for centering activations — always load it:
-  ```python
-  sae_checkpoint = torch.load(SAE_PATH, weights_only=False)
-  act_mean = sae_checkpoint["act_mean"].to(DEVICE)
-  ```
+## Canonical Workflows
+- Environment: `uv sync` then `source .venv/bin/activate`.
+- Train model: `python3 scripts/train_model.py ...` (supports retries until `--min-acc`; saves to `models/`).
+- Train SAE: `python3 scripts/train_sae.py --d_sae ... --top_k ... --n_steps ...`.
+- Run crossover pipeline: `python3 scripts/run_crossover_analysis.py` (writes CSVs to `results/xover/`).
+- Cluster/GPU workflow is captured in `submit_job.sh` (sync env, activate `.venv`, run analysis scripts).
 
-## Standard Notebook Boilerplate
-Every notebook/script starts with this sequence — `load_transformer_model` internally calls `configure_runtime` which populates `src/utils/runtime._RUNTIME`:
-```python
-DEVICE = setup_notebook(seed=42)
-model, model_cfg = load_transformer_model(MODEL_NAME, device=DEVICE)
-sae, sae_cfg = load_sae(SAE_NAME, model_cfg['d_model'], device=DEVICE)
-train_ds, val_ds = get_dataset(n_digits=N_DIGITS, list_len=LIST_LEN, no_dupes=False)
-```
-All imports come from `from src.utils.nb_utils import *` and `from src.sae import *`.
+## Project-Specific Patterns
+- Prefer imports from `src.utils.nb_utils` and `src.sae` in notebooks/scripts to stay consistent with existing analysis flow.
+- Default analyses use full data via `ConcatDataset([train_ds, val_ds])` when exhaustively scanning input space.
+- Do not evaluate with `train_split=1.0`; this mixes train data into evaluation and inflates reported accuracy.
+- Existing saved-model naming appears in two styles (`2layer_100dig_64d.pt` and timestamped `L*_H*_D*_V*..._acc*.pt`); do not assume one format only.
 
-## Key Source Files
-| File | Purpose |
-|------|---------|
-| `src/utils/nb_utils.py` | `setup_notebook`, `load_transformer_model`, `load_sae` |
-| `src/models/utils.py` | `accuracy()` — reference metric |
-| `src/data/datasets.py` | `get_dataset()` — generates all `n_digits^list_len` pairs, 80/20 split |
-| `src/sae/steering.py` | `get_xovers_df`, `get_output_swap_bounds`, `swap_outputs`, `feature_steering_experiment` |
-| `src/sae/activation_collection.py` | `collect_sae_activations`, `collect_attention_weights` |
-| `src/utils/runtime.py` | `_RUNTIME` global — read `list_len`, `device` etc. from here after setup |
+## Current Baselines and Files
+- Common base model: `models/2layer_100dig_64d.pt`.
+- Common SAE for feature-30 analysis: `results/sae_models/sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt`.
+- Key reference files: `src/data/datasets.py`, `src/models/transformer.py`, `src/models/utils.py`, `src/utils/nb_utils.py`, `src/sae/steering.py`.
 
-## Dataset Notes
-- `get_dataset(n_digits=100, list_len=2)` → 10,000 total pairs (100²), split 8000/2000
-- Do **not** use `train_split=1.0` for evaluation — inflates accuracy ~4%
-- `all_ds = ConcatDataset([train_ds, val_ds])` is common for full-dataset analysis; val is the last `len(val_ds)` rows
-
-## SAE / Interpretability Workflow
-1. Collect activations at layer 0 SEP token: `collect_sae_activations(..., layer_idx=0, sep_idx=SEP_TOKEN_INDEX)`
-2. Feature steering: scale a feature's activation and observe output changes via `feature_steering_experiment`
-3. Crossover analysis pipeline (GPU job via `submit_job.sh`):
-   - `get_xovers_df` → finds scale values where o1/o2 argmax crosses over
-   - `get_output_swap_bounds` → identifies the scale range that produces a swap
-   - `swap_outputs` → verifies the swap at the midpoint scale
-   - Results saved as CSVs to `results/xover/`
-
-## Environment
-- Python 3.11, managed with `uv` (`uv sync`, `uv add`, etc.)
-- Always activate `.venv` before running: `source .venv/bin/activate`
-- Run scripts with `python3`, not `python`
-- Notebooks are `.py` files with `# %%` cell markers (Jupytext-style), kept in `notebooks/`
-- Heavy jobs: `bash submit_job.sh` (SLURM)
+## Reproducibility Requirement
+- When running experiments, append a concise entry to `EXPERIMENTS.md` with command, output paths, and headline metrics.
