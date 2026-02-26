@@ -23,5 +23,5 @@ echo "------------------------------------------------------"
 
 
 # SAE sweep (comment/uncomment as needed)
-wandb agent theo-farrell99-durham-university/btksae_sweep/gw95m2e2
+wandb agent theo-farrell99-durham-university/btksae_sweep/ffp4txn8
 python3 scripts/compare_sae.py

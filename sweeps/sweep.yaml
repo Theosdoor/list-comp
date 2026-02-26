@@ -24,6 +24,6 @@ parameters:
     value: 1000
   batch_size:
     value: 4096
-  # seed:
-  #   values: [0, 1, 2, 3, 4]  # FOR GRID: average over different seeds
+  seed:
+    values: [0]  # FOR GRID: average over different seeds
 
