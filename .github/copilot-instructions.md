@@ -17,6 +17,7 @@ Mechanistic interpretability research on small transformers trained on a **list-
 ## Naming Conventions
 - **Models**: `{n_layers}layer_{n_digits}dig_{d_model}d` → `models/2layer_100dig_64d.pt`
 - **SAEs**: `sae_d{dict_size}_k{top_k}_lr{lr}_seed{seed}_{model_name}.pt` → `results/sae_models/`
+- **Default SAE** (used for feature 30 analysis): `sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt`
 - **SAE checkpoints** include an `act_mean` key used for centering activations — always load it:
   ```python
   sae_checkpoint = torch.load(SAE_PATH, weights_only=False)

@@ -150,7 +150,8 @@ print(f"\nFilterng out d1=d2 too: {len(fires_no_xover)}")
 display(fires_no_xover.head(20))
 # %%
 # lets look at their graphs
-test_egs = [(55,76), (93,16), (61,26)]
+# test_egs = [(55,76), (93,16), (61,26)]
+test_egs = [(60,44)]
 
 results = feature_steering_experiment(
     model, sae, act_mean,
@@ -159,8 +160,9 @@ results = feature_steering_experiment(
     d2_all=d2_all, 
     sae_acts_all=sae_acts_all, 
     dataset=all_ds,
-    scale_range=[-10.0, 10.0],
-    test_pairs=test_egs
+    scale_range=[-1.0, 1.0],
+    test_pairs=test_egs,
+    sample_step_size=0.001
 )
 
 crossover_df = analyze_feature_crossovers(
@@ -176,102 +178,279 @@ crossover_df = analyze_feature_crossovers(
     verbose=True
 )
 # %%
-# some of these the model gets wrong. Lets filter the ones the model gets wrong originally, and see the swap bounds for those
+# Test the egs at different scales
+for d1_val, d2_val in test_egs:
+    mask = (d1_all == d1_val) & (d2_all == d2_val)
+    idx = torch.where(mask)[0][0].item()
+    inputs_i = all_ds[idx][0].unsqueeze(0).to(DEVICE)
+    z_orig = sae_acts_all[idx].clone().to(DEVICE)
+    feat_orig = z_orig[SPECIAL_FEAT_IDX].item()
+    
+    print(f"\n{'='*60}")
+    print(f"Input: ({d1_val}, {d2_val}), Original feature {SPECIAL_FEAT_IDX}: {feat_orig:.4f}")
+    print(f"{'='*60}")
+    
+    # Inspect at multiple scales
+    custom_scales = [-0.7, -0.6, -0.5, -0.3, -0.01, 0.0]
+    # custom_scales = [2.2,2.3]
+    result_list, df = inspect_steered_outputs_batch(
+        model=model, sae=sae, act_mean=act_mean,
+        feature_idx=SPECIAL_FEAT_IDX,
+        scales=custom_scales,
+        inputs_i=inputs_i, z_orig=z_orig, feat_orig=feat_orig,
+        d1_val=d1_val, d2_val=d2_val,
+        layer_idx=0, sep_idx=SEP_TOKEN_INDEX, n_digits=N_DIGITS,
+        device=DEVICE
+    )
+    print(df.to_string(index=False))
 
-# Get original (unpatched) predictions for ALL inputs via a direct forward pass
-# Use targets from the dataloader — same as the accuracy() function used during training
-from src.models.utils import accuracy as model_accuracy
+# %% [markdown]
+# Let's focus on inputs that don't F30 can't steer (no swap bound) & see if another of the topk features activate it
 
-all_d1, all_d2, all_o1_pred, all_o2_pred, all_o1_tgt, all_o2_tgt = [], [], [], [], [], []
+# %%
+test_egs = [(60,44)] # (75,32) is an input that doesnt activate f30 at all
 
-model.eval()
-with torch.no_grad():
-    for inputs, targets in all_dl:
-        inputs = inputs.to(DEVICE)
-        tgts = targets[:, LIST_LEN + 1:].to(DEVICE)   # same slice as accuracy()
-        logits = model(inputs)[:, LIST_LEN + 1:]
-        preds = logits.argmax(dim=-1)                  # [batch, LIST_LEN]
-        all_d1.extend(inputs[:, 0].cpu().tolist())
-        all_d2.extend(inputs[:, 1].cpu().tolist())
-        all_o1_pred.extend(preds[:, 0].cpu().tolist())
-        all_o2_pred.extend(preds[:, 1].cpu().tolist())
-        all_o1_tgt.extend(tgts[:, 0].cpu().tolist())
-        all_o2_tgt.extend(tgts[:, 1].cpu().tolist())
 
-orig_preds_df = pd.DataFrame({
-    'd1': all_d1, 'd2': all_d2,
-    'orig_o1': all_o1_pred, 'orig_o2': all_o2_pred,
-    'tgt_o1': all_o1_tgt,   'tgt_o2': all_o2_tgt,
+# For inputs where F30 can't steer, identify ALL active top-k features and run
+# steering + crossover analysis for each one.
+
+def analyze_topk_features_for_inputs(
+    test_pairs,
+    model, sae, act_mean,
+    d1_all, d2_all, sae_acts_all, dataset,
+    layer_idx, sep_idx, n_digits, device,
+    scale_range=[-1.0, 10.0],
+    sample_step_size=0.05,
+):
+    """
+    For each (d1, d2) pair in test_pairs:
+      - Print all active SAE features and their activation magnitudes
+      - Run feature_steering_experiment + analyze_feature_crossovers for each active feature
+    """
+    for d1_val, d2_val in test_pairs:
+        mask = (d1_all == d1_val) & (d2_all == d2_val)
+        idx = torch.where(mask)[0][0].item()
+        z_orig = sae_acts_all[idx].clone()
+
+        # Find active features sorted by magnitude descending
+        active_mask = z_orig > 0
+        active_feat_indices = torch.where(active_mask)[0].tolist()
+        active_feat_values = z_orig[active_mask].tolist()
+        sorted_feats = sorted(zip(active_feat_indices, active_feat_values), key=lambda x: -x[1])
+
+        print(f"\n{'='*70}")
+        print(f"Input: d1={d1_val}, d2={d2_val}  (dataset index {idx})")
+        print(f"Active SAE features ({len(sorted_feats)} / {z_orig.shape[0]} total):")
+        for feat_idx, feat_val in sorted_feats:
+            print(f"  Feature {feat_idx:>3d}: {feat_val:.4f}")
+
+        for feat_idx, feat_val in sorted_feats:
+            print(f"\n{'-'*60}")
+            print(f"Feature {feat_idx}  (activation = {feat_val:.4f})")
+            print(f"{'-'*60}")
+            results = feature_steering_experiment(
+                model, sae, act_mean,
+                feature_idx=feat_idx,
+                d1_all=d1_all,
+                d2_all=d2_all,
+                sae_acts_all=sae_acts_all,
+                dataset=dataset,
+                scale_range=scale_range,
+                test_pairs=[(d1_val, d2_val)],
+                sample_step_size=sample_step_size,
+            )
+            analyze_feature_crossovers(
+                results=results,
+                model=model, sae=sae, act_mean=act_mean,
+                feature_idx=feat_idx,
+                d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_all,
+                dataset=dataset,
+                layer_idx=layer_idx,
+                sep_idx=sep_idx,
+                n_digits=n_digits,
+                device=device,
+                verbose=True,
+            )
+
+analyze_topk_features_for_inputs(
+    test_pairs=test_egs,
+    model=model, sae=sae, act_mean=act_mean,
+    d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_all,
+    dataset=all_ds,
+    layer_idx=0,
+    sep_idx=SEP_TOKEN_INDEX,
+    n_digits=N_DIGITS,
+    device=DEVICE,
+)
+
+# %%
+test_egs = [(60,44)]
+# test_egs = [(75,32)]
+
+for d1_val, d2_val in test_egs:
+    mask = (d1_all == d1_val) & (d2_all == d2_val)
+    idx = torch.where(mask)[0][0].item()
+    z_orig = sae_acts_all[idx].clone()
+
+    # Find active features sorted by magnitude descending
+    active_mask = z_orig > 0
+    active_feat_indices = torch.where(active_mask)[0].tolist()
+    active_feat_values = z_orig[active_mask].tolist()
+    sorted_feats = sorted(zip(active_feat_indices, active_feat_values), key=lambda x: -x[1])
+
+    print(f"Input: d1={d1_val}, d2={d2_val}")
+    print(f"Active SAE features ({len(sorted_feats)} / {z_orig.shape[0]} total):")
+    for feat_idx, feat_val in sorted_feats:
+        print(f"  Feature {feat_idx:>3d}: {feat_val:.4f}")
+
+# %%
+# okay so f1, f56 and f30 are all active for 60,44 input.
+# Run the F30 steering experiment while pre-fixing F1 / F56 to different scale values.
+# For each (side_feat, side_scale), we clone sae_acts_all, set that feature to
+# orig_val * side_scale at the (60,44) sample index, then run the F30 steering
+# experiment + crossover analysis from that modified baseline.
+SPECIAL_FEAT_IDX = 30
+other_scales = {
+    1: [0.0, 0.3, 0.5, 0.7, 1.0],
+    # 65: np.linspace(0.0, 10.0, 200).tolist(),
+    56: [0.0, 0.3, 0.5, 0.7, 1.0],
+}
+
+d1_val, d2_val = test_egs[0]
+mask = (d1_all == d1_val) & (d2_all == d2_val)
+idx_eg = torch.where(mask)[0][0].item()
+z_base = sae_acts_all[idx_eg].clone()
+
+summary_rows = []
+
+SCALE_RANGE = [-1.0, 10.0]
+STEP_SIZE   = 0.05
+
+for side_feat, side_scales in other_scales.items():
+    orig_side_val = z_base[side_feat].item()
+
+    for side_scale in side_scales:
+        new_side_val = orig_side_val * side_scale
+        label = f"F{side_feat} × {side_scale:+.2f}  (orig={orig_side_val:.3f} → {new_side_val:.3f})"
+
+        # Build modified activations with side feature pre-scaled at this sample
+        sae_acts_mod = sae_acts_all.clone()
+        sae_acts_mod[idx_eg, side_feat] = new_side_val
+
+        # ── First pass: silent, just to check whether a valid swap zone exists ──
+        results_silent = feature_steering_experiment(
+            model, sae, act_mean,
+            feature_idx=SPECIAL_FEAT_IDX,
+            d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_mod,
+            dataset=all_ds,
+            scale_range=SCALE_RANGE,
+            test_pairs=[(d1_val, d2_val)],
+            sample_step_size=STEP_SIZE,
+            plot=False,
+        )
+        crossover_df_silent = analyze_feature_crossovers(
+            results=results_silent,
+            model=model, sae=sae, act_mean=act_mean,
+            feature_idx=SPECIAL_FEAT_IDX,
+            d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_mod,
+            dataset=all_ds,
+            layer_idx=0, sep_idx=SEP_TOKEN_INDEX, n_digits=N_DIGITS,
+            device=DEVICE, verbose=False,
+        )
+
+        # Build swap-bounds row (needs scales + argmax sequences from results)
+        cr = crossover_df_silent.iloc[0]
+        swap_check_row = {
+            **cr.to_dict(),
+            'scales':    list(results_silent[0]['scales']),
+            'argmax_o1': list(results_silent[0]['output_o1']),
+            'argmax_o2': list(results_silent[0]['output_o2']),
+        }
+        bounds = get_output_swap_bounds(pd.DataFrame([swap_check_row]), scale_range=SCALE_RANGE)
+        b = bounds.iloc[0]
+        has_valid_swap = pd.isna(b['failure_reason'])
+
+        # Accumulate summary
+        row_dict = cr.to_dict()
+        row_dict.update({
+            'side_feat':    side_feat,
+            'side_scale':   side_scale,
+            'side_orig_val': orig_side_val,
+            'side_new_val':  new_side_val,
+            'label':         label,
+            'swap_lower':    b['lower_bound'],
+            'swap_upper':    b['upper_bound'],
+            'swap_failure':  b['failure_reason'],
+        })
+        summary_rows.append(row_dict)
+
+        if not has_valid_swap:
+            print(f"  SKIP  {label}  →  {b['failure_reason']}")
+            continue
+
+        # ── Valid swap zone — show full results ──────────────────────────────
+        print(f"\n{'#'*70}")
+        print(f"  {label}")
+        print(f"  F30 swap zone: [{b['lower_bound']:.4f}, {b['upper_bound']:.4f}]  "
+              f"(midpoint={b['midpoint']:.4f}, width={b['swap_zone_width']:.4f})")
+        print(f"{'#'*70}")
+
+        # Re-run with plot=True and verbose crossover output
+        results_full = feature_steering_experiment(
+            model, sae, act_mean,
+            feature_idx=SPECIAL_FEAT_IDX,
+            d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_mod,
+            dataset=all_ds,
+            scale_range=SCALE_RANGE,
+            test_pairs=[(d1_val, d2_val)],
+            sample_step_size=STEP_SIZE,
+            plot=True,
+        )
+        analyze_feature_crossovers(
+            results=results_full,
+            model=model, sae=sae, act_mean=act_mean,
+            feature_idx=SPECIAL_FEAT_IDX,
+            d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_mod,
+            dataset=all_ds,
+            layer_idx=0, sep_idx=SEP_TOKEN_INDEX, n_digits=N_DIGITS,
+            device=DEVICE, verbose=True,
+        )
+
+# ── Comparison summary table ──────────────────────────────────────────────────
+print(f"\n\n{'='*80}")
+print(f"SUMMARY  |  F30 crossovers for ({d1_val},{d2_val}) under pre-scaled F1 / F56")
+print(f"{'='*80}")
+
+summary_df = pd.DataFrame(summary_rows)
+
+# Format list columns for readability
+def _fmt_xovers(val):
+    if isinstance(val, list) and val:
+        return "[" + ", ".join(f"{x:.3f}" for x in val) + "]"
+    return "[]"
+
+display_df = pd.DataFrame({
+    'condition':      summary_df['label'],
+    'f30_orig_act':   summary_df['feat_orig'].map(lambda x: f"{x:.4f}"),
+    'swap_zone':      summary_df.apply(
+                          lambda r: (f"[{r['swap_lower']:.4f}, {r['swap_upper']:.4f}]"
+                                     if pd.isna(r['swap_failure']) else f"FAIL: {r['swap_failure']}"),
+                          axis=1),
+    'o1_crossovers':  summary_df['o1_crossovers'].map(_fmt_xovers),
+    'o1_fail':        summary_df['o1_failure_reason'].fillna('ok'),
+    'o2_crossovers':  summary_df['o2_crossovers'].map(_fmt_xovers),
 })
-orig_preds_df['o1_correct'] = orig_preds_df['orig_o1'] == orig_preds_df['tgt_o1']
-orig_preds_df['o2_correct'] = orig_preds_df['orig_o2'] == orig_preds_df['tgt_o2']
-orig_preds_df['token_acc'] = (orig_preds_df['o1_correct'].astype(float) + orig_preds_df['o2_correct'].astype(float)) / 2
 
-# Per-token accuracy on val — should match model_accuracy() = 0.9145
-n_val = len(val_ds)
-val_preds_df = orig_preds_df.iloc[-n_val:]
-print(f"Val per-token accuracy: {val_preds_df['token_acc'].mean():.4f}  (reference: 0.9145)")
-print()
-
-n_total = len(orig_preds_df)
-print(f"All inputs: {n_total}")
-print(f"  Per-token accuracy: {orig_preds_df['token_acc'].mean():.4f}")
-print(f"  Both correct:  {(orig_preds_df['token_acc'] == 1.0).sum()} ({(orig_preds_df['token_acc'] == 1.0).mean()*100:.1f}%)")
-print(f"  Partial (1/2): {(orig_preds_df['token_acc'] == 0.5).sum()} ({(orig_preds_df['token_acc'] == 0.5).mean()*100:.1f}%)")
-print(f"  Both wrong:    {(orig_preds_df['token_acc'] == 0.0).sum()} ({(orig_preds_df['token_acc'] == 0.0).mean()*100:.1f}%)")
-
-# Merge into swap_bounds — use 3-way correctness label for breakdown
-def _correctness_label(row):
-    if row['o1_correct'] and row['o2_correct']:
-        return 'both_correct'
-    elif row['o1_correct'] or row['o2_correct']:
-        return 'partial'
-    else:
-        return 'both_wrong'
-
-orig_preds_df['correctness'] = orig_preds_df.apply(_correctness_label, axis=1)
-
-# Merge correctness into swap_bounds (covers ALL rows incl. failures)
-swap_bounds_annotated = swap_bounds_df.merge(
-    orig_preds_df[['d1', 'd2', 'orig_o1', 'orig_o2', 'o1_correct', 'o2_correct', 'token_acc', 'correctness']],
-    on=['d1', 'd2'], how='left'
-).merge(
-    swap_results_df[['d1', 'd2', 'swapped']],
-    on=['d1', 'd2'], how='left'
-)
-
-wrong_bounds = swap_bounds_annotated[swap_bounds_annotated['token_acc'] < 1.0].copy()
-valid_wrong = wrong_bounds['failure_reason'].isna()
-
-print(f"\nSwap bounds for inputs with at least one wrong token: {len(wrong_bounds)}")
-print(f"  Valid swap zones: {valid_wrong.sum()}")
-print(f"  Successfully swapped: {wrong_bounds.loc[valid_wrong, 'swapped'].sum()}")
-print(f"  Swap zone widths (valid):")
-print(wrong_bounds.loc[valid_wrong, 'swap_zone_width'].describe())
-display(wrong_bounds)
-
-# %%
-# Failure reason breakdown by whether model originally got the input correct
-
-# Fill NaN failure_reason with 'success' for readability
-annotated = swap_bounds_annotated.copy()
-annotated['failure_reason'] = annotated['failure_reason'].fillna('success')
-# correctness column already set: 'both_correct', 'partial', 'both_wrong'
-
-breakdown = (
-    annotated
-    .groupby(['failure_reason', 'correctness'])
-    .size()
-    .unstack(fill_value=0)
-)
-# Ensure consistent column order
-for col in ['both_correct', 'partial', 'both_wrong']:
-    if col not in breakdown.columns:
-        breakdown[col] = 0
-breakdown = breakdown[['both_correct', 'partial', 'both_wrong']]
-breakdown['all'] = breakdown.sum(axis=1)
-breakdown.loc['TOTAL'] = breakdown.sum()
-
-print("Failure reason breakdown by original model correctness:")
-display(breakdown)
-# %%
+print(display_df.to_string(index=False))
+# %% [markdown]
+# running on (60,44) input we have f1, f56, f30 active. Pre-scaling f1 by 0.70x 
+# and doing feature steering on f30 as normal gives us a swap zone [0, 0.25]
+# ==> maybe this is possible for other inputs that f30 fails to swap on its own!
+# but why? its because the other features also affect the logits and this scale means that the swap zone
+# which was previously hidden (no overlap between o1 and o2 crossovers where d1 and d2 are argmax where needed)
+# is suddenly open
+# 
+# runnong on (75,32) input we have f86, f65 (Feature  65: 3.5795, Feature  86: 2.1088))
+# I tried loads of combos (200 scales between 0 and 10 for f86, and 200 scales between 0 and 10 for f65) but no swap zone appears.
+# 
+# The model gets both of these inputs correct originally. Perhaps they just don't fit into the pattern that others do

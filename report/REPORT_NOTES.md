@@ -59,15 +59,25 @@ key points:
       - try 'non-special' features - does the same pattern appear (yes) ==> why is special one 'special'? have i just found a vis to fit my hopes?
       - try actually steering with it --> should be able to predict that we can boost/damp f30 by x% and swap the ouputs logits ==> (maybe) we've got a feature that controls output order
 
-
-
 ## Swapping features / crossover stuff
 
 - Studying `sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt` as before
 - Want to sysematically swap outputs by scaling special F30
-- Current way of doing this isnt super efficient - there are defo cleverer ways to do it. 
+- Current way of doing this isnt super efficient - there are defo cleverer ways to do it.
   - key idea - all logit lines in o1 position are straight lines (should check this for each)
   - Eg. fit a line to o1 logits and estimate intercept (o1_xover) & line gradient that way. then if grad_d2 > grad_d1 at o1_xover then o1_xover is lower bound on swap region. If grad_d2 < grad_d1 then its an upper bound. If theyre equal then theres either no intersect or d1=d2 - either way, no swap region.
   - With o1_xover sorted, we look at o2 xovers. If any of them are out of the bound from o1_xover then we can skip it (E.g. o1_xover is lower bound and greater than some o2_xover --> then we can safely label that o2_xover as lower bound too but skip it because it's out of the region)
   - then move in steps of size eg. 0.05 from o1_xover and check if outputs swap. We terminate if they swap, OR 1) we reach a point where d1,d2 aren't dominant anymore or 2) we reach the next o2_xover (if applicable) - these 1) and 2) are our opposite bound to o1_xover
   - Also - when fitting o1 logits to lines, can check where d2 and d1 lines intersect but also where d2 line (which should be dominant) intersects with another logit line besides d1 ==> if d1/d2 intersect is upperbound (i.e. d2 > d1 to left), then d2 intersect with other logits is lower bound.
+
+**Results**
+- See `report/failure_analysis_feat30_2025.md` for failure analysis. However, most were successful!
+- I scaled F30 and used a pipeline (`scripts/run_crossover_analysis.py`) to find 'swap bounds' for scales of F30 that cause the model to swap outputs - it succeeded on 60% of inputs --> **1. SUCCESSFUL SWAPS**
+- **2. FAIL SWAPS - don't activate F30** However, 30% of inputs don't activate F30 so scaling it had no effect on their output. This was a bit weird, because the model originally got lots of these correct (so it can't just be explained away by the model not performing well on that input)
+- **3. FAIL SWAPS - activate F30** the other ~10% of inputs have a variety of failure reasons. At least some of them (e.g. 60,44 in `no_o2_crossover_in_bounds`) can be swapped if another feature is scaled simultaneously to F30 (see `notebooks/nb_2026_02_17.ipynb`).
+  - This makes sense - because a btk sae w/ k=3 means that on average 3 sae latents are active for any input, so more than 1 might have an impact on the steering. I reckon more of that 10% could be swapped by simultaneously scaling other active features for that input.
+  - TODO create a pipeline to check this holds for all inputs in this category. More generally, would be nice to have a pipeline that for an input, it finds the active features and tries all combos of scaling them to see if we get a swap (use existing f30 pipeline). This could **also validate that f30 is genuinely special!**.
+- However, another input 75,32 which falls into category 2 for failures (unresponsive to F30) activates 2 features - 65 and 86.  I tried loads of combos (200 scales between 0 and 10 for f86, and 200 scales between 0 and 10 for f65) but no swap zone appears.
+  - The model gets both 75,32 and 60,44 correct originally. Perhaps they just don't fit into the pattern that others do (eg. model meomorises and doesnt generalise for them)
+- I'm unsure how the model's original failures relate to this. Theyre shown in `report/failure_analysis_feat30_2025.md` but they don't seem to correspond strongly with any failure / success mode. But I havent looked too much into this
+  - TODO - would be good to investigate this further if time, with the hope that I can learn something about why the model fails / be able to predict that even.
