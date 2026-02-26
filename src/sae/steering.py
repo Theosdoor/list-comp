@@ -312,7 +312,7 @@ def feature_steering_experiment(
     d1_all, d2_all, sae_acts_all, dataset,
     layer_idx=0, sep_idx=DEFAULT_SEP_IDX, n_digits=DEFAULT_N_DIGITS,
     scale_factors=None, scale_range=[-1.0, 4.0], sample_step_size=0.05, n_test_cases=5, seed=42,
-    test_pairs=None, device=None, plot=True, save_dir=None, save_path=None
+    test_pairs=None, device=None, plot=True, save_dir=None, save_path=None, transpose=False
 ):
     """
     Perform feature steering experiment by scaling a specific SAE feature's activation.
@@ -343,6 +343,8 @@ def feature_steering_experiment(
         plot: Whether to create visualization (default: True)
         save_dir: Directory to save plot (if None and plot=True, shows plot)
         save_path: Exact file path to save plot (overrides save_dir if provided)
+        transpose: If True, plot as N rows (examples) x 2 columns (o1/o2).
+                   Default False gives 2 rows (o1/o2) x N columns (examples).
     
     Returns:
         all_results: List of dicts with keys:
@@ -392,7 +394,7 @@ def feature_steering_experiment(
     
     # Create visualization if requested
     if plot and len(all_results) > 0:
-        _plot_steering_results(all_results, feature_idx, n_digits, save_dir, save_path=save_path)
+        _plot_steering_results(all_results, feature_idx, n_digits, save_dir, save_path=save_path, transpose=transpose)
     
     return all_results
 
@@ -472,25 +474,37 @@ def _run_steering_for_test_pairs(
     return all_results
 
 
-def _plot_steering_results(all_results, feature_idx, n_digits, save_dir, save_path=None):
-    """Create visualization of steering results."""
-    fig, axes = plt.subplots(2, len(all_results), figsize=(4*len(all_results), 10), squeeze=False)
+def _plot_steering_results(all_results, feature_idx, n_digits, save_dir, save_path=None, transpose=False):
+    """Create visualization of steering results.
     
-    for col, result in enumerate(all_results):
+    Args:
+        transpose: If False (default), layout is 2 rows (o1/o2) x N columns (examples).
+                   If True, layout is N rows (examples) x 2 columns (o1/o2).
+    """
+    n = len(all_results)
+    if transpose:
+        fig, axes = plt.subplots(n, 2, figsize=(8, 5*n), squeeze=False)
+    else:
+        fig, axes = plt.subplots(2, n, figsize=(4*n, 10), squeeze=False)
+    
+    for i, result in enumerate(all_results):
         d1, d2 = result['d1'], result['d2']
         scales = result['scales']
         
-        # Top row: Logits at o1 position
+        ax_o1 = axes[i, 0] if transpose else axes[0, i]
+        ax_o2 = axes[i, 1] if transpose else axes[1, i]
+
+        # o1 position
         _plot_output_position(
-            axes[0, col], scales, result['all_logits_o1'],
+            ax_o1, scales, result['all_logits_o1'],
             result['logit_d1_o1'], result['logit_d2_o1'],
             d1, d2, feature_idx, result['order_feat_orig'],
             n_digits, output_name="Output Position 1"
         )
         
-        # Bottom row: Logits at o2 position
+        # o2 position
         _plot_output_position(
-            axes[1, col], scales, result['all_logits_o2'],
+            ax_o2, scales, result['all_logits_o2'],
             result['logit_d1_o2'], result['logit_d2_o2'],
             d1, d2, feature_idx, result['order_feat_orig'],
             n_digits, output_name="Output Position 2"
