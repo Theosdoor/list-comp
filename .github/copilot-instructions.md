@@ -64,3 +64,6 @@ All imports come from `from src.utils.nb_utils import *` and `from src.sae impor
 - Run scripts with `python3`, not `python`
 - Notebooks are `.py` files with `# %%` cell markers (Jupytext-style), kept in `notebooks/`
 - Heavy jobs: `bash submit_job.sh` (SLURM)
+
+## Experiment Logging (Required)
+Keep `EXPERIMENTS.md` up to date for reproducibility. When running experiments, add a short entry to `EXPERIMENTS.md` with the command, outputs directory, and key results.
