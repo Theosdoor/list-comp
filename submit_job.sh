@@ -18,10 +18,10 @@ python3 -c "import torch; print(f'CUDA Available: {torch.cuda.is_available()}');
 echo "------------------------------------------------------"
 
 # run
-python3 scripts/run_crossover_analysis.py
-python3 scripts/analyze_failure_reasons.py
+# python3 scripts/run_crossover_analysis.py
+# python3 scripts/analyze_failure_reasons.py
 
 
 # SAE sweep (comment/uncomment as needed)
-# wandb agent theo-farrell99-durham-university/list-comp/fib2y4u8
-# python3 scripts/compare_sae.py
+wandb agent theo-farrell99-durham-university/btksae_sweep/gw95m2e2
+python3 scripts/compare_sae.py

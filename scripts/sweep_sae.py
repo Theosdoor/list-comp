@@ -248,11 +248,11 @@ def train_sae_sweep():
                 layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
             )
             wandb.summary["baseline_accuracy"] = recon_acc_metrics["baseline_acc"]
-            wandb.summary["sae_reconstruction_accuracy"] = recon_acc_metrics["reconstruction_acc"]
+            wandb.summary["sae_patched_task_accuracy"] = recon_acc_metrics["reconstruction_acc"]
             wandb.summary["accuracy_drop"] = recon_acc_metrics["accuracy_drop"]
         except Exception as e:
             print(f"    ⚠ Warning: Could not compute SAE reconstruction accuracy - {e}")
-            wandb.summary["sae_reconstruction_accuracy"] = 0
+            wandb.summary["sae_patched_task_accuracy"] = 0
             wandb.summary["accuracy_drop"] = 100
         
         # 4. Special features (correlated with attention)

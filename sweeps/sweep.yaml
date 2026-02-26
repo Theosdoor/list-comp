@@ -1,25 +1,29 @@
+# wandb sweep sweeps/sweep.yaml
+
 program: scripts/sweep_sae.py
-project: list-comp
-method: grid
+project: btksae_sweep
+method: bayes
 metric:
-  name: final_loss
-  goal: minimize
+  name: sae_patched_task_accuracy
+  goal: maximize
 
 parameters:
   d_sae:
-    values: [100, 128]
+    values: [64, 128, 192, 256, 320, 384, 448, 512]
   top_k:
-    values: [3, 4, 5]
+    distribution: int_uniform
+    min: 1
+    max: 5
   lr:
-    values: [1e-4, 3e-4, 1e-3]
+    distribution: log_uniform_values
+    min: 1e-5
+    max: 1e-2
   n_steps:
     value: 75000
   warmup_steps:
     value: 1000
   batch_size:
     value: 4096
-  seed:
-    values: [42, 43, 44]  # 3 repeats with different seeds
+  # seed:
+  #   values: [0, 1, 2, 3, 4]  # FOR GRID: average over different seeds
 
-# Grid search will run all combinations
-# 2 d_sae × 3 top_k × 3 lr × 3 seeds = 54 runs

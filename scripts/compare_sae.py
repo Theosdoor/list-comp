@@ -226,7 +226,7 @@ def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all
         )
         acc_metrics = {
             'baseline_acc': acc_results['baseline_acc'],
-            'recon_acc': acc_results['reconstruction_acc'],
+            'patched_task_acc': acc_results['reconstruction_acc'],
             'acc_drop': acc_results['accuracy_drop'],
         }
         print(" Done.")
@@ -258,7 +258,7 @@ def generate_markdown_report(results, output_path):
     results = sorted(results, key=lambda x: (x['k'], x['d_sae']))
     
     # Check if we have accuracy metrics
-    has_acc = 'recon_acc' in results[0]
+    has_acc = 'patched_task_acc' in results[0]
     
     lines = [
         "# SAE Sweep Comparison Report\n",
@@ -269,8 +269,8 @@ def generate_markdown_report(results, output_path):
     
     if has_acc:
         lines.extend([
-            "| Model | d_sae | k | L0 | Dead | Dead % | Alive | MSE | Exp Var | Recon Acc | Acc Drop |",
-            "|-------|-------|---|----|----|--------|-------|-----|---------|-----------|----------|",
+            "| Model | d_sae | k | L0 | Dead | Dead % | Alive | MSE | Exp Var | Patched Task Acc | Acc Drop |",
+            "|-------|-------|---|----|----|--------|-------|-----|---------|-----------------|----------|",
         ])
     else:
         lines.extend([
@@ -284,7 +284,7 @@ def generate_markdown_report(results, output_path):
             f"{r['n_dead']} | {r['dead_pct']:.1f}% | {r['n_alive']} | {r['mse']:.4f} | {r['explained_var']:.4f}"
         )
         if has_acc:
-            base_row += f" | {r['recon_acc']:.4f} | {r['acc_drop']:.4f} |"
+            base_row += f" | {r['patched_task_acc']:.4f} | {r['acc_drop']:.4f} |"
         else:
             base_row += " |"
         lines.append(base_row)
@@ -430,8 +430,8 @@ def main():
             results.append(metrics)
             
             status = f"  L0: {metrics['l0']:.2f}, Dead: {metrics['n_dead']}/{metrics['d_sae']} ({metrics['dead_pct']:.1f}%)"
-            if 'recon_acc' in metrics:
-                status += f", Recon Acc: {metrics['recon_acc']:.4f}"
+            if 'patched_task_acc' in metrics:
+                status += f", Patched Task Acc: {metrics['patched_task_acc']:.4f}"
             print(status)
         except Exception as e:
             print(f"  ✗ Error: {e}")
