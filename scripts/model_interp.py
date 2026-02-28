@@ -783,45 +783,6 @@ if separable:
     print("Margin:", margin)
 
 # %% [markdown]
-# ### Fig 5 - UMAP visualization of separable groups
-
-# %%
-# Project the positional projections onto 2D with UMAP and color by class (o2 last vs o1 prev)
-if 'X' not in locals() or 'y' not in locals():
-    # Fallback: rebuild from previously computed projections
-    X = np.vstack([projs_last, projs_prev])
-    y = np.hstack([np.ones(len(projs_last)), -np.ones(len(projs_prev))])
-
-from sklearn.preprocessing import StandardScaler
-# Robust import for UMAP across umap-learn versions
-try:
-    from umap import UMAP  # preferred if exposed at top-level
-except Exception:  # pragma: no cover - fallback path
-    from umap.umap_ import UMAP
-
-# Standardize features for a more stable embedding
-X_std = StandardScaler().fit_transform(X)
-umap_model = UMAP(n_neighbors=30, min_dist=0.1, n_components=2,
-                  metric="euclidean", random_state=42)
-Z = umap_model.fit_transform(X_std)
-# Ensure coordinates are a NumPy array for safe indexing
-Z_np = np.asarray(Z)
-
-# Plot
-plt.figure(figsize=(6.8, 6.0), dpi=300)
-mask_last = y == 1
-mask_prev = y == -1
-plt.scatter(Z_np[mask_last, 0], Z_np[mask_last, 1], s=16, c="#1f77b4", alpha=0.6, label="o2")
-plt.scatter(Z_np[mask_prev, 0], Z_np[mask_prev, 1], s=16, c="#DC2626", alpha=0.6, label="o1")
-plt.xlabel("UMAP-1")
-plt.ylabel("UMAP-2")
-plt.legend(frameon=True, loc="best", title="Token")
-plt.grid(True, linestyle=":", alpha=0.5)
-
-plt.tight_layout()
-plt.show()
-
-# %% [markdown]
 # ## Additional Plots
 
 # %% 
