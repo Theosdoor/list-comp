@@ -1,11 +1,12 @@
-# Further Experiments for Order by Scale
+# [WIP] Further Experiments for Order by Scale
 
 Further experiments based on the results from the paper:
 
-> Farrell, Theo, Patrick Leask, and Noura Al Moubayed. "Order by Scale: Relative‑Magnitude Relational Composition in Attention‑Only Transformers." Socially Responsible and Trustworthy Foundation Models at NeurIPS 2025.  
-> Link: https://openreview.net/forum?id=vWRVzNtk7W
+> Farrell, Theo, Patrick Leask, and Noura Al Moubayed. "Order by Scale: Relative‑Magnitude Relational Composition in Attention‑Only Transformers." Socially Responsible and Trustworthy Foundation Models at NeurIPS 2025. https://openreview.net/forum?id=vWRVzNtk7W
 
 ## Overview
+
+NOTE - this repo is a work in progress - there may be bugs!
 
 This repository implements and analyzes attention-only transformers trained on a list-comparison task. The model learns to compress list representations into a SEP token and then decompose them. The task structure `[d1, d2, SEP, o1, o2]` enables clean mechanistic analysis of information flow through attention layers.
 
