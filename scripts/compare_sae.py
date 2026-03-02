@@ -13,7 +13,7 @@ import os
 import glob
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, ConcatDataset
 import numpy as np
 from tqdm.auto import tqdm
 from datetime import datetime
@@ -262,15 +262,18 @@ def generate_markdown_report(results, output_path):
     
     lines = [
         "# SAE Sweep Comparison Report\n",
-        f"Compared {len(results)} SAE models from sweep runs on {results[0]['n_samples']} samples.\n",
+        f"Compared {len(results)} SAE models from sweep runs on {results[0]['n_samples']} samples (full train+val dataset).\n",
+        "> All accuracy figures are measured on the **full dataset** (train + val). "
+        "Baseline and SAE-patched accuracy use the same inputs so the drop is a valid comparison — "
+        "but these numbers should not be read as held-out generalisation accuracy.\n",
         "",
         "## Summary Table\n",
     ]
     
     if has_acc:
         lines.extend([
-            "| Model | d_sae | k | L0 | Dead | Dead % | Alive | MSE | Exp Var | Patched Task Acc | Acc Drop |",
-            "|-------|-------|---|----|----|--------|-------|-----|---------|-----------------|----------|",
+            "| Model | d_sae | k | L0 | Dead | Dead % | Alive | MSE | Exp Var | Baseline Acc (full) | Patched Acc (full) | Acc Drop |",
+            "|-------|-------|---|----|----|--------|-------|-----|---------|---------------------|-------------------|----------|",
         ])
     else:
         lines.extend([
@@ -284,7 +287,7 @@ def generate_markdown_report(results, output_path):
             f"{r['n_dead']} | {r['dead_pct']:.1f}% | {r['n_alive']} | {r['mse']:.4f} | {r['explained_var']:.4f}"
         )
         if has_acc:
-            base_row += f" | {r['patched_task_acc']:.4f} | {r['acc_drop']:.4f} |"
+            base_row += f" | {r['baseline_acc']:.4f} | {r['patched_task_acc']:.4f} | {r['acc_drop']:.4f} |"
         else:
             base_row += " |"
         lines.append(base_row)
@@ -395,12 +398,14 @@ def main():
     )
     print(f"✓ Loaded base model from {model_path}")
     
-    # Get validation data (use defaults: train_split=0.8, no_dupes=False)
-    _, val_ds = get_dataset(
+    # Use full dataset (train+val) for exhaustive analysis — baseline accuracy is
+    # also measured on this same set so the comparison is meaningful.
+    train_ds, val_ds = get_dataset(
         list_len=LIST_LEN,
         n_digits=N_DIGITS,
     )
-    val_dl = DataLoader(val_ds, batch_size=2048, shuffle=False)
+    full_dl = DataLoader(ConcatDataset([train_ds, val_ds]), batch_size=2048, shuffle=False)
+    val_dl = full_dl  # alias kept for rest of script
     
     # Collect activations and attention weights once
     print("Collecting activations and attention weights...")

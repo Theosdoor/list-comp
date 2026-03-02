@@ -23,6 +23,7 @@ from dictionary_learning.trainers import BatchTopKTrainer
 from src.models.transformer import make_model
 from src.models.utils import infer_model_config
 from src.utils.runtime import configure_runtime
+from torch.utils.data import ConcatDataset
 from src.data.datasets import get_dataset
 from src.sae.sae_analysis import (
     collect_sae_activations, 
@@ -189,14 +190,13 @@ def train_sae_sweep():
     # 6b. Generate and log feature heatmaps
     print("\nGenerating analysis metrics...")
     try:
-        # Use ALL data for analysis (not just validation split)
-        all_data_ds, _ = get_dataset(
+        # Use full dataset (train + val) for exhaustive feature analysis
+        _train_ds, _val_ds = get_dataset(
             list_len=LIST_LEN,
             n_digits=N_DIGITS,
-            train_split=1.0,  # Use all data for comprehensive analysis
             no_dupes=False
         )
-        analysis_dl = DataLoader(all_data_ds, batch_size=2048, shuffle=False)
+        analysis_dl = DataLoader(ConcatDataset([_train_ds, _val_ds]), batch_size=2048, shuffle=False)
         
         sae = trainer.ae
         sae = sae.to(DEVICE)  # Ensure SAE is on correct device
@@ -247,9 +247,10 @@ def train_sae_sweep():
                 model, sae, analysis_dl, act_mean,
                 layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
             )
-            wandb.summary["baseline_accuracy"] = recon_acc_metrics["baseline_acc"]
-            wandb.summary["sae_patched_task_accuracy"] = recon_acc_metrics["reconstruction_acc"]
-            wandb.summary["accuracy_drop"] = recon_acc_metrics["accuracy_drop"]
+            # Both numbers are on the full dataset (train+val exhaustive scan)
+            wandb.summary["baseline_accuracy_full"] = recon_acc_metrics["baseline_acc"]
+            wandb.summary["sae_patched_task_accuracy_full"] = recon_acc_metrics["reconstruction_acc"]
+            wandb.summary["accuracy_drop_full"] = recon_acc_metrics["accuracy_drop"]
         except Exception as e:
             print(f"    ⚠ Warning: Could not compute SAE reconstruction accuracy - {e}")
             wandb.summary["sae_patched_task_accuracy"] = 0

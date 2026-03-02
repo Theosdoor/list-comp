@@ -8,6 +8,7 @@ import torch
 from tqdm.auto import tqdm
 
 from .hooks import _encode_through_sae, _extract_activations, make_dynamic_sae_patch_hook
+from ..models.utils import accuracy as _base_accuracy
 
 
 def compute_reconstruction_metrics(model, sae, val_dl, act_mean, layer_idx=0, sep_idx=2, device="cuda"):
@@ -81,27 +82,15 @@ def compute_sae_patched_accuracy(model, sae, val_dl, act_mean, layer_idx=0, sep_
     """
     from ..utils.runtime import _RUNTIME
     list_len = _RUNTIME.list_len
-    
+
     hook_name_resid = f"blocks.{layer_idx}.hook_resid_post"
-    
-    # 1. Baseline accuracy (original model)
-    correct_baseline = 0
-    total = 0
-    
-    with torch.no_grad():
-        for inputs, targets in tqdm(val_dl, desc="Computing baseline accuracy", leave=False):
-            inputs = inputs.to(device)
-            targets = targets.to(device)
-            
-            logits = model(inputs)[:, list_len + 1:]  # Only output positions
-            preds = logits.argmax(dim=-1)
-            correct_baseline += (preds == targets[:, list_len + 1:]).sum().item()
-            total += preds.numel()
-    
-    baseline_acc = correct_baseline / total
-    
+
+    # 1. Baseline accuracy (reuses accuracy() from models/utils.py)
+    baseline_acc = _base_accuracy(model, val_dl, list_len=list_len, device=device)
+
     # 2. Accuracy with SAE reconstruction
     correct_recon = 0
+    total = 0
     reconstruction_hook = make_dynamic_sae_patch_hook(sae, act_mean, sep_idx)
     
     with torch.no_grad():
@@ -116,6 +105,7 @@ def compute_sae_patched_accuracy(model, sae, val_dl, act_mean, layer_idx=0, sep_
             )[:, list_len + 1:]  # Only output positions
             preds = logits.argmax(dim=-1)
             correct_recon += (preds == targets[:, list_len + 1:]).sum().item()
+            total += preds.numel()
     
     recon_acc = correct_recon / total
     acc_drop = baseline_acc - recon_acc
