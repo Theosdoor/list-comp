@@ -1,23 +1,30 @@
 # wandb sweep sweeps/sweep.yaml
+#
+# Findings from sweep v1 (260 runs, 2026-03-02):
+#   - k=1,2: poor reconstruction (MSE ~0.13-0.16 / ~0.02-0.04), acc drop 17-61%
+#   - k>=3:  near-perfect reconstruction (MSE ~0.003, exp var >0.99), acc drop ~1.5-2.7%
+#   - k=3 is sufficient; k=4,5 add nothing meaningful (task = 2 input digits + 1 routing feature)
+#   - d_sae=64 is too small to separate 100-digit identities at any k
+#   - d_sae>=128 all give comparable quality; larger d_sae increases dead feature %
+#   - LR is largely irrelevant for k>=3, d>=128 (results uniform across log-uniform range)
+#
+# Sweep v2 focuses on the useful region: k in {3,4,5}, d_sae in {128,192,256,320},
+# multiple seeds for reproducibility, and minimises accuracy_drop_full.
 
 program: scripts/sweep_sae.py
 project: btksae_sweep
-method: bayes
+method: grid
 metric:
-  name: sae_patched_task_accuracy
-  goal: maximize
+  name: accuracy_drop_full           # minimise: patched acc drop on full train+val set
+  goal: minimize
 
 parameters:
   d_sae:
-    values: [64, 128, 192, 256, 320, 384, 448, 512]
+    values: [64, 128, 192, 256, 320, 384, 448, 512] # include all these for grid search (but focus on 128-320 for analysis)
   top_k:
-    distribution: int_uniform
-    min: 1
-    max: 5
+    values: [1,2, 3, 4, 5]               # k=1,2 are clearly insufficient (see v1 findings above), but keep them for grid search in paper
   lr:
-    distribution: log_uniform_values
-    min: 1e-5
-    max: 1e-2
+    values: [1e-5, 1e-4, 1e-3, 1e-2]  # 6 log-uniform values across 2.5 decades; v1 showed LR has little effect for k>=3
   n_steps:
     value: 75000
   warmup_steps:
@@ -25,5 +32,4 @@ parameters:
   batch_size:
     value: 4096
   seed:
-    values: [0]  # FOR GRID: average over different seeds
-
+    values: [0, 1, 2]               # 3 seeds per config to check stability

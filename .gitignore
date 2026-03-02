@@ -1,7 +1,7 @@
 *.err
 logs/
 wandb/
-results/sae_models/*sweep_runs
+results/sae_models/*sweep_runs*
 slurm/
 
 # Byte-compiled / optimized / DLL files
