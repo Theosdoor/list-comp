@@ -13,6 +13,7 @@ maintainers = [
 dependencies = [
     "dictionary-learning>=0.1.0",
     "ipykernel>=7.2.0",
+    "itda",
     "matplotlib>=3.10.8",
     "nbformat>=5.10.4",
     "numpy>=1.26.4",
@@ -32,6 +33,9 @@ Repository = "https://github.com/Theosdoor/list-comp"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+[tool.uv.sources]
+itda = { git = "https://github.com/Theosdoor/itda.git" }
 
 [build-system]
 requires = ["hatchling"]
