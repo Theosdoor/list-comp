@@ -1,8 +1,7 @@
 *.err
-logs/
 wandb/
 results/sae_models/*sweep_runs*
-slurm/
+claude/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

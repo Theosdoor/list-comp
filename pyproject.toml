@@ -35,7 +35,7 @@ Repository = "https://github.com/Theosdoor/list-comp"
 packages = ["src"]
 
 [tool.uv.sources]
-itda = { git = "https://github.com/Theosdoor/itda.git" }
+itda = { git = "https://github.com/Theosdoor/itda.git" } # uv lock --upgrade-package itda
 
 [build-system]
 requires = ["hatchling"]
