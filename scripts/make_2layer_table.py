@@ -15,6 +15,31 @@ CONFIG_KEYS = ["d_model", "use_ln", "use_bias", "use_wv", "use_wo", "use_mlp"]
 FLAG_KEYS = ["use_ln", "use_bias", "use_wv", "use_wo", "use_mlp"]
 
 
+def _coerce_int(value: object, default: int) -> int:
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_bool(value: object, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "t", "1", "yes", "y"}:
+            return True
+        if normalized in {"false", "f", "0", "no", "n", ""}:
+            return False
+    return bool(value)
+
+
 def fetch_runs(sweep_ids: list[str]) -> pd.DataFrame:
     api = wandb.Api()
     rows = []
@@ -27,19 +52,21 @@ def fetch_runs(sweep_ids: list[str]) -> pd.DataFrame:
             if val_accuracy is None:
                 continue
             cfg = run.config or {}
+            d_model = _coerce_int(cfg.get("d_model", 64), 64)
+            seed = _coerce_int(cfg.get("seed", -1), -1)
             rows.append(
                 {
                     "sweep_id": sweep_id,
                     "run_name": run.name,
                     "run_id": run.id,
-                    "d_model": cfg.get("d_model"),
-                    "use_ln": cfg.get("use_ln"),
-                    "use_bias": cfg.get("use_bias"),
-                    "use_wv": cfg.get("use_wv"),
-                    "use_wo": cfg.get("use_wo"),
-                    "use_mlp": cfg.get("use_mlp"),
-                    "seed": cfg.get("seed"),
-                    "val_accuracy": val_accuracy,
+                    "d_model": d_model,
+                    "use_ln": _coerce_bool(cfg.get("use_ln", False), default=False),
+                    "use_bias": _coerce_bool(cfg.get("use_bias", False), default=False),
+                    "use_wv": _coerce_bool(cfg.get("use_wv", False), default=False),
+                    "use_wo": _coerce_bool(cfg.get("use_wo", False), default=False),
+                    "use_mlp": _coerce_bool(cfg.get("use_mlp", False), default=False),
+                    "seed": seed,
+                    "val_accuracy": pd.to_numeric(val_accuracy, errors="coerce"),
                 }
             )
 
@@ -51,6 +78,11 @@ def fetch_runs(sweep_ids: list[str]) -> pd.DataFrame:
         )
     df["val_accuracy"] = pd.to_numeric(df["val_accuracy"], errors="coerce")
     df = df.dropna(subset=["val_accuracy"])
+    if df.empty:
+        raise SystemExit(
+            "No valid val_accuracy values after numeric conversion for sweep ids: "
+            + ", ".join(sweep_ids)
+        )
     return df
 
 
@@ -103,6 +135,7 @@ def make_flags_table(stats: pd.DataFrame) -> str:
 
 def make_dmodel_table(stats: pd.DataFrame) -> str:
     subset = stats[stats.apply(_is_fffff, axis=1)].copy()
+    # Exclude d_model=64 since it's already represented in the flags block.
     subset = subset[subset["d_model"] != 64].sort_values("d_model", ascending=False)
 
     lines = [
@@ -158,9 +191,12 @@ def print_top3_fffff(df: pd.DataFrame) -> None:
     for key in FLAG_KEYS:
         mask &= ~df[key]
     top3 = df[mask].sort_values("val_accuracy", ascending=False).head(3)
+    print("Top 3 fffff models (models/2_layer_sweep/)")
     for _, row in top3.iterrows():
+        run_name = str(row["run_name"])
+        filename = run_name if run_name.endswith(".pt") else f"{run_name}.pt"
         print(
-            f"{row['run_name']} seed={row['seed']} acc={row['val_accuracy']:.4f}"
+            f"{filename}   (seed={int(row['seed'])}, acc={row['val_accuracy']:.4f})"
         )
 
 
