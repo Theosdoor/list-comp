@@ -4,10 +4,10 @@
 
 **Command:**
 ```bash
-wandb sweep sweeps/2layer_flags.yaml   # → <flags_sweep_id>
-wandb sweep sweeps/2layer_dmodel.yaml  # → <dmodel_sweep_id>
-for i in {1..8}; do sbatch slurm/submit_2layer_sweep.sh <flags_sweep_id>; done
-for i in {1..4}; do sbatch slurm/submit_2layer_sweep.sh <dmodel_sweep_id>; done
+wandb sweep sweeps/2layer_flags.yaml   # → rvon63i9
+wandb sweep sweeps/2layer_dmodel.yaml  # → n50fmwsa
+for i in {1..8}; do sbatch slurm/submit_2layer_sweep.sh rvon63i9; done
+for i in {1..4}; do sbatch slurm/submit_2layer_sweep.sh n50fmwsa; done
 ```
 
 **Output paths:**
@@ -20,6 +20,6 @@ for i in {1..4}; do sbatch slurm/submit_2layer_sweep.sh <dmodel_sweep_id>; done
 **Table generation:**
 ```bash
 python scripts/make_2layer_table.py \
-    --flags-sweep-ids <flags_sweep_id> \
-    --dmodel-sweep-ids <dmodel_sweep_id>
+    --flags-sweep-ids rvon63i9 \
+    --dmodel-sweep-ids n50fmwsa
 ```
