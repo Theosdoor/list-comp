@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 #SBATCH --job-name=2layer_sweep
 #SBATCH --output=slurm/logs/slurm_%j.log
 #SBATCH --error=slurm/logs/slurm_%j.err
@@ -9,8 +10,8 @@
 
 # Usage: sbatch slurm/submit_2layer_sweep.sh <sweep_id>
 # Example: sbatch slurm/submit_2layer_sweep.sh <sweep_id>
-# Parallel launch example:
-#   for id in sweep1 sweep2 sweep3; do sbatch slurm/submit_2layer_sweep.sh $id; done
+# Parallel launch example (repeat submissions for same sweep_id):
+#   for i in 1 2 3; do sbatch slurm/submit_2layer_sweep.sh <sweep_id>; done
 
 if [ -z "$1" ]; then
   echo "Error: missing <sweep_id>"
@@ -28,7 +29,19 @@ source .venv/bin/activate
 echo "Node: $(hostname)"
 echo "Sweep ID: $SWEEP_ID"
 
-python3 -c "import torch; print(f'[slurm] CUDA Available: {torch.cuda.is_available()}'); print(f'[slurm] Device: {torch.cuda.get_device_name(0)}')"
+python3 - <<'PY'
+import torch
+if torch.cuda.is_available():
+    try:
+        name = torch.cuda.get_device_name(0)
+    except Exception:
+        name = "Unknown CUDA device"
+    print(f'[slurm] CUDA Available: True')
+    print(f'[slurm] Device: {name}')
+else:
+    print(f'[slurm] CUDA Available: False')
+    print(f'[slurm] Device: CPU')
+PY
 
 wandb agent theo-farrell99-durham-university/order-by-scale/$SWEEP_ID
 
