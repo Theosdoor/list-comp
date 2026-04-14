@@ -1,0 +1,19 @@
+program: scripts/sweep_2layer.py
+method: grid
+project: order-by-scale
+entity: theo-farrell99-durham-university
+parameters:
+  d_model:
+    values: [8, 32, 128]
+  seed:
+    values: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29]
+  use_ln:
+    value: false
+  use_bias:
+    value: false
+  use_wv:
+    value: false
+  use_wo:
+    value: false
+  use_mlp:
+    value: false
