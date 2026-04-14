@@ -153,7 +153,8 @@ def sweep_2layer():
     wandb.summary["final/val_accuracy"] = best_acc
 
     if (not use_ln and not use_bias and not use_wv and not use_wo and not use_mlp and d_model == 64):
-        model_path = Path("models/2_layer_sweep") / f"{run.name}.pt"
+        base_dir = Path(__file__).resolve().parents[1] / "models" / "2_layer_sweep"
+        model_path = base_dir / f"{run.name}.pt"
         model_path.parent.mkdir(parents=True, exist_ok=True)
         save_model(model, str(model_path))
 
