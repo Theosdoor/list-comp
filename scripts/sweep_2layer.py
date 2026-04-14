@@ -2,11 +2,8 @@
 W&B Sweep Script for 2-Layer Architecture Grid Search
 """
 
-import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import os
 import random
 
 import numpy as np
