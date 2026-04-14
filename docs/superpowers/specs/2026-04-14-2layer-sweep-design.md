@@ -44,13 +44,15 @@ Follows the `sweep_sae.py` pattern. Entry point is `sweep_2layer()`:
 3. `torch.manual_seed(seed)` + numpy/random seeds
 4. `configure_runtime(list_len=2, seq_len=5, vocab=102, device=DEV, seed=seed)`
 5. `make_model(...)`, `get_dataset(...)`, build DataLoaders
-6. Train loop matching `train_model.py`: AdamW, eval every 100 steps, `max_steps=100000`, `early_stop_acc=0.999`, `min_acc` retry logic (max 3 attempts), keep best
+6. Train loop matching `train_model.py`: AdamW, eval every 100 steps, `max_steps=100000`, `early_stop_acc=0.999`. **No min_acc/retry logic** — with 30 seeds, a low-accuracy run is a data point, not a failure. Single training run per seed.
 7. `wandb.log({"final/val_accuracy": best_acc})`
 8. `wandb.summary["final/val_accuracy"] = best_acc` (for sweep UI sorting)
 9. **Model saving:** if `d_model==64` and all flags False → save to `models/2_layer_sweep/<run_name>.pt`; all other configs → no model saved
 10. `wandb.finish()`
 
 Training hyperparameters fixed at `train_model.py` defaults: `lr=1e-3`, `weight_decay=0.01`, `train_batch_size=2048`, `val_batch_size=4096`.
+
+**Dataset seeding:** always call `get_dataset(seed=0)` regardless of the run's training seed. `get_dataset` calls `torch.manual_seed(seed)` internally, so the train/val split (80/20 of 10,000 combinations) is identical across all seeds. The training seed only affects model weight initialisation and DataLoader shuffle order.
 
 ## Sweep YAMLs
 

@@ -40,3 +40,8 @@ itda = { git = "https://github.com/Theosdoor/itda.git" } # uv lock --upgrade-pac
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]

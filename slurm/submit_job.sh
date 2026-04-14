@@ -20,7 +20,6 @@ echo "------------------------------------------------------"
 
 
 # Run the experiments
-python3 scripts/sweep_itda.py                                            
 # python3 scripts/run_crossover_analysis.py
 # python3 scripts/analyze_failure_reasons.py
 

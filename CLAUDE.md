@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Key - don't forget to use the .venv for python execution
+
 ## Scope and Task Shape
 - This repo studies mechanistic behavior in small attention-only transformers on a list-copy task.
 - Canonical sequence format is `[d1, d2, SEP, o1, o2]` where outputs must copy inputs (not sort).

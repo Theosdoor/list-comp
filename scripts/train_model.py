@@ -28,8 +28,8 @@ from src.models.transformer import make_model, build_attention_mask
 from src.models.utils import save_model, accuracy
 from src.data.datasets import get_dataset
 
-# Wandb project name (hardcoded for this repo)
-WANDB_PROJECT = "list-comp"
+# Wandb project name (hardcoded for this script - keep sep from saes)
+WANDB_PROJECT = "order-by-scale"
 wandb = None  # Will be imported if --wandb flag is set
 
 float_formatter = "{:.5f}".format
