@@ -20,6 +20,7 @@ echo "------------------------------------------------------"
 
 
 # Run the experiments
+python scripts/sweep_2layer.py --test  
 # python3 scripts/run_crossover_analysis.py
 # python3 scripts/analyze_failure_reasons.py
 

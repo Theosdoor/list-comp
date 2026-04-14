@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Key - don't forget to use the .venv for python execution
+Key - don't forget to use the .venv for python execution. Also ensure all subagents also use rtk
 
 ## Scope and Task Shape
 - This repo studies mechanistic behavior in small attention-only transformers on a list-copy task.

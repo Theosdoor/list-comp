@@ -4,7 +4,7 @@
 #SBATCH --error=slurm/logs/slurm_%j.err
 #SBATCH --partition=ug-gpu-small
 #SBATCH --gres=gpu:turing:1
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 #SBATCH --mem=28G
 set -euo pipefail
 

@@ -22,7 +22,7 @@ def accuracy(m, val_dl, list_len=None, device=None):
     assert list_len is not None, "list_len must be provided or configured via configure_runtime()"
     m.eval()
     hits = tots = 0
-    with torch.no_grad():
+    with torch.inference_mode():
         for inputs, targets in val_dl:
             logits = m(inputs.to(device))[:, list_len + 1 :]  # (batch, 2, vocab)
             preds = logits.argmax(-1)

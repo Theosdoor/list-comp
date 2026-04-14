@@ -145,6 +145,11 @@ MODEL_PATH = os.path.join(_PROJECT_ROOT, "models", MODEL_NAME + ".pt")
 
 DEV = "cuda" if torch.cuda.is_available() else "cpu"
 
+# Enable TF32 on Ampere/Turing for free throughput boost on matmuls
+if torch.cuda.is_available():
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+
 # Provide runtime config so we don't need to thread constants everywhere
 configure_runtime(list_len=LIST_LEN, seq_len=SEQ_LEN, vocab=VOCAB, device=DEV, seed=SEED)
 
@@ -175,8 +180,9 @@ train_ds, val_ds = get_dataset(
 
 train_batch_size = min(args.train_batch_size, len(train_ds))
 val_batch_size = min(args.val_batch_size, len(val_ds))
-train_dl = DataLoader(train_ds, train_batch_size, shuffle=True, drop_last=True)
-val_dl = DataLoader(val_ds, val_batch_size, drop_last=False)
+_pin = DEV == "cuda"
+train_dl = DataLoader(train_ds, train_batch_size, shuffle=True, drop_last=True, pin_memory=_pin, num_workers=2)
+val_dl = DataLoader(val_ds, val_batch_size, drop_last=False, pin_memory=_pin, num_workers=2)
 
 print("Input:", train_ds[0][0])
 print("Target:", train_ds[0][1])
@@ -197,7 +203,11 @@ def train(m, max_steps=10000, early_stop_acc=1.0, checkpoints=False, lr=LEARNING
         max_grad_norm: Max gradient norm for clipping. Set to None to disable.
     """
     opt = torch.optim.AdamW(m.parameters(), lr, weight_decay=weight_decay)
-    
+
+    # Mixed precision: FP16 autocast + gradient scaler (Turing supports FP16 tensor cores)
+    use_amp = DEV == "cuda"
+    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+
     # Setup LR scheduler (warmup + cosine decay)
     scheduler = None
     if use_lr_scheduler:
@@ -225,15 +235,18 @@ def train(m, max_steps=10000, early_stop_acc=1.0, checkpoints=False, lr=LEARNING
     for step in pbar:
         inputs, targets = next(dl)
         # get logits/loss for output tokens only
-        logits = m(inputs.to(DEV))[:, LIST_LEN+1:].reshape(-1, VOCAB) 
-        loss = ce(logits, targets[:, LIST_LEN+1:].reshape(-1).to(DEV))
-        loss.backward()
-        
-        # Gradient clipping
+        with torch.autocast(device_type=DEV, dtype=torch.float16, enabled=use_amp):
+            logits = m(inputs.to(DEV))[:, LIST_LEN+1:].reshape(-1, VOCAB)
+            loss = ce(logits, targets[:, LIST_LEN+1:].reshape(-1).to(DEV))
+        scaler.scale(loss).backward()
+
+        # Gradient clipping (must unscale first so norms are in true FP32 space)
         if max_grad_norm is not None:
+            scaler.unscale_(opt)
             torch.nn.utils.clip_grad_norm_(m.parameters(), max_grad_norm)
-        
-        opt.step()
+
+        scaler.step(opt)
+        scaler.update()
         opt.zero_grad()
         
         # Step LR scheduler
