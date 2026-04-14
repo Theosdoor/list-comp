@@ -721,67 +721,182 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 2: Smoke-test the table generation logic with mock data (no wandb needed)**
+- [ ] **Step 2: Write `tests/test_make_2layer_table.py`**
+
+```python
+"""Tests for make_2layer_table helper functions (no wandb connection needed)."""
+import itertools
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from scripts.make_2layer_table import (
+    compute_stats,
+    fmt_acc,
+    make_compact_table,
+    make_dmodel_table,
+    make_flags_table,
+    print_top3_fffff,
+    tf,
+)
+
+CONFIG_KEYS = ["d_model", "use_ln", "use_bias", "use_wv", "use_wo", "use_mlp"]
+
+
+@pytest.fixture()
+def mock_df() -> pd.DataFrame:
+    """32 flag configs x 3 seeds (d_model=64) + d_model {8,32,128} x 3 seeds (FFFFF)."""
+    rng = np.random.default_rng(42)
+    rows = []
+    for ln, bias, wv, wo, mlp in itertools.product([True, False], repeat=5):
+        for seed in range(3):
+            rows.append({
+                "sweep_id": "fake1", "run_name": f"run_ln{ln}_s{seed}",
+                "run_id": f"id_{seed}", "d_model": 64,
+                "use_ln": ln, "use_bias": bias, "use_wv": wv,
+                "use_wo": wo, "use_mlp": mlp, "seed": seed,
+                "val_accuracy": float(rng.uniform(0.5, 1.0)),
+            })
+    for d in [8, 32, 128]:
+        for seed in range(3):
+            rows.append({
+                "sweep_id": "fake2", "run_name": f"dmodel_{d}_s{seed}",
+                "run_id": f"did_{seed}", "d_model": d,
+                "use_ln": False, "use_bias": False, "use_wv": False,
+                "use_wo": False, "use_mlp": False, "seed": seed,
+                "val_accuracy": float(rng.uniform(0.3, 0.9)),
+            })
+    return pd.DataFrame(rows)
+
+
+def test_tf():
+    assert tf(True) == "T"
+    assert tf(False) == "F"
+
+
+def test_fmt_acc_plain():
+    assert fmt_acc(0.8500) == "0.8500"
+
+
+def test_fmt_acc_bold():
+    assert fmt_acc(0.9500, bold=True) == r"\textbf{0.9500}"
+
+
+def test_compute_stats_shape(mock_df):
+    stats = compute_stats(mock_df)
+    # 32 flag combos (d_model=64) + 3 extra d_models (FFFFF) = 35 configs
+    assert len(stats) == 35
+
+
+def test_compute_stats_columns(mock_df):
+    stats = compute_stats(mock_df)
+    for col in ["mean", "max", "min", "median", "n_seeds"]:
+        assert col in stats.columns
+
+
+def test_compute_stats_n_seeds(mock_df):
+    stats = compute_stats(mock_df)
+    # Every config has exactly 3 seeds in mock data
+    assert (stats["n_seeds"] == 3).all()
+
+
+def test_compute_stats_mean_bounds(mock_df):
+    stats = compute_stats(mock_df)
+    assert (stats["mean"] >= stats["min"]).all()
+    assert (stats["mean"] <= stats["max"]).all()
+
+
+def test_make_flags_table_structure(mock_df):
+    stats = compute_stats(mock_df)
+    table = make_flags_table(stats)
+    assert r"\begin{tabular}" in table
+    assert r"\end{tabular}" in table
+    assert r"\toprule" in table
+    assert r"\midrule" in table
+    # 32 data rows → 32 occurrences of "\\"
+    assert table.count(r"\\") >= 32
+
+
+def test_make_flags_table_only_d64(mock_df):
+    stats = compute_stats(mock_df)
+    table = make_flags_table(stats)
+    # All rows should start with "64 &"
+    data_rows = [l for l in table.splitlines()
+                 if l.strip() and not l.strip().startswith("\\")]
+    for row in data_rows:
+        assert row.startswith("64 &"), f"Unexpected row: {row}"
+
+
+def test_make_dmodel_table_structure(mock_df):
+    stats = compute_stats(mock_df)
+    table = make_dmodel_table(stats)
+    assert r"\begin{tabular}" in table
+    assert r"\end{tabular}" in table
+    # 3 d_model values (8, 32, 128) in mock data
+    assert table.count(r"\\") >= 3
+
+
+def test_make_dmodel_table_no_d64(mock_df):
+    """d_model=64 should not appear in the d_model block (it's in the flag block)."""
+    stats = compute_stats(mock_df)
+    # Only keep FFFFF stats (as the function does internally)
+    table = make_dmodel_table(stats)
+    data_rows = [l for l in table.splitlines()
+                 if l.strip() and not l.strip().startswith("\\")]
+    for row in data_rows:
+        assert not row.startswith("64 &"), f"d_model=64 leaked into d_model table: {row}"
+
+
+def test_make_compact_table_has_midrule(mock_df):
+    stats = compute_stats(mock_df)
+    table = make_compact_table(stats)
+    assert r"\midrule" in table
+    assert r"\begin{tabular}" in table
+
+
+def test_print_top3_fffff_output(mock_df, capsys):
+    print_top3_fffff(mock_df)
+    captured = capsys.readouterr()
+    lines = [l for l in captured.out.splitlines() if ".pt" in l]
+    assert len(lines) == 3, f"Expected 3 model lines, got: {captured.out}"
+    for line in lines:
+        assert "acc=" in line
+```
+
+- [ ] **Step 3: Run the tests**
 
 ```bash
 source .venv/bin/activate
-python -c "
-import sys; sys.path.insert(0, '.')
-import pandas as pd
-import numpy as np
-
-# Import the helper functions
-sys.argv = ['make_2layer_table.py',
-            '--flags-sweep-ids', 'fake1',
-            '--dmodel-sweep-ids', 'fake2']
-
-# Build mock DataFrame matching the schema
-import itertools
-rows = []
-for ln, bias, wv, wo, mlp in itertools.product([True, False], repeat=5):
-    for seed in range(3):
-        rows.append({
-            'sweep_id': 'fake1', 'run_name': f'run_{seed}',
-            'run_id': f'id_{seed}', 'd_model': 64,
-            'use_ln': ln, 'use_bias': bias, 'use_wv': wv,
-            'use_wo': wo, 'use_mlp': mlp, 'seed': seed,
-            'val_accuracy': np.random.uniform(0.5, 1.0),
-        })
-for d in [8, 32, 128]:
-    for seed in range(3):
-        rows.append({
-            'sweep_id': 'fake2', 'run_name': f'dmodel_{d}_s{seed}',
-            'run_id': f'did_{seed}', 'd_model': d,
-            'use_ln': False, 'use_bias': False, 'use_wv': False,
-            'use_wo': False, 'use_mlp': False, 'seed': seed,
-            'val_accuracy': np.random.uniform(0.3, 0.9),
-        })
-df = pd.DataFrame(rows)
-
-from scripts.make_2layer_table import compute_stats, make_flags_table, make_dmodel_table, make_compact_table, print_top3_fffff
-stats = compute_stats(df)
-print('compute_stats OK:', len(stats), 'configs')
-t1 = make_flags_table(stats)
-assert r'\begin{tabular}' in t1 and r'\end{tabular}' in t1
-print('make_flags_table OK')
-t2 = make_dmodel_table(stats)
-assert r'\begin{tabular}' in t2
-print('make_dmodel_table OK')
-t3 = make_compact_table(stats)
-assert r'\midrule' in t3
-print('make_compact_table OK')
-print_top3_fffff(df)
-print('All table helpers PASSED')
-"
+pytest tests/test_make_2layer_table.py -v
 ```
 
-Expected: prints `compute_stats OK: 32 configs`, all OK messages, and three model names.
+Expected:
+```
+tests/test_make_2layer_table.py::test_tf PASSED
+tests/test_make_2layer_table.py::test_fmt_acc_plain PASSED
+tests/test_make_2layer_table.py::test_fmt_acc_bold PASSED
+tests/test_make_2layer_table.py::test_compute_stats_shape PASSED
+tests/test_make_2layer_table.py::test_compute_stats_columns PASSED
+tests/test_make_2layer_table.py::test_compute_stats_n_seeds PASSED
+tests/test_make_2layer_table.py::test_compute_stats_mean_bounds PASSED
+tests/test_make_2layer_table.py::test_make_flags_table_structure PASSED
+tests/test_make_2layer_table.py::test_make_flags_table_only_d64 PASSED
+tests/test_make_2layer_table.py::test_make_dmodel_table_structure PASSED
+tests/test_make_2layer_table.py::test_make_dmodel_table_no_d64 PASSED
+tests/test_make_2layer_table.py::test_make_compact_table_has_midrule PASSED
+tests/test_make_2layer_table.py::test_print_top3_fffff_output PASSED
+13 passed
+```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-rtk git add scripts/make_2layer_table.py
-rtk git commit -m "feat: add make_2layer_table.py to query wandb and generate LaTeX results table"
+rtk git add scripts/make_2layer_table.py tests/test_make_2layer_table.py
+rtk git commit -m "feat: add make_2layer_table.py and pytest suite for table helpers"
 ```
 
 ---
