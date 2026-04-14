@@ -13,7 +13,7 @@ set -euo pipefail
 # Parallel launch example (repeat submissions for same sweep_id):
 #   for i in 1 2 3; do sbatch slurm/submit_2layer_sweep.sh <sweep_id>; done
 
-if [ -z "$1" ]; then
+if [ -z "${1:-}" ]; then
   echo "Error: missing <sweep_id>"
   echo "Usage: sbatch slurm/submit_2layer_sweep.sh <sweep_id>"
   exit 1
