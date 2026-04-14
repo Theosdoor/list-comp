@@ -28,7 +28,7 @@ source .venv/bin/activate
 echo "Node: $(hostname)"
 echo "Sweep ID: $SWEEP_ID"
 
-python -c "import torch,subprocess; print('CUDA available:', torch.cuda.is_available());\nif torch.cuda.is_available():\n    print('GPU:', torch.cuda.get_device_name(0))\nelse:\n    try:\n        print('GPU via nvidia-smi:', subprocess.check_output(['nvidia-smi','--query-gpu=name','--format=csv,noheader']).decode().strip())\n    except Exception as e:\n        print('GPU: unknown', e)"
+python3 -c "import torch,subprocess; print('CUDA available:', torch.cuda.is_available());\nif torch.cuda.is_available():\n    print('GPU:', torch.cuda.get_device_name(0))\nelse:\n    try:\n        print('GPU via nvidia-smi:', subprocess.check_output(['nvidia-smi','--query-gpu=name','--format=csv,noheader']).decode().strip())\n    except Exception as e:\n        print('GPU: unknown', e)"
 
 wandb agent theo-farrell99-durham-university/order-by-scale/$SWEEP_ID
 
