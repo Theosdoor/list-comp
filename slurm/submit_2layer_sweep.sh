@@ -1,5 +1,4 @@
 #!/bin/bash
-set -euo pipefail
 #SBATCH --job-name=2layer_sweep
 #SBATCH --output=slurm/logs/slurm_%j.log
 #SBATCH --error=slurm/logs/slurm_%j.err
@@ -7,6 +6,7 @@ set -euo pipefail
 #SBATCH --gres=gpu:turing:1
 #SBATCH --time=12:00:00
 #SBATCH --mem=28G
+set -euo pipefail
 
 # Usage: sbatch slurm/submit_2layer_sweep.sh <sweep_id>
 # Example: sbatch slurm/submit_2layer_sweep.sh <sweep_id>
