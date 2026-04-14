@@ -8,7 +8,7 @@
 #SBATCH --mem=28G
 
 # go to folder and sync venv
-cd /home2/nchw73/Year4/L4_Project/relcomp-gemma-scope/
+cd /home2/nchw73/Year4/L4_Project/list-comp-priv
 uv sync
 source .venv/bin/activate
 
@@ -20,11 +20,12 @@ echo "------------------------------------------------------"
 
 
 # Run the experiments
+python3 scripts/sweep_itda.py                                            
 # python3 scripts/run_crossover_analysis.py
 # python3 scripts/analyze_failure_reasons.py
 
 # SAE sweep (comment/uncomment as needed)
-wandb agent theo-farrell99-durham-university/btksae_sweep/x7tgo6fv
+# wandb agent theo-farrell99-durham-university/btksae_sweep/x7tgo6fv
 # python3 scripts/compare_sae.py
 
 echo "[slurm] Finished at $(date)"

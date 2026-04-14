@@ -1,6 +1,6 @@
 *.err
 wandb/
-results/sae_models/*sweep_runs*
+results/
 claude/
 
 # Byte-compiled / optimized / DLL files
