@@ -3,6 +3,7 @@ W&B Sweep Script for 2-Layer Architecture Grid Search
 """
 
 from pathlib import Path
+import time
 
 import random
 
@@ -35,7 +36,7 @@ LR = 1e-3
 WEIGHT_DECAY = 0.01
 TRAIN_BATCH_SIZE = 2048
 VAL_BATCH_SIZE = 4096
-MAX_STEPS = 100_000
+MAX_STEPS = 50_000
 EARLY_STOP_ACC = 0.999
 
 
@@ -61,6 +62,7 @@ def train(model, train_dl, val_dl, max_steps: int, early_stop_acc: float) -> flo
 
     iter_dl = _cycle(train_dl)
     best_acc = 0.0
+    best_state = None
     model.train()
 
     for step in range(1, max_steps + 1):
@@ -82,7 +84,9 @@ def train(model, train_dl, val_dl, max_steps: int, early_stop_acc: float) -> flo
 
         if step % 100 == 0:
             val_acc = accuracy(model, val_dl, list_len=LIST_LEN, device=DEV)
-            best_acc = max(best_acc, val_acc)
+            if val_acc > best_acc:
+                best_acc = val_acc
+                best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
             if wandb.run is not None:
                 wandb.log({
                     "val/accuracy": val_acc,
@@ -93,6 +97,10 @@ def train(model, train_dl, val_dl, max_steps: int, early_stop_acc: float) -> flo
                 break
             model.train()
 
+    # Restore best weights so the caller always gets the best model
+    if best_state is not None:
+        model.load_state_dict({k: v.to(DEV) for k, v in best_state.items()})
+
     return best_acc
 
 
@@ -101,7 +109,7 @@ def sweep_2layer():
     run = wandb.init(project=WANDB_PROJECT)
     config = wandb.config
 
-    d_model = config.get("d_model", 64)
+    d_model = config.d_model
     use_ln = config.use_ln
     use_bias = config.use_bias
     use_wv = config.use_wv
@@ -155,6 +163,8 @@ def sweep_2layer():
         attn_only=not use_mlp,
     ).to(DEV)
 
+    print(f"[sweep] config: d_model={d_model}, ln={use_ln}, bias={use_bias}, wv={use_wv}, wo={use_wo}, mlp={use_mlp}, seed={seed}")
+    t0 = time.time()
     best_acc = train(
         model,
         train_dl,
@@ -162,9 +172,12 @@ def sweep_2layer():
         max_steps=MAX_STEPS,
         early_stop_acc=EARLY_STOP_ACC,
     )
+    elapsed_min = (time.time() - t0) / 60
+    print(f"[sweep] done: best_acc={best_acc:.4f}, elapsed={elapsed_min:.1f}min")
 
-    wandb.log({"final/val_accuracy": best_acc})
+    wandb.log({"final/val_accuracy": best_acc, "final/elapsed_min": elapsed_min})
     wandb.summary["final/val_accuracy"] = best_acc
+    wandb.summary["final/elapsed_min"] = elapsed_min
 
     if (not use_ln and not use_bias and not use_wv and not use_wo and not use_mlp and d_model == 64):
         base_dir = Path(__file__).resolve().parents[1] / "models" / "2_layer_sweep"

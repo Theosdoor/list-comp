@@ -10,6 +10,7 @@ import torch.nn.functional as F
 
 import os
 import copy
+import time
 from datetime import datetime # for unique model naming
 
 import matplotlib.pyplot as plt
@@ -341,8 +342,11 @@ print(f"  Target: min_acc={MIN_ACC:.1%}, max_retries={MAX_RETRIES}, patience={PA
 
 best_acc = 0
 best_model = None
+run_start = time.time()
 
 for attempt in range(MAX_RETRIES):
+    attempt_start = time.time()
+    print(f"[attempt {attempt+1}/{MAX_RETRIES}] Starting at {datetime.utcnow().strftime('%H:%M:%S')} UTC")
     model = make_model(
         n_layers=N_LAYER,
         n_heads=N_HEAD,
@@ -358,11 +362,16 @@ for attempt in range(MAX_RETRIES):
           use_wandb=USE_WANDB, use_lr_scheduler=args.use_lr_scheduler, warmup_steps=args.warmup_steps,
           max_grad_norm=args.max_grad_norm)
     acc = accuracy(model, val_dl)
-    
+    attempt_elapsed = time.time() - attempt_start
+    print(f"[attempt {attempt+1}/{MAX_RETRIES}] acc={acc:.2%}, elapsed={attempt_elapsed/60:.1f}min")
+
+    if USE_WANDB:
+        wandb.log({"attempt/number": attempt + 1, "attempt/accuracy": acc, "attempt/elapsed_min": attempt_elapsed / 60})
+
     if acc > best_acc:
         best_acc = acc
         best_model = model
-    
+
     if acc >= MIN_ACC:
         print(f"Achieved {acc:.2%} >= {MIN_ACC:.1%} on attempt {attempt+1}")
         break
@@ -371,6 +380,9 @@ for attempt in range(MAX_RETRIES):
 else:
     print(f"Warning: Best accuracy {best_acc:.2%} after {MAX_RETRIES} attempts (target: {MIN_ACC:.1%})")
 
+total_elapsed = time.time() - run_start
+print(f"Total runtime: {total_elapsed/60:.1f}min")
+
 # Always save the best model
 MODEL_NAME_WITH_ACC = f'{MODEL_NAME}_acc{best_acc:.4f}'
 MODEL_PATH_WITH_ACC = os.path.join(_PROJECT_ROOT, "models", f"{MODEL_NAME_WITH_ACC}.pt")
@@ -378,7 +390,7 @@ save_model(best_model, MODEL_PATH_WITH_ACC)
 
 # Finish wandb run
 if USE_WANDB:
-    wandb.log({"final/accuracy": best_acc})
+    wandb.log({"final/accuracy": best_acc, "final/total_elapsed_min": total_elapsed / 60, "final/n_attempts": attempt + 1})
     wandb.finish()
 
 # %%
