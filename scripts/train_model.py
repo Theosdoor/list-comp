@@ -182,8 +182,8 @@ train_ds, val_ds = get_dataset(
 train_batch_size = min(args.train_batch_size, len(train_ds))
 val_batch_size = min(args.val_batch_size, len(val_ds))
 _pin = DEV == "cuda"
-train_dl = DataLoader(train_ds, train_batch_size, shuffle=True, drop_last=True, pin_memory=_pin, num_workers=2)
-val_dl = DataLoader(val_ds, val_batch_size, drop_last=False, pin_memory=_pin, num_workers=2)
+train_dl = DataLoader(train_ds, train_batch_size, shuffle=True, drop_last=True, pin_memory=_pin, num_workers=2, persistent_workers=True)
+val_dl = DataLoader(val_ds, val_batch_size, drop_last=False, pin_memory=_pin, num_workers=2, persistent_workers=True)
 
 print("Input:", train_ds[0][0])
 print("Target:", train_ds[0][1])

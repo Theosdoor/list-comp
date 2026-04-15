@@ -108,9 +108,9 @@ def sweep_2layer():
     val_batch_size = min(VAL_BATCH_SIZE, len(val_ds))
     _pin = DEV == "cuda"
     train_dl = DataLoader(train_ds, batch_size=train_batch_size, shuffle=True, drop_last=True,
-                          pin_memory=_pin, num_workers=2)
+                          pin_memory=_pin, num_workers=2, persistent_workers=True)
     val_dl = DataLoader(val_ds, batch_size=val_batch_size, drop_last=False,
-                        pin_memory=_pin, num_workers=2)
+                        pin_memory=_pin, num_workers=2, persistent_workers=True)
 
     model = make_model(
         n_layers=2,
@@ -173,9 +173,11 @@ if __name__ == "__main__":
         set_seeds(_cfg.seed)
         _pin = DEV == "cuda"
         _train_dl = DataLoader(train_ds, batch_size=min(TRAIN_BATCH_SIZE, len(train_ds)),
-                               shuffle=True, drop_last=True, pin_memory=_pin, num_workers=2)
+                               shuffle=True, drop_last=True, pin_memory=_pin, num_workers=2,
+                               persistent_workers=True)
         _val_dl = DataLoader(val_ds, batch_size=min(VAL_BATCH_SIZE, len(val_ds)),
-                             drop_last=False, pin_memory=_pin, num_workers=2)
+                             drop_last=False, pin_memory=_pin, num_workers=2,
+                             persistent_workers=True)
         _model = make_model(n_layers=2, n_heads=1, d_model=_cfg.d_model,
                             ln=_cfg.use_ln, use_bias=_cfg.use_bias,
                             use_wv=_cfg.use_wv, use_wo=_cfg.use_wo,

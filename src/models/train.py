@@ -11,6 +11,8 @@ import math
 import torch
 from tqdm.auto import tqdm
 
+from src.models.utils import accuracy as _accuracy
+
 
 def train(
     model,
@@ -67,10 +69,9 @@ def train(
     pbar = tqdm(range(1, max_steps + 1), desc="Training", disable=not show_progress)
 
     best_acc = 0.0
+    best_step = 0
     best_state: dict | None = None
     steps_without_improvement = 0
-
-    from src.models.utils import accuracy as _accuracy  # local import avoids circular
 
     for step in pbar:
         inputs, targets = next(dl)
@@ -105,6 +106,7 @@ def train(
             # Track best and save state
             if val_acc > best_acc:
                 best_acc = val_acc
+                best_step = step
                 best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
                 steps_without_improvement = 0
             else:
@@ -119,6 +121,8 @@ def train(
                             "train/loss": loss.item(),
                             "train/lr": current_lr,
                             "train/pct_complete": step / max_steps,
+                            "best/accuracy": best_acc,
+                            "best/step": best_step,
                             "step": step,
                         })
                 except ImportError:
@@ -159,5 +163,16 @@ def train(
     # Restore best weights
     if best_state is not None:
         model.load_state_dict({k: v.to(device) for k, v in best_state.items()})
+
+    print(f"Best acc {best_acc:.2%} at step {best_step}")
+
+    if use_wandb:
+        try:
+            import wandb
+            if wandb.run is not None:
+                wandb.summary["best/accuracy"] = best_acc
+                wandb.summary["best/step"] = best_step
+        except ImportError:
+            pass
 
     return best_acc
