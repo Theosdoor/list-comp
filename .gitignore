@@ -1,3 +1,5 @@
+models/2_layer_sweep
+
 *.err
 wandb/
 results/

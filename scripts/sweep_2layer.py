@@ -70,6 +70,7 @@ def sweep_2layer():
     config = wandb.config
 
     d_model = config.d_model
+    n_heads = getattr(config, "n_heads", 1)
     use_ln = config.use_ln
     use_bias = config.use_bias
     use_wv = config.use_wv
@@ -81,7 +82,7 @@ def sweep_2layer():
         return "T" if value else "F"
 
     run.name = (
-        f"d{d_model}_ln{flag(use_ln)}_bias{flag(use_bias)}_"
+        f"d{d_model}_h{n_heads}_ln{flag(use_ln)}_bias{flag(use_bias)}_"
         f"wv{flag(use_wv)}_wo{flag(use_wo)}_mlp{flag(use_mlp)}_s{seed}"
     )
 
@@ -114,7 +115,7 @@ def sweep_2layer():
 
     model = make_model(
         n_layers=2,
-        n_heads=1,
+        n_heads=n_heads,
         d_model=d_model,
         ln=use_ln,
         use_bias=use_bias,
@@ -123,7 +124,7 @@ def sweep_2layer():
         attn_only=not use_mlp,
     ).to(DEV)
 
-    print(f"[sweep] config: d_model={d_model}, ln={use_ln}, bias={use_bias}, wv={use_wv}, wo={use_wo}, mlp={use_mlp}, seed={seed}")
+    print(f"[sweep] config: d_model={d_model}, n_heads={n_heads}, ln={use_ln}, bias={use_bias}, wv={use_wv}, wo={use_wo}, mlp={use_mlp}, seed={seed}")
     t0 = time.time()
     best_acc = train(
         model,
@@ -148,7 +149,7 @@ def sweep_2layer():
 
     if (not use_ln and not use_bias and not use_wv and not use_wo and not use_mlp and d_model == 64):
         base_dir = Path(__file__).resolve().parents[1] / "models" / "2_layer_sweep"
-        model_path = base_dir / f"{run.name}.pt"
+        model_path = base_dir / f"{run.name}_acc{best_acc:.4f}.pt"
         model_path.parent.mkdir(parents=True, exist_ok=True)
         save_model(model, str(model_path))
 
