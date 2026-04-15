@@ -12,7 +12,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import os
 import glob
 import torch
-import torch.nn.functional as F
 from torch.utils.data import DataLoader, ConcatDataset
 import numpy as np
 from tqdm.auto import tqdm
@@ -24,7 +23,7 @@ from src.utils.runtime import configure_runtime
 from src.models.utils import load_model
 from src.models.transformer import parse_model_name_safe
 from src.data.datasets import get_dataset
-from src.sae.sae_analysis import identify_special_features
+from src.sae import identify_special_features
 from src.sae.metrics import compute_sae_downstream_metrics
 
 #%%
@@ -46,41 +45,23 @@ DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is
 
 #%%
 def load_sae(sae_path):
-    """Load SAE checkpoint and return (sae, act_mean, cfg, is_legacy).
-    
-    is_legacy=True means the SAE was trained with the old BatchTopK script
-    that doesn't use a learned threshold.
-    """
+    """Load SAE checkpoint and return (sae, act_mean)."""
     checkpoint = torch.load(sae_path, map_location=DEVICE, weights_only=False)
     cfg = checkpoint.get("cfg", {})
-    
+
     d_sae = cfg.get("dict_size", cfg.get("d_sae", 256))
     k = cfg.get("k", 4)
-    
+
     sae = BatchTopKSAE(
         activation_dim=D_MODEL,
         dict_size=d_sae,
-        k=k
+        k=k,
     ).to(DEVICE)
-    
-    # Handle legacy format (old_sae uses W_enc/W_dec naming)
-    old_state_dict = checkpoint["state_dict"]
-    is_legacy = "W_enc" in old_state_dict
-    
-    if is_legacy:
-        new_state_dict = {
-            "encoder.weight": old_state_dict["W_enc"].T,
-            "encoder.bias": old_state_dict["b_enc"],
-            "decoder.weight": old_state_dict["W_dec"].T,
-            "b_dec": old_state_dict["b_dec"],
-        }
-        sae.load_state_dict(new_state_dict, strict=False)
-    else:
-        sae.load_state_dict(old_state_dict)
-    
+    sae.load_state_dict(checkpoint["state_dict"])
+
     act_mean = checkpoint["act_mean"].to(DEVICE)
-    
-    return sae, act_mean, cfg, is_legacy
+
+    return sae, act_mean
 
 #%%
 def collect_activations(model, dataloader, sep_idx=2):
@@ -121,11 +102,10 @@ def collect_activations(model, dataloader, sep_idx=2):
     )
 
 #%%
-def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all=None, alpha_d2_all=None, is_legacy=False, model=None, val_dl=None):
+def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all=None, alpha_d2_all=None, model=None, val_dl=None):
     """Compute metrics for a single SAE.
-    
-    If is_legacy=True, uses batch-level TopK instead of threshold encoding.
-    If model and val_dl are provided and COMPUTE_RECON_ACC=True, computes reconstruction accuracy.
+
+    If model and val_dl are provided and COMPUTE_RECON_ACC=True, computes downstream metrics.
     If alpha_d1_all and alpha_d2_all are provided, computes special features.
     """
     sae.eval()
@@ -133,14 +113,8 @@ def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all
     # Encode all activations
     sep_acts_centered = sep_acts.to(DEVICE) - act_mean
     with torch.no_grad():
-        if is_legacy:
-            # Old SAE used batch-level TopK, not threshold
-            # use_threshold=False triggers proper TopK behavior
-            sae_acts = sae.encode(sep_acts_centered, use_threshold=False).cpu()
-        else:
-            sae_acts = sae.encode(sep_acts_centered, use_threshold=True).cpu()
-    
-    n_samples = sae_acts.shape[0]
+        sae_acts = sae.encode(sep_acts_centered, use_threshold=True).cpu()
+
     d_sae = sae_acts.shape[1]
     
     # L0 Sparsity
@@ -289,7 +263,7 @@ def generate_markdown_report(results, output_path):
     else:
         lines.extend([
             "| Model | d_sae | k | L0 | Dead | Dead % | Alive | MSE | Exp Var |",
-            "|-------|-------|---|----|----|--------|-------|-----|---------|----|",
+            "|-------|-------|---|----|----|--------|-------|-----|---------|",
         ])
 
     for r in results:
@@ -363,7 +337,6 @@ def generate_markdown_report(results, output_path):
                 if top_special:
                     lines.append(f"\n**{r['name']}:**")
                     for feat in top_special:
-                        firing_rate = (r.get('firing_rate', 0) if 'firing_rate' in r else 'N/A')
                         lines.append(
                             f"- Feature {feat['feature_idx']}: {feat['type']}, "
                             f"corr={feat['correlation']:.4f}"
@@ -441,11 +414,11 @@ def main():
         print(f"\nEvaluating: {name}")
         
         try:
-            sae, act_mean, cfg, is_legacy = load_sae(sae_path)
+            sae, act_mean = load_sae(sae_path)
             metrics = evaluate_sae(
                 sae, act_mean, sep_acts, d1_all, d2_all, N_DIGITS,
                 alpha_d1_all=alpha_d1_all, alpha_d2_all=alpha_d2_all,
-                is_legacy=is_legacy, model=model, val_dl=val_dl
+                model=model, val_dl=val_dl
             )
             metrics['name'] = name
             metrics['n_samples'] = n_samples

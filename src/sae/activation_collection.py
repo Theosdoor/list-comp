@@ -91,14 +91,18 @@ def collect_attention_patterns(model, val_dl, layer_idx=0, sep_idx=2, device="cu
             
             if use_scores:
                 # Run model with cache and extract attention scores
-                logits, cache = model.run_with_cache(inputs)
+                _, cache = model.run_with_cache(
+                    inputs,
+                    stop_at_layer=layer_idx + 1,
+                    names_filter=[hook_name],
+                )
                 attn = cache[hook_name]  # [batch, n_heads, seq_len, seq_len]
                 # Average over heads
                 alpha_d1 = attn[:, :, sep_idx, 0].mean(dim=1)
                 alpha_d2 = attn[:, :, sep_idx, 1].mean(dim=1)
             else:
-                # Get attention pattern: [batch, n_heads, seq, seq]
-                attn_pattern = _extract_activations(model, inputs, layer_idx, hook_name)[:, 0, :, :]  # [batch, seq, seq] (single head)
+                # Get attention pattern: [batch, n_heads, seq, seq]; average over heads
+                attn_pattern = _extract_activations(model, inputs, layer_idx, hook_name).mean(dim=1)  # [batch, seq, seq]
                 alpha_d1 = attn_pattern[:, sep_idx, 0]  # SEP attending to d1
                 alpha_d2 = attn_pattern[:, sep_idx, 1]  # SEP attending to d2
             
