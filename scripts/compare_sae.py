@@ -24,13 +24,14 @@ from src.utils.runtime import configure_runtime
 from src.models.utils import load_model
 from src.models.transformer import parse_model_name_safe
 from src.data.datasets import get_dataset
-from src.sae.sae_analysis import compute_sae_patched_accuracy, identify_special_features
+from src.sae.sae_analysis import identify_special_features
+from src.sae.metrics import compute_sae_downstream_metrics
 
 #%%
 # --- Configuration ---
 MODEL_NAME = '2layer_100dig_64d'
 MODEL_CFG = parse_model_name_safe(MODEL_NAME)
-SAE_FOLDER = 'results/sae_models/sweep_runs'  # Changed to sweep_runs
+SAE_FOLDER = 'results/sae_models/'
 OUTPUT_FILE = f'sae_comparison_{datetime.now().strftime("%Y%m%d_%H%M%S")}.md'
 COMPUTE_RECON_ACC = True  # Toggle reconstruction accuracy computation
 
@@ -216,18 +217,21 @@ def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all
             'special_features_list': special_results['special_features'],
         }
     
-    # Compute reconstruction accuracy if enabled
+    # Compute downstream metrics (accuracy + CE) in a single two-pass loop
     acc_metrics = {}
     if COMPUTE_RECON_ACC and model is not None and val_dl is not None:
-        print("  Computing reconstruction accuracy...", end="", flush=True)
-        acc_results = compute_sae_patched_accuracy(
-            model, sae, val_dl, act_mean, 
+        print("  Computing downstream metrics...", end="", flush=True)
+        downstream = compute_sae_downstream_metrics(
+            model, sae, val_dl, act_mean,
             layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
         )
         acc_metrics = {
-            'baseline_acc': acc_results['baseline_acc'],
-            'patched_task_acc': acc_results['reconstruction_acc'],
-            'acc_drop': acc_results['accuracy_drop'],
+            'baseline_acc': downstream['baseline_acc'],
+            'patched_task_acc': downstream['reconstruction_acc'],
+            'acc_drop': downstream['accuracy_drop'],
+            'baseline_ce': downstream['baseline_ce'],
+            'patched_ce': downstream['patched_ce'],
+            'ce_increase': downstream['ce_increase'],
         }
         print(" Done.")
     
@@ -270,24 +274,35 @@ def generate_markdown_report(results, output_path):
         "## Summary Table\n",
     ]
     
+    has_ce = has_acc and 'ce_increase' in results[0]
+
     if has_acc:
-        lines.extend([
-            "| Model | d_sae | k | L0 | Dead | Dead % | Alive | MSE | Exp Var | Baseline Acc (full) | Patched Acc (full) | Acc Drop |",
-            "|-------|-------|---|----|----|--------|-------|-----|---------|---------------------|-------------------|----------|",
-        ])
+        header = "| Model | d_sae | k | L0 | Dead | Dead % | Alive | MSE | Exp Var | Baseline Acc | Patched Acc | Acc Drop"
+        sep =    "|-------|-------|---|----|----|--------|-------|-----|---------|--------------|-------------|----------"
+        if has_ce:
+            header += " | Baseline CE | Patched CE | CE Increase |"
+            sep    += "|-------------|------------|-------------|"
+        else:
+            header += " |"
+            sep    += "|"
+        lines.extend([header, sep])
     else:
         lines.extend([
             "| Model | d_sae | k | L0 | Dead | Dead % | Alive | MSE | Exp Var |",
             "|-------|-------|---|----|----|--------|-------|-----|---------|----|",
         ])
-    
+
     for r in results:
         base_row = (
             f"| {r['name']} | {r['d_sae']} | {r['k']} | {r['l0']:.2f} | "
             f"{r['n_dead']} | {r['dead_pct']:.1f}% | {r['n_alive']} | {r['mse']:.4f} | {r['explained_var']:.4f}"
         )
         if has_acc:
-            base_row += f" | {r['baseline_acc']:.4f} | {r['patched_task_acc']:.4f} | {r['acc_drop']:.4f} |"
+            base_row += f" | {r['baseline_acc']:.4f} | {r['patched_task_acc']:.4f} | {r['acc_drop']:.4f}"
+        if has_ce:
+            base_row += f" | {r['baseline_ce']:.4f} | {r['patched_ce']:.4f} | {r['ce_increase']:.4f} |"
+        elif has_acc:
+            base_row += " |"
         else:
             base_row += " |"
         lines.append(base_row)
@@ -360,7 +375,9 @@ def generate_markdown_report(results, output_path):
         "- **L0**: Average number of active features per sample (lower = sparser)",
         "- **Dead %**: Percentage of features that never fire (lower = better utilization)",
         "- **MSE**: Mean squared reconstruction error (lower = better reconstruction)",
-        "- **Exp Var**: Explained variance (higher = better reconstruction)",
+        "- **Exp Var**: Explained variance of input by reconstruction (higher = better; equivalent to paper R² metric)",
+        "- **Baseline/Patched CE**: Cross-entropy loss on output tokens with original vs SAE-reconstructed activations (lower = better downstream performance)",
+        "- **CE Increase**: Delta CE loss from SAE patching — the primary downstream metric in published SAE papers",
         "- **Special Features**: Features with |correlation| > 0.5 with attention difference (alpha_d1 - alpha_d2)",
         "",
     ])
@@ -414,7 +431,7 @@ def main():
     print(f"✓ Collected {n_samples} samples")
     
     # Find all SAE checkpoints
-    sae_paths = sorted(glob.glob(os.path.join(SAE_FOLDER, "*.pt")))
+    sae_paths = sorted(glob.glob(os.path.join(SAE_FOLDER, "**/*.pt"), recursive=True))
     print(f"\nFound {len(sae_paths)} SAE checkpoints")
     
     # Evaluate each SAE

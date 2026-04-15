@@ -20,12 +20,12 @@ echo "------------------------------------------------------"
 
 
 # Run the experiments
-python scripts/sweep_2layer.py --test  
+python3 scripts/compare_sae.py
+
 # python3 scripts/run_crossover_analysis.py
 # python3 scripts/analyze_failure_reasons.py
 
 # SAE sweep (comment/uncomment as needed)
 # wandb agent theo-farrell99-durham-university/btksae_sweep/x7tgo6fv
-# python3 scripts/compare_sae.py
 
 echo "[slurm] Finished at $(date)"

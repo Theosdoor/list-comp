@@ -5,10 +5,10 @@ Functions for computing SAE reconstruction quality metrics.
 """
 
 import torch
+import torch.nn.functional as F
 from tqdm.auto import tqdm
 
 from .hooks import _encode_through_sae, _extract_activations, make_dynamic_sae_patch_hook
-from ..models.utils import accuracy as _base_accuracy
 
 
 def compute_reconstruction_metrics(model, sae, val_dl, act_mean, layer_idx=0, sep_idx=2, device="cuda"):
@@ -64,55 +64,84 @@ def compute_reconstruction_metrics(model, sae, val_dl, act_mean, layer_idx=0, se
     }
 
 
-def compute_sae_patched_accuracy(model, sae, val_dl, act_mean, layer_idx=0, sep_idx=2, device="cuda"):
+def compute_sae_downstream_metrics(model, sae, val_dl, act_mean, layer_idx=0, sep_idx=2, device="cuda"):
     """
-    Compute model accuracy when using SAE-reconstructed activations instead of original.
-    
-    Args:
-        model: Base transformer model
-        sae: Trained SAE
-        val_dl: Validation dataloader
-        act_mean: Mean activation for centering
-        layer_idx: Layer to extract activations from
-        sep_idx: SEP token position (list_len)
-        device: Device to use
-    
+    Compute downstream metrics for an SAE in two forward passes (baseline + patched).
+
+    Returns accuracy and CE loss together to avoid redundant passes.
+
     Returns:
-        dict with keys: baseline_acc, reconstruction_acc, accuracy_drop, total_samples
+        dict with keys:
+            baseline_acc, reconstruction_acc, accuracy_drop, total_samples,
+            baseline_ce, patched_ce, ce_increase, total_tokens
     """
     from ..utils.runtime import _RUNTIME
     list_len = _RUNTIME.list_len
 
     hook_name_resid = f"blocks.{layer_idx}.hook_resid_post"
-
-    # 1. Baseline accuracy (reuses accuracy() from models/utils.py)
-    baseline_acc = _base_accuracy(model, val_dl, list_len=list_len, device=device)
-
-    # 2. Accuracy with SAE reconstruction
-    correct_recon = 0
-    total = 0
     reconstruction_hook = make_dynamic_sae_patch_hook(sae, act_mean, sep_idx)
-    
+
+    baseline_ce_total = 0.0
+    patched_ce_total = 0.0
+    correct_baseline = 0
+    correct_patched = 0
+    total_tokens = 0
+
     with torch.no_grad():
-        for inputs, targets in tqdm(val_dl, desc="Computing SAE reconstruction accuracy", leave=False):
+        for inputs, targets in tqdm(val_dl, desc="Computing SAE downstream metrics", leave=False):
             inputs = inputs.to(device)
             targets = targets.to(device)
-            
-            # Run with reconstruction hook
-            logits = model.run_with_hooks(
+            out_targets = targets[:, list_len + 1:]  # [batch, list_len]
+            b, t = out_targets.shape
+
+            # Baseline forward pass
+            baseline_logits = model(inputs)[:, list_len + 1:]  # [batch, list_len, vocab]
+            v = baseline_logits.shape[-1]
+            baseline_ce_total += F.cross_entropy(
+                baseline_logits.reshape(b * t, v),
+                out_targets.reshape(b * t),
+                reduction="sum",
+            ).item()
+            correct_baseline += (baseline_logits.argmax(dim=-1) == out_targets).sum().item()
+
+            # Patched forward pass
+            patched_logits = model.run_with_hooks(
                 inputs,
                 fwd_hooks=[(hook_name_resid, reconstruction_hook)]
-            )[:, list_len + 1:]  # Only output positions
-            preds = logits.argmax(dim=-1)
-            correct_recon += (preds == targets[:, list_len + 1:]).sum().item()
-            total += preds.numel()
-    
-    recon_acc = correct_recon / total
-    acc_drop = baseline_acc - recon_acc
-    
+            )[:, list_len + 1:]
+            patched_ce_total += F.cross_entropy(
+                patched_logits.reshape(b * t, v),
+                out_targets.reshape(b * t),
+                reduction="sum",
+            ).item()
+            correct_patched += (patched_logits.argmax(dim=-1) == out_targets).sum().item()
+
+            total_tokens += b * t
+
+    baseline_ce = baseline_ce_total / total_tokens
+    patched_ce = patched_ce_total / total_tokens
+    baseline_acc = correct_baseline / total_tokens
+    patched_acc = correct_patched / total_tokens
+
     return {
-        'baseline_acc': baseline_acc,
-        'reconstruction_acc': recon_acc,
-        'accuracy_drop': acc_drop,
-        'total_samples': total
+        "baseline_acc": baseline_acc,
+        "reconstruction_acc": patched_acc,
+        "accuracy_drop": baseline_acc - patched_acc,
+        "total_samples": total_tokens,
+        "baseline_ce": baseline_ce,
+        "patched_ce": patched_ce,
+        "ce_increase": patched_ce - baseline_ce,
+        "total_tokens": total_tokens,
     }
+
+
+def compute_sae_patched_accuracy(model, sae, val_dl, act_mean, layer_idx=0, sep_idx=2, device="cuda"):
+    """Thin wrapper around compute_sae_downstream_metrics for backward compatibility."""
+    result = compute_sae_downstream_metrics(model, sae, val_dl, act_mean, layer_idx, sep_idx, device)
+    return {k: result[k] for k in ("baseline_acc", "reconstruction_acc", "accuracy_drop", "total_samples")}
+
+
+def compute_sae_patched_ce_loss(model, sae, val_dl, act_mean, layer_idx=0, sep_idx=2, device="cuda"):
+    """Thin wrapper around compute_sae_downstream_metrics for backward compatibility."""
+    result = compute_sae_downstream_metrics(model, sae, val_dl, act_mean, layer_idx, sep_idx, device)
+    return {k: result[k] for k in ("baseline_ce", "patched_ce", "ce_increase", "total_tokens")}
