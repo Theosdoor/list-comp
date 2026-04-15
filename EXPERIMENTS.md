@@ -5,9 +5,9 @@
 **Command:**
 ```bash
 wandb sweep sweeps/2layer_flags.yaml   # → ou3mwr1m
-wandb sweep sweeps/2layer_dmodel.yaml  # → g40xw8s4
+wandb sweep sweeps/2layer_dmodel.yaml  # → fvg6y0ad
 for i in {1..4}; do sbatch slurm/submit_2layer_sweep.sh ou3mwr1m; done
-for i in {1..4}; do sbatch slurm/submit_2layer_sweep.sh g40xw8s4; done
+for i in {1..4}; do sbatch slurm/submit_2layer_sweep.sh fvg6y0ad; done
 ```
 
 **Output paths:**

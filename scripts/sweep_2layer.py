@@ -14,8 +14,9 @@ import wandb
 from dotenv import load_dotenv
 
 from src.data.datasets import get_dataset
+from src.models.train import train
 from src.models.transformer import make_model
-from src.models.utils import accuracy, save_model
+from src.models.utils import save_model
 from src.utils.runtime import configure_runtime
 
 
@@ -48,65 +49,24 @@ def set_seeds(seed: int):
         torch.cuda.manual_seed_all(seed)
 
 
-def _cycle(dl):
-    while True:
-        for batch in dl:
-            yield batch
-
-
-def train(model, train_dl, val_dl, max_steps: int, early_stop_acc: float) -> float:
-    opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
-    criterion = torch.nn.CrossEntropyLoss()
-    use_amp = DEV == "cuda"
-    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
-
-    iter_dl = _cycle(train_dl)
-    best_acc = 0.0
-    best_state = None
-    model.train()
-
-    for step in range(1, max_steps + 1):
-        inputs, targets = next(iter_dl)
-        inputs = inputs.to(DEV, non_blocking=True)
-        targets = targets.to(DEV, non_blocking=True)
-
-        with torch.autocast(device_type=DEV, dtype=torch.float16, enabled=use_amp):
-            logits = model(inputs)[:, LIST_LEN + 1 :]
-            loss = criterion(
-                logits.reshape(-1, VOCAB),
-                targets[:, LIST_LEN + 1 :].reshape(-1),
-            )
-
-        opt.zero_grad(set_to_none=True)
-        scaler.scale(loss).backward()
-        scaler.step(opt)
-        scaler.update()
-
-        if step % 100 == 0:
-            val_acc = accuracy(model, val_dl, list_len=LIST_LEN, device=DEV)
-            if val_acc > best_acc:
-                best_acc = val_acc
-                best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
-            if wandb.run is not None:
-                wandb.log({
-                    "val/accuracy": val_acc,
-                    "train/loss": loss.item(),
-                    "step": step,
-                })
-            if val_acc >= early_stop_acc:
-                break
-            model.train()
-
-    # Restore best weights so the caller always gets the best model
-    if best_state is not None:
-        model.load_state_dict({k: v.to(DEV) for k, v in best_state.items()})
-
-    return best_acc
-
-
 def sweep_2layer():
     load_dotenv()
-    run = wandb.init(project=WANDB_PROJECT)
+    run = wandb.init(
+        project=WANDB_PROJECT,
+        config={
+            # Fixed hyperparams not swept by the yaml — swept params override these if named the same
+            "max_steps": MAX_STEPS,
+            "early_stop_acc": EARLY_STOP_ACC,
+            "lr": LR,
+            "weight_decay": WEIGHT_DECAY,
+            "train_batch_size": TRAIN_BATCH_SIZE,
+            "val_batch_size": VAL_BATCH_SIZE,
+            "n_digits": N_DIGITS,
+            "list_len": LIST_LEN,
+            "n_layers": 2,
+            "n_heads": 1,
+        },
+    )
     config = wandb.config
 
     d_model = config.d_model
@@ -170,7 +130,14 @@ def sweep_2layer():
         train_dl,
         val_dl,
         max_steps=MAX_STEPS,
+        lr=LR,
+        weight_decay=WEIGHT_DECAY,
+        list_len=LIST_LEN,
+        vocab=VOCAB,
+        device=DEV,
         early_stop_acc=EARLY_STOP_ACC,
+        use_wandb=True,
+        show_progress=False,
     )
     elapsed_min = (time.time() - t0) / 60
     print(f"[sweep] done: best_acc={best_acc:.4f}, elapsed={elapsed_min:.1f}min")
@@ -214,7 +181,8 @@ if __name__ == "__main__":
                             use_wv=_cfg.use_wv, use_wo=_cfg.use_wo,
                             attn_only=not _cfg.use_mlp).to(DEV)
         print(f"[test] device={DEV}, d_model={_cfg.d_model}")
-        acc = train(_model, _train_dl, _val_dl, max_steps=300, early_stop_acc=EARLY_STOP_ACC)
+        acc = train(_model, _train_dl, _val_dl, max_steps=300, lr=LR, weight_decay=WEIGHT_DECAY,
+                    list_len=LIST_LEN, vocab=VOCAB, device=DEV, early_stop_acc=EARLY_STOP_ACC)
         print(f"[test] PASSED — best_acc={acc:.4f}")
     else:
         sweep_2layer()

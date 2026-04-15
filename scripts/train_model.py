@@ -18,14 +18,14 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Ellipse
 
 import einops
-import pandas as pd, itertools
-from tqdm.auto import tqdm
+import pandas as pd
 from dotenv import load_dotenv
 
 from transformer_lens import HookedTransformer, HookedTransformerConfig, utils
 
 from src.utils.runtime import configure_runtime
 from src.models.transformer import make_model, build_attention_mask
+from src.models.train import train
 from src.models.utils import save_model, accuracy
 from src.data.datasets import get_dataset
 
@@ -190,111 +190,6 @@ print("Target:", train_ds[0][1])
 print(f"Train dataset size: {len(train_ds)}, Validation dataset size: {len(val_ds)}")
 
 
-# %%
-def train(m, max_steps=10000, early_stop_acc=1.0, checkpoints=False, lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY, 
-          patience=5, patience_threshold=0.9, use_wandb=False, use_lr_scheduler=False, warmup_steps=1000, max_grad_norm=None):
-    """Train the model with optional early stopping and wandb logging.
-    
-    Args:
-        patience: Stop after this many eval steps (every 100 train steps) with no improvement.
-                  Set to None or 0 to disable early stopping by patience.
-        patience_threshold: Only allow patience-based early stopping if accuracy is above this threshold.
-        use_lr_scheduler: If True, use warmup + cosine decay LR scheduler.
-        warmup_steps: Number of warmup steps for LR scheduler.
-        max_grad_norm: Max gradient norm for clipping. Set to None to disable.
-    """
-    opt = torch.optim.AdamW(m.parameters(), lr, weight_decay=weight_decay)
-
-    # Mixed precision: FP16 autocast + gradient scaler (Turing supports FP16 tensor cores)
-    use_amp = DEV == "cuda"
-    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
-
-    # Setup LR scheduler (warmup + cosine decay)
-    scheduler = None
-    if use_lr_scheduler:
-        from torch.optim.lr_scheduler import LambdaLR
-        import math
-        
-        def lr_lambda(current_step):
-            # Warmup phase
-            if current_step < warmup_steps:
-                return float(current_step) / float(max(1, warmup_steps))
-            # Cosine decay phase
-            progress = float(current_step - warmup_steps) / float(max(1, max_steps - warmup_steps))
-            return 0.5 * (1.0 + math.cos(math.pi * progress))
-        
-        scheduler = LambdaLR(opt, lr_lambda)
-    
-    ce = torch.nn.CrossEntropyLoss()
-    dl = itertools.cycle(train_dl)  # infinite iterator
-    pbar = tqdm(range(max_steps), desc="Training")
-    
-    # Early stopping state
-    best_acc = 0.0
-    steps_without_improvement = 0
-    
-    for step in pbar:
-        inputs, targets = next(dl)
-        # get logits/loss for output tokens only
-        with torch.autocast(device_type=DEV, dtype=torch.float16, enabled=use_amp):
-            logits = m(inputs.to(DEV))[:, LIST_LEN+1:].reshape(-1, VOCAB)
-            loss = ce(logits, targets[:, LIST_LEN+1:].reshape(-1).to(DEV))
-        scaler.scale(loss).backward()
-
-        # Gradient clipping (must unscale first so norms are in true FP32 space)
-        if max_grad_norm is not None:
-            scaler.unscale_(opt)
-            torch.nn.utils.clip_grad_norm_(m.parameters(), max_grad_norm)
-
-        scaler.step(opt)
-        scaler.update()
-        opt.zero_grad()
-        
-        # Step LR scheduler
-        if scheduler is not None:
-            scheduler.step()
-        
-        if (step + 1) % 100 == 0:
-            acc = accuracy(m, val_dl)
-            
-            # Get current LR for logging
-            current_lr = opt.param_groups[0]['lr']
-            
-            # Log to wandb
-            if use_wandb:
-                wandb.log({"train/loss": loss.item(), "val/accuracy": acc, "train/step": step + 1, "train/lr": current_lr})
-            
-            # Check for target accuracy
-            if acc >= early_stop_acc:
-                print(f"Early stopping at step {step + 1} with accuracy {acc:.2%} >= {early_stop_acc:.2%}")
-                break
-            
-            # Check for patience-based early stopping (only if acc > threshold)
-            if acc > best_acc:
-                best_acc = acc
-                steps_without_improvement = 0
-            else:
-                steps_without_improvement += 1
-                # Only trigger patience-based stopping if we're above the threshold
-                if patience and steps_without_improvement >= patience and acc >= patience_threshold:
-                    print(f"Early stopping at step {step + 1}: no improvement for {patience} eval steps (acc: {acc:.2%}, best: {best_acc:.2%})")
-                    break
-            
-            # Update tqdm bar w/ metrics
-            postfix = {
-                "loss": f"{loss.item():.4f}",
-                "acc": f"{acc:.2%}",
-                "best": f"{best_acc:.2%}",
-            }
-            if scheduler is not None:
-                postfix["lr"] = f"{current_lr:.2e}"
-            pbar.set_postfix(postfix)
-            
-            if checkpoints and (step+1) % 50000 == 0:
-                save_model(m, MODEL_PATH)
-            
-    print(f"Final accuracy: {accuracy(m, val_dl):.2%}")
-
 
 # %%
 # train and SAVE new model
@@ -357,11 +252,24 @@ for attempt in range(MAX_RETRIES):
         use_wo=USE_WO,
         attn_only=ATTN_ONLY,
     )
-    train(model, max_steps=MAX_TRAIN_STEPS, early_stop_acc=EARLY_STOP_ACC,
-          checkpoints=USE_CHECKPOINTING, patience=PATIENCE, patience_threshold=args.early_stopping_threshold,
-          use_wandb=USE_WANDB, use_lr_scheduler=args.use_lr_scheduler, warmup_steps=args.warmup_steps,
-          max_grad_norm=args.max_grad_norm)
-    acc = accuracy(model, val_dl)
+    acc = train(
+        model, train_dl, val_dl,
+        max_steps=MAX_TRAIN_STEPS,
+        lr=LEARNING_RATE,
+        weight_decay=WEIGHT_DECAY,
+        list_len=LIST_LEN,
+        vocab=VOCAB,
+        device=DEV,
+        early_stop_acc=EARLY_STOP_ACC,
+        patience=PATIENCE,
+        patience_threshold=args.early_stopping_threshold,
+        use_lr_scheduler=args.use_lr_scheduler,
+        warmup_steps=args.warmup_steps,
+        max_grad_norm=args.max_grad_norm,
+        checkpoint_every=50_000 if USE_CHECKPOINTING else None,
+        checkpoint_path=MODEL_PATH if USE_CHECKPOINTING else None,
+        use_wandb=USE_WANDB,
+    )
     attempt_elapsed = time.time() - attempt_start
     print(f"[attempt {attempt+1}/{MAX_RETRIES}] acc={acc:.2%}, elapsed={attempt_elapsed/60:.1f}min")
 
