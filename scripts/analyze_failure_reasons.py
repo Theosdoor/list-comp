@@ -27,7 +27,6 @@ from src.sae.activation_collection import collect_sae_activations
 from src.sae.steering import feature_steering_experiment, analyze_feature_crossovers
 
 # ── Config ────────────────────────────────────────────────────────────────────
-RESULTS_DIR = Path("results/xover")
 LIST_LEN = 2
 DEFAULT_SAE = "sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt"
 STEERING_SCALE_RANGE = [-1.0, 5.0]
@@ -40,7 +39,12 @@ def parse_args():
     p.add_argument("--feature", type=int, default=30)
     p.add_argument("--model", type=str, default="2layer_100dig_64d")
     p.add_argument("--n-digits", type=int, default=100)
-    p.add_argument("--sae", type=str, default=DEFAULT_SAE)
+    p.add_argument("--sae", type=str, default=DEFAULT_SAE,
+                   help="SAE checkpoint path relative to results/sae_models/ "
+                        "(e.g. 'sweep_runs/sae_d320_k3_lr1e-05_seed1_2layer_100dig_64d.pt')")
+    p.add_argument("--results-dir", type=str, default="results/xover",
+                   help="Base results directory (default: results/xover); "
+                        "CSVs are read from <results-dir>/<sae-stem>/")
     p.add_argument("--output", type=str, default=None)
     return p.parse_args()
 
@@ -167,9 +171,9 @@ def _format_crossover_df(df):
 
 # ── Data loading ──────────────────────────────────────────────────────────────
 
-def load_data(feature_idx):
-    xovers_path = RESULTS_DIR / f"xovers_feat{feature_idx}.csv"
-    bounds_path = RESULTS_DIR / f"swap_bounds_feat{feature_idx}.csv"
+def load_data(feature_idx, results_dir):
+    xovers_path = results_dir / f"xovers_feat{feature_idx}.csv"
+    bounds_path = results_dir / f"swap_bounds_feat{feature_idx}.csv"
     xovers_df = pd.read_csv(xovers_path)
     bounds_df = pd.read_csv(bounds_path)
     return xovers_df, bounds_df
@@ -426,13 +430,15 @@ def generate_markdown(merged, feature_idx, visuals=None):
 def main():
     args = parse_args()
     feature_idx = args.feature
-    output_path = Path(args.output) if args.output else RESULTS_DIR / f"failure_analysis_feat{feature_idx}.md"
+    sae_tag = Path(args.sae).stem
+    results_dir = Path(args.results_dir) / sae_tag
+    output_path = Path(args.output) if args.output else results_dir / f"failure_analysis_feat{feature_idx}.md"
     plots_dir = output_path.parent / "plots"
 
     device = setup_notebook(seed=42)
 
-    print(f"Loading data for feature {feature_idx}...")
-    xovers_df, bounds_df = load_data(feature_idx)
+    print(f"Loading data for feature {feature_idx} from {results_dir}...")
+    xovers_df, bounds_df = load_data(feature_idx, results_dir)
 
     print("Setting up model and SAE...")
     from torch.utils.data import DataLoader

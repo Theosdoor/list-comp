@@ -7,6 +7,7 @@ Designed to run on GPU via SLURM job submission.
 # %%
 import os
 import sys
+import argparse
 import torch
 import pandas as pd
 from pathlib import Path
@@ -17,13 +18,27 @@ from src.utils.nb_utils import setup_notebook, load_transformer_model, load_sae
 from src.data.datasets import get_dataset
 from src.sae import *  # Import all SAE analysis utilities
 
-# Configuration
-MODEL_NAME = '2layer_100dig_64d'
-SAE_NAME = "sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt"
-SPECIAL_FEAT_IDX = 30
+parser = argparse.ArgumentParser(description="Run crossover analysis pipeline")
+parser.add_argument("--model", default="2layer_100dig_64d",
+                    help="Model name (without .pt extension)")
+parser.add_argument("--sae", default="sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt",
+                    help="SAE checkpoint path relative to results/sae_models/ "
+                         "(e.g. 'sweep_runs/sae_d320_k3_lr1e-05_seed1_2layer_100dig_64d.pt')")
+parser.add_argument("--feature", type=int, default=30, dest="feature_idx",
+                    help="SAE feature index to analyse (default: 30)")
+parser.add_argument("--results-dir", default="results/xover",
+                    help="Directory to write CSV outputs (default: results/xover)")
+parser.add_argument("--batch-size", type=int, default=64,
+                    help="Batch size for crossover search (default: 64)")
+args = parser.parse_args()
+
+MODEL_NAME = args.model
+SAE_NAME = args.sae
+SPECIAL_FEAT_IDX = args.feature_idx
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-RESULTS_DIR = Path("results/xover")
-BATCH_SIZE = 64  # Batching for efficiency
+sae_tag = Path(args.sae).stem  # e.g. "sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d"
+RESULTS_DIR = Path(args.results_dir) / sae_tag
+BATCH_SIZE = args.batch_size
 
 # Create results directory
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)

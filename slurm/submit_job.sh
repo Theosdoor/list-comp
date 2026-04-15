@@ -4,7 +4,7 @@
 #SBATCH --error=slurm/logs/slurm_%j.err
 #SBATCH --partition=ug-gpu-small
 #SBATCH --gres=gpu:turing:1
-#SBATCH --time=12:00:00
+#SBATCH --time=24:00:00
 #SBATCH --mem=28G
 
 # go to folder and sync venv
@@ -20,10 +20,11 @@ echo "------------------------------------------------------"
 
 
 # Run the experiments
-python3 scripts/compare_sae.py
+# python3 scripts/compare_sae.py
 
-# python3 scripts/run_crossover_analysis.py
-# python3 scripts/analyze_failure_reasons.py
+SAE="sweep_runs/sae_d192_k3_lr0.0001_seed2_2layer_100dig_64d.pt"
+# python3 scripts/run_crossover_analysis.py --sae "$SAE"
+python3 scripts/analyze_failure_reasons.py --sae "$SAE"
 
 # SAE sweep (comment/uncomment as needed)
 # wandb agent theo-farrell99-durham-university/btksae_sweep/x7tgo6fv
