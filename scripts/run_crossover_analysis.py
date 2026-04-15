@@ -20,6 +20,8 @@ from src.utils.nb_utils import setup_notebook, load_transformer_model, load_sae
 from src.data.datasets import get_dataset
 from src.sae import (
     collect_sae_activations,
+    collect_attention_patterns,
+    identify_special_features,
     get_xovers_df,
     get_output_swap_bounds,
     swap_outputs,
@@ -35,8 +37,12 @@ def parse_args():
                    help="Model name (without .pt extension)")
     p.add_argument("--sae", default="sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt",
                    help="SAE checkpoint path relative to results/sae_models/")
-    p.add_argument("--feature", type=int, default=30, dest="feature_idx",
-                   help="SAE feature index to analyse (default: 30)")
+    p.add_argument("--feature", type=str, default="auto", dest="feature_idx",
+                   help="SAE feature index to analyse ('auto' to detect, or an integer to override)")
+    p.add_argument("--threshold", type=float, default=0.5,
+                   help="Correlation threshold for special feature detection (default: 0.5)")
+    p.add_argument("--max-features", type=int, default=2,
+                   help="Max features to run the pipeline on in auto mode (default: 2)")
     p.add_argument("--results-dir", default="results/xover",
                    help="Directory to write CSV outputs (default: results/xover)")
     p.add_argument("--batch-size", type=int, default=64,
@@ -46,12 +52,37 @@ def parse_args():
     return p.parse_args()
 
 
+def _build_special_features_table(found_sorted, firing_rates, max_features, threshold, sae_tag):
+    """Build markdown lines for the special-features summary table."""
+    n_found = len(found_sorted)
+    n_run = min(n_found, max_features)
+    lines = [
+        f"# Special Features — {sae_tag}",
+        "",
+        f"Threshold: {threshold} | Found: {n_found} | Running top {n_run} (--max-features)",
+        "",
+        "| Feature | Type | Correlation | Firing Rate |",
+        "|---------|------|-------------|-------------|",
+    ]
+    for feat in found_sorted:
+        idx = feat["feature_idx"]
+        corr = feat["correlation"]
+        ftype = feat["type"]
+        fr = firing_rates[idx].item()
+        sign = "+" if corr >= 0 else ""
+        lines.append(f"| {idx} | {ftype} | {sign}{corr:.4f} | {fr:.4f} |")
+    if n_found > max_features:
+        lines.append("")
+        lines.append(f"_Note: only top {n_run} features were run through the pipeline._")
+    return lines
+
+
 def run_pipeline(args):
-    """Run the crossover pipeline and return (results_dir, loaded objects for reporting)."""
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    """Run the crossover pipeline and return list of per-feature context dicts."""
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     sae_tag = Path(args.sae).stem
-    results_dir = Path(args.results_dir) / sae_tag
-    results_dir.mkdir(parents=True, exist_ok=True)
+    sae_results_dir = Path(args.results_dir) / sae_tag
+    sae_results_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 60)
     print("CROSSOVER ANALYSIS - GPU JOB")
@@ -60,36 +91,39 @@ def run_pipeline(args):
     print(f"Model:  {args.model}")
     print(f"SAE:    {args.sae}")
     print(f"Feature: {args.feature_idx}")
+    if args.feature_idx == "auto":
+        print(f"Threshold: {args.threshold}")
+        print(f"Max features: {args.max_features}")
     print(f"Batch size: {args.batch_size}")
-    print(f"Results directory: {results_dir}")
+    print(f"Results directory: {sae_results_dir}")
     print("=" * 60)
 
-    _ = setup_notebook(seed=42)
+    _ = setup_notebook(seed=42)  # TODO nb_utils shouldnt be used in gpu scripts, so make this into a broader util or create a seperate thing for non-nbs. Keep it DRY
 
-    # [1] Load models
-    print("\n[1/6] Loading models...")
+    # [1/7] Load models
+    print("\n[1/7] Loading models...")
     model, model_cfg = load_transformer_model(args.model, device=device)
-    d_model = model_cfg['d_model']
-    n_digits = model_cfg['n_digits']
-    list_len = model_cfg['list_len']
-    sep_idx = model_cfg['sep_token_index']
+    d_model = model_cfg["d_model"]
+    n_digits = model_cfg["n_digits"]
+    list_len = model_cfg["list_len"]
+    sep_idx = model_cfg["sep_token_index"]
 
     sae, sae_cfg = load_sae(args.sae, d_model, device=device)
 
-    sae_path = os.path.join('results/sae_models', args.sae)
+    sae_path = os.path.join("results/sae_models", args.sae)
     sae_checkpoint = torch.load(sae_path, map_location=device, weights_only=False)
     act_mean = sae_checkpoint["act_mean"].to(device)
 
-    # [2] Load dataset
-    print("\n[2/6] Loading dataset...")
+    # [2/7] Load dataset
+    print("\n[2/7] Loading dataset...")
     train_ds, val_ds = get_dataset(
         n_digits=n_digits, list_len=list_len, no_dupes=False, train_dupes_only=False
     )
     all_ds = torch.utils.data.ConcatDataset([train_ds, val_ds])
     print(f"Total inputs: {len(all_ds)}")
 
-    # [3] Collect SAE activations
-    print("\n[3/6] Collecting SAE activations...")
+    # [3/7] Collect SAE activations
+    print("\n[3/7] Collecting SAE activations...")
     from torch.utils.data import DataLoader
     all_dl = DataLoader(all_ds, batch_size=128, shuffle=False)
 
@@ -98,80 +132,131 @@ def run_pipeline(args):
         layer_idx=0, sep_idx=sep_idx, device=device,
     )
 
-    # [4] Find crossovers
-    print(f"\n[4/6] Finding crossovers (feature {args.feature_idx})...")
-    xovers_df = get_xovers_df(
-        model=model, sae=sae, act_mean=act_mean,
-        feature_idx=args.feature_idx,
-        d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_all,
-        dataset=all_ds, layer_idx=0, sep_idx=sep_idx, n_digits=n_digits,
-        batch_size=args.batch_size, device=device,
-    )
+    # [4/7] Detect special features or resolve override
+    if args.feature_idx == "auto":
+        print("\n[4/7] Collecting attention patterns and detecting special features...")
+        alpha_d1_all, alpha_d2_all = collect_attention_patterns(
+            model=model, val_dl=all_dl, layer_idx=0, sep_idx=sep_idx, device=device,
+        )
+        special_results = identify_special_features(
+            sae_acts_all=sae_acts_all,
+            alpha_d1_all=alpha_d1_all,
+            alpha_d2_all=alpha_d2_all,
+            threshold=args.threshold,
+        )
+        found_sorted = sorted(
+            special_results["special_features"],
+            key=lambda x: abs(x["correlation"]),
+            reverse=True,
+        )
 
-    xovers_path = results_dir / f"xovers_feat{args.feature_idx}.csv"
-    xovers_df.to_csv(xovers_path, index=False)
-    print(f"Saved crossovers to {xovers_path}")
-    print(f"  Total inputs: {len(xovers_df)}")
-    print(f"  With feature firing: {(xovers_df['feat_orig'] > 0).sum()}")
-    print(f"  With crossovers: {((xovers_df['n_o1_xover'] > 0) | (xovers_df['n_o2_xover'] > 0)).sum()}")
+        if not found_sorted:
+            print(f"\nWARNING: No special features found above threshold {args.threshold} for {sae_tag}.")
+            print("Consider lowering --threshold or inspecting the SAE with compare_sae.py.")
+            print("Exiting.")
+            return []
 
-    # [5] Get swap bounds
-    print(f"\n[5/6] Identifying swap zones...")
-    swap_bounds_df = get_output_swap_bounds(xovers_df)
+        firing_rates = (sae_acts_all > 0).float().mean(dim=0)
+        table_lines = _build_special_features_table(
+            found_sorted, firing_rates, args.max_features, args.threshold, sae_tag
+        )
+        table_md = "\n".join(table_lines)
+        print("\n" + table_md)
 
-    swap_bounds_path = results_dir / f"swap_bounds_feat{args.feature_idx}.csv"
-    swap_bounds_df.to_csv(swap_bounds_path, index=False)
-    print(f"Saved swap bounds to {swap_bounds_path}")
-    valid_swaps = swap_bounds_df['failure_reason'].isna().sum()
-    print(f"  Valid swap zones: {valid_swaps}")
-    print(f"  Failed: {len(swap_bounds_df) - valid_swaps}")
+        sf_path = sae_results_dir / "special_features.md"
+        sf_path.write_text(table_md)
+        print(f"\nSaved special features summary to {sf_path}")
 
-    # [6] Verify swaps
-    print(f"\n[6/6] Verifying output swaps...")
-    swap_results_df = swap_outputs(
-        model=model, sae=sae, act_mean=act_mean,
-        feature_idx=args.feature_idx,
-        swap_bounds_df=swap_bounds_df,
-        d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_all,
-        dataset=all_ds, layer_idx=0, sep_idx=sep_idx, n_digits=n_digits,
-        device=device,
-    )
+        feature_list = [f["feature_idx"] for f in found_sorted[: args.max_features]]
+    else:
+        print(f"\n[4/7] Feature override: using feature {args.feature_idx}, skipping detection.")
+        feature_list = [int(args.feature_idx)]
 
-    swap_results_path = results_dir / f"swap_results_feat{args.feature_idx}.csv"
-    swap_results_df.to_csv(swap_results_path, index=False)
-    print(f"Saved swap results to {swap_results_path}")
-    total = len(swap_results_df)
-    swapped = swap_results_df['swapped'].sum()
-    print(f"  Successfully swapped: {swapped}/{total} ({swapped/total*100:.1f}%)")
+    # Per-feature loop: steps 5-7
+    all_contexts = []
+    for feature_idx in feature_list:
+        feat_results_dir = sae_results_dir / str(feature_idx)
+        feat_results_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"\n{'─' * 60}")
+        print(f"Feature {feature_idx}")
+        print(f"{'─' * 60}")
+
+        # [5/7] Find crossovers
+        print(f"\n[5/7] Finding crossovers (feature {feature_idx})...")
+        xovers_df = get_xovers_df(
+            model=model, sae=sae, act_mean=act_mean,
+            feature_idx=feature_idx,
+            d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_all,
+            dataset=all_ds, layer_idx=0, sep_idx=sep_idx, n_digits=n_digits,
+            batch_size=args.batch_size, device=device,
+        )
+
+        xovers_path = feat_results_dir / f"xovers_feat{feature_idx}.csv"
+        xovers_df.to_csv(xovers_path, index=False)
+        print(f"Saved crossovers to {xovers_path}")
+        print(f"  Total inputs: {len(xovers_df)}")
+        print(f"  With feature firing: {(xovers_df['feat_orig'] > 0).sum()}")
+        print(f"  With crossovers: {((xovers_df['n_o1_xover'] > 0) | (xovers_df['n_o2_xover'] > 0)).sum()}")
+
+        # [6/7] Get swap bounds
+        print(f"\n[6/7] Identifying swap zones...")
+        swap_bounds_df = get_output_swap_bounds(xovers_df)
+
+        swap_bounds_path = feat_results_dir / f"swap_bounds_feat{feature_idx}.csv"
+        swap_bounds_df.to_csv(swap_bounds_path, index=False)
+        print(f"Saved swap bounds to {swap_bounds_path}")
+        valid_swaps = swap_bounds_df["failure_reason"].isna().sum()
+        print(f"  Valid swap zones: {valid_swaps}")
+        print(f"  Failed: {len(swap_bounds_df) - valid_swaps}")
+
+        # [7/7] Verify swaps
+        print(f"\n[7/7] Verifying output swaps...")
+        swap_results_df = swap_outputs(
+            model=model, sae=sae, act_mean=act_mean,
+            feature_idx=feature_idx,
+            swap_bounds_df=swap_bounds_df,
+            d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_all,
+            dataset=all_ds, layer_idx=0, sep_idx=sep_idx, n_digits=n_digits,
+            device=device,
+        )
+
+        swap_results_path = feat_results_dir / f"swap_results_feat{feature_idx}.csv"
+        swap_results_df.to_csv(swap_results_path, index=False)
+        print(f"Saved swap results to {swap_results_path}")
+        total = len(swap_results_df)
+        swapped = swap_results_df["swapped"].sum()
+        print(f"  Successfully swapped: {swapped}/{total} ({swapped/total*100:.1f}%)")
+
+        all_contexts.append(dict(
+            model=model, sae=sae, act_mean=act_mean,
+            d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_all,
+            all_ds=all_ds, all_dl=all_dl,
+            xovers_df=xovers_df, swap_bounds_df=swap_bounds_df,
+            n_digits=n_digits, list_len=list_len, device=device,
+            results_dir=feat_results_dir,
+            feature_idx=feature_idx,
+        ))
 
     print("\n" + "=" * 60)
     print("CROSSOVER ANALYSIS COMPLETE")
     print("=" * 60)
-    print(f"\nResults saved to {results_dir}:")
-    print(f"  - {xovers_path.name}")
-    print(f"  - {swap_bounds_path.name}")
-    print(f"  - {swap_results_path.name}")
+    print(f"\nResults saved under {sae_results_dir}")
+    for ctx in all_contexts:
+        print(f"  Feature {ctx['feature_idx']}: {ctx['results_dir']}")
 
-    context = dict(
-        model=model, sae=sae, act_mean=act_mean,
-        d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_all,
-        all_ds=all_ds, all_dl=all_dl,
-        xovers_df=xovers_df, swap_bounds_df=swap_bounds_df,
-        n_digits=n_digits, list_len=list_len, device=device,
-        results_dir=results_dir,
-    )
-    return context
+    return all_contexts
 
 
 def run_report(args, context):
     """Generate the failure-reason markdown report using already-loaded objects."""
-    feature_idx = args.feature_idx
+    feature_idx = context["feature_idx"]
     results_dir = context["results_dir"]
     output_path = results_dir / f"failure_analysis_feat{feature_idx}.md"
     plots_dir = results_dir / "plots"
 
     print("\n" + "=" * 60)
-    print("GENERATING FAILURE-REASON REPORT")
+    print(f"GENERATING FAILURE-REASON REPORT (feature {feature_idx})")
     print("=" * 60)
 
     print("Building merged dataset with correctness labels...")
@@ -215,9 +300,10 @@ def run_report(args, context):
 
 def main():
     args = parse_args()
-    context = run_pipeline(args)
+    contexts = run_pipeline(args)
     if args.report:
-        run_report(args, context)
+        for ctx in contexts:
+            run_report(args, ctx)
 
 
 if __name__ == "__main__":
