@@ -48,6 +48,17 @@ from .steering import (
     swap_outputs,
 )
 
+# Failure-reason reporting
+from .reporting import (
+    get_original_correctness,
+    build_merged,
+    generate_example_visuals,
+    generate_markdown,
+    parse_list_field,
+    FAILURE_DESCRIPTIONS,
+    FAILURE_ORDER,
+)
+
 __all__ = [
     # Hook utilities
     "make_sae_patch_hook",
@@ -70,6 +81,14 @@ __all__ = [
     "load_sae_from_local",
     "load_sae_from_wandb_run",
     "compare_sweep_runs",
+    # Reporting
+    "get_original_correctness",
+    "build_merged",
+    "generate_example_visuals",
+    "generate_markdown",
+    "parse_list_field",
+    "FAILURE_DESCRIPTIONS",
+    "FAILURE_ORDER",
     # Feature steering
     "inspect_steered_output",
     "inspect_steered_outputs_batch",
