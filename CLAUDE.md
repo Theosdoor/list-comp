@@ -20,13 +20,19 @@ Key - don't forget to use the .venv for python execution. Also ensure all subage
 - SAE checkpoints in `results/sae_models/` include `state_dict`, `cfg`, and `act_mean`.
 - Always load and pass `act_mean` when collecting/patching activations (see `scripts/run_crossover_analysis.py`).
 - For feature steering/crossover work, main entry points are in `src/sae/steering.py`: `get_xovers_df`, `get_output_swap_bounds`, `swap_outputs`.
+- "Special" features are identified via `identify_special_features` in `src/sae/activation_collection.py`: features whose activation correlates strongly (|r| > threshold) with the SEP attention difference `alpha_d1 − alpha_d2`. Requires `collect_attention_patterns` to obtain `alpha_d1_all`/`alpha_d2_all` first.
 
 ## Canonical Workflows
 - Environment: `uv sync` then `source .venv/bin/activate`.
 - Train model: `python3 scripts/train_model.py ...` (supports retries until `--min-acc`; saves to `models/`).
 - Train SAE: `python3 scripts/train_sae.py --d_sae ... --top_k ... --n_steps ...`.
-- Run crossover pipeline: `python3 scripts/run_crossover_analysis.py` (writes CSVs to `results/xover/`).
-- Cluster/GPU workflow is captured in `submit_job.sh` (sync env, activate `.venv`, run analysis scripts).
+- Run crossover pipeline: `python3 scripts/run_crossover_analysis.py [--feature auto] [--threshold 0.5] [--max-features 2] [--report]`
+  - Auto mode (default): detects special features via attention-correlation, runs pipeline for up to `--max-features` features.
+  - Override mode: `--feature 30` skips detection and runs only that index.
+  - Results layout: `results/xover/<sae_name>/special_features.md` (auto mode) and `results/xover/<sae_name>/<feat_idx>/` per feature.
+- SAE sweep comparison: `python3 scripts/compare_sae.py` (evaluates all checkpoints in `results/sae_models/`, writes a markdown comparison table).
+- WandB sweeps: `wandb sweep sweeps/<config>.yaml` then `wandb agent <sweep_id>` (or `sbatch slurm/submit_2layer_sweep.sh <sweep_id>`).
+- Cluster/GPU workflow is captured in `slurm/submit_job.sh` (sync env, activate `.venv`, run analysis scripts).
 
 ## Project-Specific Patterns
 - Prefer imports from `src.utils.nb_utils` and `src.sae` in notebooks/scripts to stay consistent with existing analysis flow.
@@ -36,8 +42,8 @@ Key - don't forget to use the .venv for python execution. Also ensure all subage
 
 ## Current Baselines and Files
 - Common base model: `models/2layer_100dig_64d.pt`.
-- Common SAE for feature-30 analysis: `results/sae_models/sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt`.
-- Key reference files: `src/data/datasets.py`, `src/models/transformer.py`, `src/models/utils.py`, `src/utils/nb_utils.py`, `src/sae/steering.py`.
+- Common SAE: `results/sae_models/sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt` (feature-30 was the manually-identified special feature; auto-detection now finds this automatically).
+- Key reference files: `src/data/datasets.py`, `src/models/transformer.py`, `src/models/utils.py`, `src/utils/nb_utils.py`, `src/sae/steering.py`, `src/sae/reporting.py` (failure-reason classification and markdown report generation).
 
 ## Reproducibility Requirement
 - When running experiments, append a concise entry to `EXPERIMENTS.md` with command, output paths, and headline metrics.
@@ -58,7 +64,10 @@ This enforces the SEP compression bottleneck: information must flow `inputs → 
 `src/models/utils.py::infer_model_config(path)` can auto-infer `d_model`, `n_layers`, `n_heads`, `list_len`, `use_wv`, `use_wo`, etc. directly from a checkpoint — useful when loading models whose names don't encode all parameters.
 
 ## Development Environment
-No formal test suite exists. To verify changes, run a training smoke-test or the crossover pipeline on the baseline model.
+- Run tests: `.venv/bin/pytest tests/` (pytest is available but coverage is minimal — only `tests/test_make_2layer_table.py` exists).
+- To verify changes to the analysis pipeline, run the crossover pipeline on the baseline model/SAE.
+- `src/interpretability/interp_utils.py` contains attention-edge ablation and residual-stream analysis helpers used by `scripts/interpret_model.py` and `scripts/model_interp.py`.
+- `itda` is a private git dependency (`git+https://github.com/Theosdoor/itda.git`); update with `uv lock --upgrade-package itda`.
 
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer) - Token-Optimized Commands
