@@ -21,7 +21,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from matplotlib.lines import Line2D
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
@@ -105,11 +104,10 @@ def parse_report(path: Path) -> pd.DataFrame:
     return df
 
 
-# ── Aggregation ───────────────────────────────────────────────────────────────
+# ── Filtering & Aggregation ───────────────────────────────────────────────────
 
-def aggregate(df: pd.DataFrame, l0_values, d_sae_values,
+def filter_df(df: pd.DataFrame, l0_values, d_sae_values,
               exclude_l0=None, exclude_d_sae=None) -> pd.DataFrame:
-    """Group by (l0, d_sae), compute mean ± std over seeds/lr runs."""
     if l0_values:
         df = df[df["l0"].isin(l0_values)]
     if d_sae_values:
@@ -118,11 +116,13 @@ def aggregate(df: pd.DataFrame, l0_values, d_sae_values,
         df = df[~df["l0"].isin(exclude_l0)]
     if exclude_d_sae:
         df = df[~df["d_sae"].isin(exclude_d_sae)]
+    return df
 
-    grouped = df.groupby(["l0", "d_sae"])
 
+def aggregate(df: pd.DataFrame) -> pd.DataFrame:
+    """Group by (l0, d_sae), compute mean ± std over seeds/lr runs."""
     rows = []
-    for (l0, d_sae), g in grouped:
+    for (l0, d_sae), g in df.groupby(["l0", "d_sae"]):
         n = len(g)
         rows.append({
             "l0":               l0,
@@ -136,7 +136,6 @@ def aggregate(df: pd.DataFrame, l0_values, d_sae_values,
             "n_special_mean":   g["n_special"].mean(),
             "n_special_std":    g["n_special"].std(ddof=1) if n > 1 else 0.0,
         })
-
     return pd.DataFrame(rows).sort_values(["l0", "d_sae"]).reset_index(drop=True)
 
 
@@ -212,15 +211,13 @@ def write_latex_table(agg: pd.DataFrame, path: Path):
 
 # ── Figure ────────────────────────────────────────────────────────────────────
 
-def _qualitative_colors(values) -> dict:
-    """Map sorted unique values to maximally-distinct tab10 hues (categorical)."""
+def _qualitative_palette(values) -> dict:
     vals = sorted(set(values))
     cmap = plt.get_cmap("tab10")
     return {v: cmap(i % 10) for i, v in enumerate(vals)}
 
 
-def _sequential_colors(values, cmap_name: str) -> dict:
-    """Map sorted unique values to colours from a sequential colormap."""
+def _sequential_palette(values, cmap_name: str) -> dict:
     vals = sorted(set(values))
     cmap = plt.get_cmap(cmap_name)
     if len(vals) == 1:
@@ -228,71 +225,47 @@ def _sequential_colors(values, cmap_name: str) -> dict:
     return {v: cmap(0.15 + 0.7 * i / (len(vals) - 1)) for i, v in enumerate(vals)}
 
 
-def _legend_handles(color_map: dict, label_fmt: str) -> list:
-    """Build Line2D legend handles from a {value: color} mapping."""
-    return [
-        Line2D([0], [0], marker="o", color=c, linestyle="None",
-               markersize=7, label=label_fmt.format(v))
-        for v, c in sorted(color_map.items())
-    ]
-
-
-def _clipped_errorbar(mean, std, lo=None, hi=None):
+def plot_sweep(df: pd.DataFrame, path: Path):
     """
-    Return asymmetric (lower, upper) error bar magnitudes, clipped so that
-    mean - lower >= lo and mean + upper <= hi. Returns None if std == 0.
-    """
-    if std == 0 or np.isnan(std):
-        return None
-    lower = std if lo is None else min(std, mean - lo)
-    upper = std if hi is None else min(std, hi - mean)
-    return [[max(lower, 0)], [max(upper, 0)]]
-
-
-def plot_sweep(agg: pd.DataFrame, path: Path):
-    """
-    Two-panel figure, both showing Patched CE Loss vs % Variance Explained,
-    aggregated (mean ± std over seeds / lr runs):
-      Left  — hue by L0    (tab10 qualitative palette)
-      Right — hue by d_sae (plasma sequential palette)
-    Error bars are clipped to [0, 100] on x and [0, ∞) on y.
+    2×2 grid of seaborn pointplots (±1 std over seeds/lr runs):
+      Row 0  — x = L0    (hue = d_sae, plasma sequential)
+      Row 1  — x = d_sae (hue = L0,    tab10 qualitative)
+      Col 0  — y = % Variance Explained
+      Col 1  — y = Patched CE Loss
     """
     sns.set_theme(style="whitegrid", font_scale=1.05)
 
-    l0_colors   = _qualitative_colors(agg["l0"])
-    dsae_colors = _sequential_colors(agg["d_sae"], "plasma")
+    plot_df = df.assign(ev_pct=df["ev"] * 100)
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    l0_pal   = _qualitative_palette(df["l0"])
+    dsae_pal = _sequential_palette(df["d_sae"], "plasma")
 
-    for ax, hue_col, color_map, label_fmt in [
-        (axes[0], "l0",    l0_colors,   "L0 = {}"),
-        (axes[1], "d_sae", dsae_colors, "$d_{{\\rm SAE}}$ = {}"),
-    ]:
-        for hue_val, grp in agg.groupby(hue_col):
-            color = color_map[hue_val]
-            for _, r in grp.iterrows():
-                x = r.ev_mean * 100
-                xerr = _clipped_errorbar(x, r.ev_std * 100, lo=0.0, hi=100.0)
-                yerr = _clipped_errorbar(r.patched_ce_mean, r.patched_ce_std, lo=0.0)
-                ax.errorbar(
-                    x, r.patched_ce_mean,
-                    xerr=xerr, yerr=yerr,
-                    fmt="o", color=color, markersize=7,
-                    capsize=3, linewidth=1.2,
-                )
+    # (x, y, hue, palette, xlabel, ylabel, ylim_top)
+    panels = [
+        ("l0",    "ev_pct",     "d_sae", dsae_pal, "← L0 (Lower is sparser)",    "↑ % Variance Explained", 100),
+        ("l0",    "patched_ce", "d_sae", dsae_pal, "← L0 (Lower is sparser)",    "← Patched CE Loss",       None),
+        ("d_sae", "ev_pct",     "l0",    l0_pal,   "d_sae", "↑ % Variance Explained", 100),
+        ("d_sae", "patched_ce", "l0",    l0_pal,   "d_sae", "← Patched CE Loss",       None),
+    ]
 
-        ax.set_xlabel("% Variance Explained (↑ better)", fontsize=11)
-        ax.set_ylabel("Patched CE Loss (↓ better)", fontsize=11)
-        ax.set_xlim(right=100.0)
-        ax.set_ylim(bottom=0.0)
-        ax.grid(True, alpha=0.3, linewidth=0.5)
-        ax.legend(
-            handles=_legend_handles(color_map, label_fmt),
-            fontsize=9, framealpha=0.9, loc="upper right",
+    fig, axes = plt.subplots(2, 2, figsize=(13, 8))
+
+    for i, (ax, (x, y, hue, palette, xlabel, ylabel, ylim_top)) in enumerate(zip(axes.flat, panels)):
+        sns.pointplot(
+            data=plot_df, x=x, y=y, hue=hue, palette=palette,
+            errorbar="sd", markers="o", linestyles="-",
+            err_kws={"linewidth": 1.5}, capsize=0.08,
+            ax=ax
         )
+        ax.set_xlabel(xlabel, fontsize=11)
+        ax.set_ylabel(ylabel, fontsize=11)
+        ax.set_ylim(bottom=0, top=ylim_top)
+        if i % 2 == 0:  # left panels
+            ax.get_legend().remove()
+        else:
+            ax.legend(fontsize=8, framealpha=0.9, loc="upper right",
+                      ncol=2 if hue == "d_sae" else 1)
 
-    fig.suptitle("SAE Sweep: Reconstruction Fidelity vs Patched CE Loss",
-                 fontsize=12, y=1.02)
     fig.tight_layout()
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -314,14 +287,15 @@ def main():
     df = parse_report(report_path)
     print(f"Parsed {len(df)} SAE rows")
 
-    agg = aggregate(df, args.l0_values, args.d_sae_values,
-                    exclude_l0=args.exclude_l0, exclude_d_sae=args.exclude_d_sae)
+    df = filter_df(df, args.l0_values, args.d_sae_values,
+                   exclude_l0=args.exclude_l0, exclude_d_sae=args.exclude_d_sae)
+    agg = aggregate(df)
     print(f"Aggregated to {len(agg)} (L0, d_sae) groups")
 
     write_markdown_table(agg, output_dir / "sae_sweep_table.md")
     write_latex_table(agg, output_dir / "sae_sweep_table.tex")
-    plot_sweep(agg, output_dir / "sae_sweep_figure.pdf")
-    plot_sweep(agg, output_dir / "sae_sweep_figure.png")
+    plot_sweep(df, output_dir / "sae_sweep_figure.pdf")
+    plot_sweep(df, output_dir / "sae_sweep_figure.png")
 
 
 if __name__ == "__main__":
