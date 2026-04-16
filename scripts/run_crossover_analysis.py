@@ -266,13 +266,22 @@ def run_report(args, context):
         context["n_digits"], context["list_len"], context["device"],
     )
 
+    from src.sae.reporting import FAILURE_ORDER, SUMMARY_ONLY
+
+    # Reclassify feat_zero as dead_latent if the feature never fires on any input.
+    if (merged["feat_orig"].fillna(0) > 0).sum() == 0:
+        merged = merged.copy()
+        merged.loc[merged["failure_reason"] == "feat_zero", "failure_reason"] = "dead_latent"
+        print(f"Feature {feature_idx} is a dead latent (never activates); reclassified all feat_zero rows.")
+
     present_reasons = merged["failure_reason"].value_counts().index.tolist()
-    from src.sae.reporting import FAILURE_ORDER
     ordered = [r for r in FAILURE_ORDER if r in present_reasons]
     ordered += [r for r in present_reasons if r not in FAILURE_ORDER]
 
     visuals = {}
     for reason in ordered:
+        if reason in SUMMARY_ONLY:
+            continue
         g = merged[merged["failure_reason"] == reason]
         if len(g) == 0:
             continue

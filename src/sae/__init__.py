@@ -57,6 +57,7 @@ from .reporting import (
     parse_list_field,
     FAILURE_DESCRIPTIONS,
     FAILURE_ORDER,
+    SUMMARY_ONLY,
 )
 
 __all__ = [
@@ -89,6 +90,7 @@ __all__ = [
     "parse_list_field",
     "FAILURE_DESCRIPTIONS",
     "FAILURE_ORDER",
+    "SUMMARY_ONLY",
     # Feature steering
     "inspect_steered_output",
     "inspect_steered_outputs_batch",

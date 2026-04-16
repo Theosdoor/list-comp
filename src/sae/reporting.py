@@ -26,6 +26,10 @@ FAILURE_DESCRIPTIONS = {
         "and argmax dominance confirmed a contiguous scale window where o1 predicts d2 and o2 "
         "predicts d1."
     ),
+    "dead_latent": (
+        "The feature has zero activation on every input in the dataset — it is a dead latent "
+        "that never learned to represent anything. Steering it has no effect on any input."
+    ),
     "feat_zero": (
         "The feature has zero activation on this input, so steering it does nothing. "
         "This is normal; the feature simply doesn't fire for every digit pair."
@@ -81,6 +85,7 @@ FAILURE_DESCRIPTIONS = {
 
 FAILURE_ORDER = [
     "success",
+    "dead_latent",
     "feat_zero",
     "d1_eq_d2",
     "o1_negative_scale",
@@ -93,6 +98,9 @@ FAILURE_ORDER = [
     "invalid_bounds",
     "no_o1_crossover",
 ]
+
+# Reasons that appear only in the summary table — no breakdown section or visuals.
+SUMMARY_ONLY = {"dead_latent"}
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -340,6 +348,8 @@ def generate_markdown(merged: pd.DataFrame, feature_idx: int, visuals=None) -> s
     lines.append("")
 
     for reason in ordered:
+        if reason in SUMMARY_ONLY:
+            continue
         g = merged[merged["failure_reason"] == reason]
         bc, pa, bw, tot = _correctness_row(g)
         desc = FAILURE_DESCRIPTIONS.get(reason, "_No description available._")
