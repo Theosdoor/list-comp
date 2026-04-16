@@ -24,13 +24,13 @@ Key - don't forget to use the .venv for python execution. Also ensure all subage
 
 ## Canonical Workflows
 - Environment: `uv sync` then `source .venv/bin/activate`.
-- Train model: `python3 scripts/train_model.py ...` (supports retries until `--min-acc`; saves to `models/`).
-- Train SAE: `python3 scripts/train_sae.py --d_sae ... --top_k ... --n_steps ...`.
+- Train model: `python3 scripts/nb_train_model.py ...` (supports retries until `--min-acc`; saves to `models/`).
+- Train SAE: `python3 scripts/nb_train_sae.py --d_sae ... --top_k ... --n_steps ...`.
 - Run crossover pipeline: `python3 scripts/run_crossover_analysis.py [--feature auto] [--threshold 0.5] [--max-features 2] [--report]`
   - Auto mode (default): detects special features via attention-correlation, runs pipeline for up to `--max-features` features.
   - Override mode: `--feature 30` skips detection and runs only that index.
   - Results layout: `results/xover/<sae_name>/special_features.md` (auto mode) and `results/xover/<sae_name>/<feat_idx>/` per feature.
-- SAE sweep comparison: `python3 scripts/compare_sae.py` (evaluates all checkpoints in `results/sae_models/`, writes a markdown comparison table).
+- SAE sweep comparison: `python3 scripts/nb_compare_sae.py` (evaluates all checkpoints in `results/sae_models/`, writes a markdown comparison table).
 - WandB sweeps: `wandb sweep sweeps/<config>.yaml` then `wandb agent <sweep_id>` (or `sbatch slurm/submit_2layer_sweep.sh <sweep_id>`).
 - Cluster/GPU workflow is captured in `slurm/submit_job.sh` (sync env, activate `.venv`, run analysis scripts).
 
@@ -66,7 +66,7 @@ This enforces the SEP compression bottleneck: information must flow `inputs → 
 ## Development Environment
 - Run tests: `.venv/bin/pytest tests/` (pytest is available but coverage is minimal — only `tests/test_make_2layer_table.py` exists).
 - To verify changes to the analysis pipeline, run the crossover pipeline on the baseline model/SAE.
-- `src/interpretability/interp_utils.py` contains attention-edge ablation and residual-stream analysis helpers used by `scripts/interpret_model.py` and `scripts/model_interp.py`.
+- `src/interpretability/interp_utils.py` contains attention-edge ablation and residual-stream analysis helpers used by `scripts/nb_interpret_model.py` and `scripts/nb_model_interp.py`.
 - `itda` is a private git dependency (`git+https://github.com/Theosdoor/itda.git`); update with `uv lock --upgrade-package itda`.
 
 <!-- rtk-instructions v2 -->
@@ -83,108 +83,6 @@ git add . && git commit -m "msg" && git push
 
 # ✅ Correct
 rtk git add . && rtk git commit -m "msg" && rtk git push
-```
-
-## RTK Commands by Workflow
-
-### Build & Compile (80-90% savings)
-```bash
-rtk cargo build         # Cargo build output
-rtk cargo check         # Cargo check output
-rtk cargo clippy        # Clippy warnings grouped by file (80%)
-rtk tsc                 # TypeScript errors grouped by file/code (83%)
-rtk lint                # ESLint/Biome violations grouped (84%)
-rtk prettier --check    # Files needing format only (70%)
-rtk next build          # Next.js build with route metrics (87%)
-```
-
-### Test (90-99% savings)
-```bash
-rtk cargo test          # Cargo test failures only (90%)
-rtk vitest run          # Vitest failures only (99.5%)
-rtk playwright test     # Playwright failures only (94%)
-rtk test <cmd>          # Generic test wrapper - failures only
-```
-
-### Git (59-80% savings)
-```bash
-rtk git status          # Compact status
-rtk git log             # Compact log (works with all git flags)
-rtk git diff            # Compact diff (80%)
-rtk git show            # Compact show (80%)
-rtk git add             # Ultra-compact confirmations (59%)
-rtk git commit          # Ultra-compact confirmations (59%)
-rtk git push            # Ultra-compact confirmations
-rtk git pull            # Ultra-compact confirmations
-rtk git branch          # Compact branch list
-rtk git fetch           # Compact fetch
-rtk git stash           # Compact stash
-rtk git worktree        # Compact worktree
-```
-
-Note: Git passthrough works for ALL subcommands, even those not explicitly listed.
-
-### GitHub (26-87% savings)
-```bash
-rtk gh pr view <num>    # Compact PR view (87%)
-rtk gh pr checks        # Compact PR checks (79%)
-rtk gh run list         # Compact workflow runs (82%)
-rtk gh issue list       # Compact issue list (80%)
-rtk gh api              # Compact API responses (26%)
-```
-
-### JavaScript/TypeScript Tooling (70-90% savings)
-```bash
-rtk pnpm list           # Compact dependency tree (70%)
-rtk pnpm outdated       # Compact outdated packages (80%)
-rtk pnpm install        # Compact install output (90%)
-rtk npm run <script>    # Compact npm script output
-rtk npx <cmd>           # Compact npx command output
-rtk prisma              # Prisma without ASCII art (88%)
-```
-
-### Files & Search (60-75% savings)
-```bash
-rtk ls <path>           # Tree format, compact (65%)
-rtk read <file>         # Code reading with filtering (60%)
-rtk grep <pattern>      # Search grouped by file (75%)
-rtk find <pattern>      # Find grouped by directory (70%)
-```
-
-### Analysis & Debug (70-90% savings)
-```bash
-rtk err <cmd>           # Filter errors only from any command
-rtk log <file>          # Deduplicated logs with counts
-rtk json <file>         # JSON structure without values
-rtk deps                # Dependency overview
-rtk env                 # Environment variables compact
-rtk summary <cmd>       # Smart summary of command output
-rtk diff                # Ultra-compact diffs
-```
-
-### Infrastructure (85% savings)
-```bash
-rtk docker ps           # Compact container list
-rtk docker images       # Compact image list
-rtk docker logs <c>     # Deduplicated logs
-rtk kubectl get         # Compact resource list
-rtk kubectl logs        # Deduplicated pod logs
-```
-
-### Network (65-70% savings)
-```bash
-rtk curl <url>          # Compact HTTP responses (70%)
-rtk wget <url>          # Compact download output (65%)
-```
-
-### Meta Commands
-```bash
-rtk gain                # View token savings statistics
-rtk gain --history      # View command history with savings
-rtk discover            # Analyze Claude Code sessions for missed RTK usage
-rtk proxy <cmd>         # Run command without filtering (for debugging)
-rtk init                # Add RTK instructions to CLAUDE.md
-rtk init --global       # Add RTK to ~/.claude/CLAUDE.md
 ```
 
 ## Token Savings Overview
