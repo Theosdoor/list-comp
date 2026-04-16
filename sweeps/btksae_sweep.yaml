@@ -14,17 +14,14 @@
 program: scripts/sweep_sae.py
 project: btksae_sweep
 method: grid
-metric:
-  name: accuracy_drop_full           # minimise: patched acc drop on full train+val set
-  goal: minimize
 
 parameters:
   d_sae:
-    values: [64, 128, 192, 256, 320, 384, 448, 512] # include all these for grid search (but focus on 128-320 for analysis)
+    values: [64, 128, 192, 256, 320, 384] # include all these for grid search (but focus on 128-320 for analysis)
   top_k:
     values: [1,2, 3, 4, 5]               # k=1,2 are clearly insufficient (see v1 findings above), but keep them for grid search in paper
   lr:
-    values: [1e-5, 1e-4, 1e-3, 1e-2]  # 6 log-uniform values across 2.5 decades; v1 showed LR has little effect for k>=3
+    value: 1e-4  # pretty stable so keep fixed
   n_steps:
     value: 75000
   warmup_steps:
@@ -32,4 +29,4 @@ parameters:
   batch_size:
     value: 4096
   seed:
-    values: [0, 1, 2]               # 3 seeds per config to check stability
+    values: [0, 1, 2, 3, 4,5,6,7,8,9,10,11,12,13,14] 

@@ -8,40 +8,36 @@ Each configuration is trained 3 times with different random seeds.
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))  # scripts/ for local imports
 
 import os
-import argparse
 
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, ConcatDataset
 from tqdm.auto import tqdm
 import wandb
-import matplotlib.pyplot as plt
 
 from dictionary_learning.trainers import BatchTopKTrainer
 
 from src.models.transformer import make_model
 from src.models.utils import infer_model_config
 from src.utils.runtime import configure_runtime
-from torch.utils.data import ConcatDataset
 from src.data.datasets import get_dataset
 from src.sae.sae_analysis import (
-    collect_sae_activations, 
-    create_feature_heatmaps,
+    collect_sae_activations,
     compute_reconstruction_metrics,
-    compute_sae_patched_accuracy,
     collect_attention_patterns,
     identify_special_features,
-    create_firing_rate_histogram,
 )
-from train_sae import get_sep_activations
+from src.sae.metrics import compute_sae_downstream_metrics
+from nb_train_sae import get_sep_activations
 
 
 # Base Model Configuration
 MODEL_NAME = '2layer_100dig_64d'
 MODEL_PATH = f'models/{MODEL_NAME}.pt'
 MODEL_CFG = infer_model_config(MODEL_PATH)
-SAVE_FOLDER = 'results/sae_models/sweep_runs'
+SAVE_FOLDER = 'results/sae_models/sweep_runs_v2'
 
 # Base Model Config (derived from checkpoint)
 N_LAYERS = MODEL_CFG['n_layers']
@@ -150,16 +146,17 @@ def train_sae_sweep():
     
     print(f"\nSAE Config: d_sae={d_sae}, k={top_k}")
     print(f"Training for {n_steps} steps...")
-    
+
     # 5. Training Loop
     def cycle(iterable):
         while True:
             for x in iterable:
                 yield x
-    
+
     iter_dl = cycle(sae_dl)
     pbar = tqdm(range(n_steps))
-    
+    loss = 0.0
+
     for step in pbar:
         batch_acts = next(iter_dl)
         loss = trainer.update(step, batch_acts)
@@ -183,109 +180,76 @@ def train_sae_sweep():
     # 6. Final metrics
     log_info = trainer.get_logging_parameters()
     final_l0 = log_info.get('effective_l0', 0)
-    
+
     wandb.summary["final_loss"] = loss
     wandb.summary["final_l0"] = final_l0
-    
-    # 6b. Generate and log feature heatmaps
+
+    # 6b. Evaluate and log core metrics on full dataset
     print("\nGenerating analysis metrics...")
     try:
-        # Use full dataset (train + val) for exhaustive feature analysis
         _train_ds, _val_ds = get_dataset(
             list_len=LIST_LEN,
             n_digits=N_DIGITS,
             no_dupes=False
         )
         analysis_dl = DataLoader(ConcatDataset([_train_ds, _val_ds]), batch_size=2048, shuffle=False)
-        
-        sae = trainer.ae
-        sae = sae.to(DEVICE)  # Ensure SAE is on correct device
-        
-        # Collect SAE activations
-        d1_all, d2_all, sae_acts_all = collect_sae_activations(
+
+        sae = trainer.ae.to(DEVICE)
+
+        # L0 and dead features
+        _, _, sae_acts_all = collect_sae_activations(
             model, sae, analysis_dl, act_mean,
             layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
         )
-        
-        # 1. Feature heatmaps (skip for now)
-        # print("  - Creating feature heatmaps...")
-        # if d_sae <= 256:  # Only create if reasonable size
-        #     fig = create_feature_heatmaps(d1_all, d2_all, sae_acts_all, n_digits=N_DIGITS)
-        #     # Convert plotly figure to static image for W&B
-        #     wandb.log({"feature_heatmaps": wandb.Plotly(fig)})
-        #     print(f"    ✓ Logged feature heatmaps ({d_sae} features)")
-        # else:
-        #     print(f"    ⊘ Skipped heatmaps (d_sae={d_sae} too large for visualization)")
-        
-        # 2. Basic sparsity metrics
         l0 = (sae_acts_all > 0).float().sum(dim=1).mean()
         dead_features = (sae_acts_all.sum(dim=0) == 0).sum().item()
-        firing_rate = (sae_acts_all > 0).float().mean(dim=0)
-        
         wandb.summary["avg_l0"] = l0.item()
-        wandb.summary["dead_features"] = dead_features
         wandb.summary["dead_features_pct"] = 100 * dead_features / d_sae
-        
-        # 3. Reconstruction quality
+
+        # Explained variance
         print("  - Computing reconstruction metrics...")
         try:
             recon_metrics = compute_reconstruction_metrics(
                 model, sae, analysis_dl, act_mean,
                 layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
             )
-            wandb.summary["reconstruction_mse"] = recon_metrics["mse"]
             wandb.summary["explained_variance"] = recon_metrics["explained_variance"]
         except Exception as e:
-            print(f"    ⚠ Warning: Could not compute reconstruction metrics - {e}")
-            wandb.summary["reconstruction_mse"] = "NA"
-            wandb.summary["explained_variance"] = "NA"
-        
-        # 3b. SAE reconstruction accuracy
-        print("  - Computing SAE reconstruction accuracy...")
+            print(f"    ⚠ Could not compute reconstruction metrics - {e}")
+            wandb.summary["explained_variance"] = None
+
+        # CE metrics (baseline CE, patched CE, CE increase)
+        print("  - Computing downstream CE metrics...")
         try:
-            recon_acc_metrics = compute_sae_patched_accuracy(
+            downstream = compute_sae_downstream_metrics(
                 model, sae, analysis_dl, act_mean,
                 layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
             )
-            # Both numbers are on the full dataset (train+val exhaustive scan)
-            wandb.summary["baseline_accuracy_full"] = recon_acc_metrics["baseline_acc"]
-            wandb.summary["sae_patched_task_accuracy_full"] = recon_acc_metrics["reconstruction_acc"]
-            wandb.summary["accuracy_drop_full"] = recon_acc_metrics["accuracy_drop"]
+            wandb.summary["baseline_ce"] = downstream["baseline_ce"]
+            wandb.summary["patched_ce"] = downstream["patched_ce"]
+            wandb.summary["ce_increase"] = downstream["ce_increase"]
         except Exception as e:
-            print(f"    ⚠ Warning: Could not compute SAE reconstruction accuracy - {e}")
-            wandb.summary["sae_patched_task_accuracy"] = 0
-            wandb.summary["accuracy_drop"] = 100
-        
-        # 4. Special features (correlated with attention)
+            print(f"    ⚠ Could not compute downstream CE metrics - {e}")
+            wandb.summary["baseline_ce"] = None
+            wandb.summary["patched_ce"] = None
+            wandb.summary["ce_increase"] = None
+
+        # Special features (attention-correlated)
         print("  - Identifying special features...")
         try:
             alpha_d1_all, alpha_d2_all = collect_attention_patterns(
                 model, analysis_dl, layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
             )
-            special_features_info = identify_special_features(
+            special_info = identify_special_features(
                 sae_acts_all, alpha_d1_all, alpha_d2_all, threshold=0.5
             )
-            
-            wandb.summary["n_special_features"] = special_features_info["n_special_features"]
-            wandb.summary["special_features_pct"] = 100 * special_features_info["n_special_features"] / d_sae
-            wandb.summary["max_attn_correlation"] = float(special_features_info["max_correlation"])
-            wandb.summary["mean_abs_attn_correlation"] = float(special_features_info["mean_abs_correlation"])
-            
-            # Log special features as table
-            if special_features_info["special_features"]:
-                special_features_table = wandb.Table(
-                    columns=["feature_idx", "correlation", "type"],
-                    data=[[f["feature_idx"], float(f["correlation"]), f["type"]] 
-                          for f in special_features_info["special_features"]]
-                )
-                wandb.log({"special_features": special_features_table})
-                print(f"    ✓ Identified {special_features_info['n_special_features']} special features")
+            wandb.summary["n_special_features"] = special_info["n_special_features"]
         except Exception as e:
-            print(f"    ⚠ Warning: Could not compute special features - {e}")
-            wandb.summary["n_special_features"] = NA
-        
+            print(f"    ⚠ Could not identify special features - {e}")
+            wandb.summary["n_special_features"] = None
+
         print("✓ Logged all analysis metrics to W&B")
-        
+
     except Exception as e:
         print(f"⚠ Error during metric logging: {e}")
         print("Continuing with SAE save...")

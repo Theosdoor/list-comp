@@ -54,13 +54,13 @@ def find_latest_report(root: Path) -> Path:
 
 
 def parse_report(path: Path) -> pd.DataFrame:
-    """Parse main summary table and special features table; join on model name."""
+    """Parse the summary table from an sae_comparison_*.md report."""
     text = path.read_text()
 
-    # ── Main summary table ────────────────────────────────────────────────────
-    # Columns: Model | d_sae | k | L0 | Dead | Dead% | Alive | MSE | Exp Var |
-    #          Baseline Acc | Patched Acc | Acc Drop | Baseline CE | Patched CE | CE Increase
-    summary_rows = []
+    # ── Summary table columns ─────────────────────────────────────────────────
+    # | Model | d_sae | k | L0 | Dead % | Exp Var | Baseline CE | Patched CE | CE Increase | N Special |
+    #   [1]    [2]    [3]  [4]   [5]      [6]       [7]           [8]          [9]            [10]
+    rows = []
     in_summary = False
     for line in text.splitlines():
         if "## Summary Table" in line:
@@ -70,42 +70,23 @@ def parse_report(path: Path) -> pd.DataFrame:
             break
         if in_summary and line.startswith("| sae_"):
             cols = [c.strip() for c in line.split("|")]
-            # cols[0] = '', cols[1] = model, cols[2..] = values
             try:
-                summary_rows.append({
+                rows.append({
                     "model":       cols[1],
                     "d_sae":       int(cols[2]),
                     "k":           int(cols[3]),
                     "l0":          int(round(float(cols[4]))),
-                    "ev":          float(cols[9]),
-                    "dead_pct":    float(cols[6].rstrip("%")),
-                    "baseline_ce": float(cols[13]),
-                    "patched_ce":  float(cols[14]),
-                    "ce_increase": float(cols[15]),
+                    "dead_pct":    float(cols[5].rstrip("%")),
+                    "ev":          float(cols[6]),
+                    "baseline_ce": float(cols[7]),
+                    "patched_ce":  float(cols[8]),
+                    "ce_increase": float(cols[9]),
+                    "n_special":   int(cols[10]) if cols[10] != "—" else 0,
                 })
             except (IndexError, ValueError):
                 pass
 
-    # ── Special features table ────────────────────────────────────────────────
-    # Columns: Model | N Special | Special % | Max Corr | Mean Abs Corr
-    special_rows = {}
-    in_special = False
-    for line in text.splitlines():
-        if "## Special Features" in line:
-            in_special = True
-            continue
-        if in_special and line.startswith("##"):
-            break
-        if in_special and line.startswith("| sae_"):
-            cols = [c.strip() for c in line.split("|")]
-            try:
-                special_rows[cols[1]] = int(cols[2])
-            except (IndexError, ValueError):
-                pass
-
-    df = pd.DataFrame(summary_rows)
-    df["n_special"] = df["model"].map(special_rows).fillna(0).astype(int)
-    return df
+    return pd.DataFrame(rows)
 
 
 # ── Filtering & Aggregation ───────────────────────────────────────────────────

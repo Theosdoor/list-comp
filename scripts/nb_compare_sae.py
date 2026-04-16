@@ -231,86 +231,45 @@ def generate_markdown_report(results, output_path):
     """Generate markdown comparison report."""
     if not results:
         return "No results to report."
-    
-    # Sort by top_k, then d_sae
+
+    # Sort by k, then d_sae
     results = sorted(results, key=lambda x: (x['k'], x['d_sae']))
-    
-    # Check if we have accuracy metrics
-    has_acc = 'patched_task_acc' in results[0]
-    
+
+    has_ce = 'baseline_ce' in results[0]
+    has_special = 'n_special_features' in results[0]
+
     lines = [
         "# SAE Sweep Comparison Report\n",
-        f"Compared {len(results)} SAE models from sweep runs on {results[0]['n_samples']} samples (full train+val dataset).\n",
-        "> All accuracy figures are measured on the **full dataset** (train + val). "
-        "Baseline and SAE-patched accuracy use the same inputs so the drop is a valid comparison — "
-        "but these numbers should not be read as held-out generalisation accuracy.\n",
-        "",
+        f"Compared {len(results)} SAE models on {results[0]['n_samples']} samples (full train+val dataset).\n",
         "## Summary Table\n",
+        "| Model | d_sae | k | L0 | Dead % | Exp Var | Baseline CE | Patched CE | CE Increase | N Special |",
+        "|-------|-------|---|----|--------|---------|-------------|------------|-------------|-----------|",
     ]
-    
-    has_ce = has_acc and 'ce_increase' in results[0]
-
-    if has_acc:
-        header = "| Model | d_sae | k | L0 | Dead | Dead % | Alive | MSE | Exp Var | Baseline Acc | Patched Acc | Acc Drop"
-        sep =    "|-------|-------|---|----|----|--------|-------|-----|---------|--------------|-------------|----------"
-        if has_ce:
-            header += " | Baseline CE | Patched CE | CE Increase |"
-            sep    += "|-------------|------------|-------------|"
-        else:
-            header += " |"
-            sep    += "|"
-        lines.extend([header, sep])
-    else:
-        lines.extend([
-            "| Model | d_sae | k | L0 | Dead | Dead % | Alive | MSE | Exp Var |",
-            "|-------|-------|---|----|----|--------|-------|-----|---------|",
-        ])
 
     for r in results:
-        base_row = (
-            f"| {r['name']} | {r['d_sae']} | {r['k']} | {r['l0']:.2f} | "
-            f"{r['n_dead']} | {r['dead_pct']:.1f}% | {r['n_alive']} | {r['mse']:.4f} | {r['explained_var']:.4f}"
+        ce_cols = (
+            f" {r['baseline_ce']:.4f} | {r['patched_ce']:.4f} | {r['ce_increase']:.4f} |"
+            if has_ce else " — | — | — |"
         )
-        if has_acc:
-            base_row += f" | {r['baseline_acc']:.4f} | {r['patched_task_acc']:.4f} | {r['acc_drop']:.4f}"
-        if has_ce:
-            base_row += f" | {r['baseline_ce']:.4f} | {r['patched_ce']:.4f} | {r['ce_increase']:.4f} |"
-        elif has_acc:
-            base_row += " |"
-        else:
-            base_row += " |"
-        lines.append(base_row)
-    
-    lines.extend([
-        "",
-        "## Best Models by top_k\n",
-    ])
-    
-    # Group by top_k and find best in each group
-    from itertools import groupby
-    for k, group in groupby(results, key=lambda x: x['k']):
-        group_list = list(group)
-        best_by_mse = min(group_list, key=lambda x: x['mse'])
-        best_by_dead = min(group_list, key=lambda x: x['dead_pct'])
-        
-        lines.append(f"\n### top_k = {k}\n")
-        lines.append(f"- Best reconstruction (MSE): **{best_by_mse['name']}** (MSE: {best_by_mse['mse']:.4f}, d_sae={best_by_mse['d_sae']})")
-        lines.append(f"- Fewest dead features: **{best_by_dead['name']}** ({best_by_dead['dead_pct']:.1f}%, d_sae={best_by_dead['d_sae']})")
-    
+        n_special = f" {r['n_special_features']} |" if has_special else " — |"
+        lines.append(
+            f"| {r['name']} | {r['d_sae']} | {r['k']} | {r['l0']:.2f} |"
+            f" {r['dead_pct']:.1f}% | {r['explained_var']:.4f} |{ce_cols}{n_special}"
+        )
+
+    # ── Firing rate statistics ─────────────────────────────────────────────────
     lines.extend([
         "",
         "## Firing Rate Statistics\n",
         "| Model | Min Firing | Max Firing | Mean Firing |",
         "|-------|------------|------------|-------------|",
     ])
-    
     for r in results:
         lines.append(
             f"| {r['name']} | {r['min_firing']:.4f} | {r['max_firing']:.4f} | {r['mean_firing']:.4f} |"
         )
-    
-    # Special features section
-    has_special = 'n_special_features' in results[0]
+
+    # ── Special features ───────────────────────────────────────────────────────
     if has_special:
         lines.extend([
             "",
@@ -318,14 +277,12 @@ def generate_markdown_report(results, output_path):
             "| Model | N Special | Special % | Max Corr | Mean Abs Corr |",
             "|-------|-----------|-----------|----------|---------------|",
         ])
-        
         for r in results:
             lines.append(
                 f"| {r['name']} | {r['n_special_features']} | {r['special_features_pct']:.1f}% | "
                 f"{r['max_correlation']:.4f} | {r['mean_abs_correlation']:.4f} |"
             )
-        
-        # Show top special features for each model
+
         lines.extend(["", "### Top Special Features by Model\n"])
         for r in results:
             if r.get('special_features_list'):
@@ -341,25 +298,24 @@ def generate_markdown_report(results, output_path):
                             f"- Feature {feat['feature_idx']}: {feat['type']}, "
                             f"corr={feat['correlation']:.4f}"
                         )
-    
+
     lines.extend([
         "",
-        "## Analysis\n",
-        "- **L0**: Average number of active features per sample (lower = sparser)",
-        "- **Dead %**: Percentage of features that never fire (lower = better utilization)",
-        "- **MSE**: Mean squared reconstruction error (lower = better reconstruction)",
-        "- **Exp Var**: Explained variance of input by reconstruction (higher = better; equivalent to paper R² metric)",
-        "- **Baseline/Patched CE**: Cross-entropy loss on output tokens with original vs SAE-reconstructed activations (lower = better downstream performance)",
-        "- **CE Increase**: Delta CE loss from SAE patching — the primary downstream metric in published SAE papers",
-        "- **Special Features**: Features with |correlation| > 0.5 with attention difference (alpha_d1 - alpha_d2)",
+        "## Notes\n",
+        "- **L0**: mean active features per token",
+        "- **Dead %**: features that never fire on the full dataset (lower = better)",
+        "- **Exp Var**: fraction of SEP-activation variance explained by SAE reconstruction (higher = better)",
+        "- **Baseline / Patched CE**: output-token cross-entropy with original vs SAE-reconstructed activations",
+        "- **CE Increase**: Patched CE − Baseline CE — primary faithfulness metric (lower = better)",
+        "- **N Special**: features with |corr| > 0.5 with attention difference (alpha_d1 − alpha_d2)",
         "",
     ])
-    
+
     report = "\n".join(lines)
-    
+
     with open(output_path, 'w') as f:
         f.write(report)
-    
+
     return report
 
 #%%
