@@ -188,7 +188,9 @@ def load_sae(
         }
     sae.load_state_dict(state_dict)
 
+    act_mean = checkpoint.get("act_mean", torch.zeros(d_model))
+
     print(f"✓ Loaded {sae_type} SAE from {sae_path}")
     print(f"  - Dictionary size: {d_sae}")
 
-    return sae, {'dict_size': d_sae, 'd_sae': d_sae, **sae_cfg}
+    return sae, {'dict_size': d_sae, 'd_sae': d_sae, 'act_mean': act_mean, **sae_cfg}
