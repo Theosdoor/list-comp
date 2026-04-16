@@ -19,14 +19,11 @@ python3 -c "import torch; print(f'[slurm] CUDA Available: {torch.cuda.is_availab
 echo "------------------------------------------------------"
 
 
-# Run the experiments
-# python3 scripts/nb_compare_sae.py
-# python3 scripts/plot_sae_sweep.py
+# Train validation SAEs (one JumpReLU, one Matryoshka) and run crossover on each
+python3 scripts/nb_train_sae.py --sae_type jumprelu  --d_sae 128 --target_l0 3.0 --n_steps 20000
+python3 scripts/nb_train_sae.py --sae_type matryoshka --d_sae 128 --top_k 3 --n_groups 4 --n_steps 20000
 
-SAE="sweep_runs/sae_d128_k3_lr0.0001_seed0_2layer_100dig_64d.pt"
-python3 scripts/run_crossover_analysis.py --sae "$SAE" --report
-
-# SAE sweep (comment/uncomment as needed)
-# wandb agent theo-farrell99-durham-university/btksae_sweep/x7tgo6fv
+python3 scripts/run_crossover_analysis.py --sae jumprelu_sae_d128_tl03.0_2layer_100dig_64d.pt --report
+python3 scripts/run_crossover_analysis.py --sae matryoshka_sae_d128_k3_ng4_2layer_100dig_64d.pt --report
 
 echo "[slurm] Finished at $(date)"

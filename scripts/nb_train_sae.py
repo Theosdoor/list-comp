@@ -17,7 +17,8 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
 from dictionary_learning.trainers import BatchTopKTrainer
-# https://github.com/saprmarks/dictionary_learning/blob/main/dictionary_learning/trainers/batch_top_k.py
+from dictionary_learning.trainers.jumprelu import JumpReluTrainer
+from dictionary_learning.trainers.matryoshka_batch_top_k import MatryoshkaBatchTopKTrainer
 
 from src.models.transformer import make_model, parse_model_name_safe
 from src.utils.runtime import configure_runtime
@@ -29,11 +30,13 @@ MODEL_NAME = '2layer_100dig_64d'
 MODEL_CFG = parse_model_name_safe(MODEL_NAME)
 SAVE_FOLDER = 'results/sae_models'
 
-
 # Architecture
 D_MODEL = MODEL_CFG.d_model      # activation_dim
 D_SAE = 150                      # dict_size
-TOP_K = 4                            # top_k: activations per sample
+TOP_K = 4                        # top_k for btk/matryoshka
+TARGET_L0 = 4.0                  # target sparsity for jumprelu
+N_GROUPS = 4                     # number of nested groups for matryoshka
+SAE_TYPE = 'btk'                 # sae type: btk | jumprelu | matryoshka
 
 # Training
 LR = 3e-4
@@ -51,9 +54,6 @@ SEP_TOKEN_INDEX = 2               # [d1, d2, SEP, o1, o2] -> Index 2
 # Runtime
 SEED = 42
 DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-
-SAVE_NAME = f'sae_d{D_SAE}_k{TOP_K}_{N_STEPS//1000}ksteps_{MODEL_NAME}.pt'
-SAVE_PATH = os.path.join(SAVE_FOLDER, SAVE_NAME)
 
 
 #%%
@@ -136,21 +136,30 @@ def train_sae():
     
     sae_dl = DataLoader(all_acts_centered, batch_size=BATCH_SIZE, shuffle=True)
     
-    # 4. Initialize Trainer (handles SAE creation internally)
-    trainer = BatchTopKTrainer(
-        steps=N_STEPS,
-        activation_dim=D_MODEL,
-        dict_size=D_SAE,
-        k=TOP_K,
-        layer=0,  # Required but we're using custom activations
-        lm_name="custom",  # Required but we're using custom activations
-        lr=LR,
-        warmup_steps=WARMUP_STEPS,
-        seed=SEED,
-        device=DEVICE,
-    )
-    
-    print(f"\nSAE Config: d_sae={D_SAE}, k={TOP_K}")
+    # 4. Initialize Trainer
+    common = dict(steps=N_STEPS, activation_dim=D_MODEL, dict_size=D_SAE,
+                  layer=0, lm_name="custom", lr=LR, warmup_steps=WARMUP_STEPS,
+                  seed=SEED, device=DEVICE)
+
+    if SAE_TYPE == "btk":
+        trainer = BatchTopKTrainer(k=TOP_K, **common)
+        extra_cfg = {"sae_type": "btk", "k": TOP_K}
+        type_tag = f"k{TOP_K}"
+    elif SAE_TYPE == "jumprelu":
+        trainer = JumpReluTrainer(target_l0=TARGET_L0, **common)
+        extra_cfg = {"sae_type": "jumprelu", "target_l0": TARGET_L0}
+        type_tag = f"tl0{TARGET_L0}"
+    elif SAE_TYPE == "matryoshka":
+        frac = 1.0 / N_GROUPS
+        group_fractions = [frac] * (N_GROUPS - 1) + [1.0 - frac * (N_GROUPS - 1)]
+        trainer = MatryoshkaBatchTopKTrainer(k=TOP_K, group_fractions=group_fractions, **common)
+        extra_cfg = {"sae_type": "matryoshka", "k": TOP_K, "n_groups": N_GROUPS,
+                     "group_fractions": group_fractions, "group_sizes": trainer.group_sizes}
+        type_tag = f"k{TOP_K}_ng{N_GROUPS}"
+    else:
+        raise ValueError(f"Unknown sae_type '{SAE_TYPE}'. Use btk, jumprelu, or matryoshka.")
+
+    print(f"\nSAE type: {SAE_TYPE}  d_sae={D_SAE}  {type_tag}")
     print(f"Training for {N_STEPS} steps...")
     
     # 5. Training Loop using trainer.update()
@@ -177,43 +186,45 @@ def train_sae():
             })
     
     # 6. Save - get SAE from trainer
-    sae = trainer.ae  # The trained autoencoder
-    
+    sae = trainer.ae
+    save_name = f'{SAE_TYPE}_sae_d{D_SAE}_{type_tag}_{MODEL_NAME}.pt'
+    save_path = os.path.join(SAVE_FOLDER, save_name)
+
     checkpoint = {
         "state_dict": sae.state_dict(),
         "cfg": {
             "activation_dim": D_MODEL,
             "dict_size": D_SAE,
-            "k": TOP_K,
             "d_model": D_MODEL,
             "d_sae": D_SAE,
+            **extra_cfg,
         },
         "act_mean": act_mean.cpu()
     }
-    
-    torch.save(checkpoint, SAVE_PATH)
-    print(f"\n✓ SAE saved to {SAVE_PATH}")
-    print(f"  Config: d_sae={D_SAE}, k={TOP_K}")
+
+    torch.save(checkpoint, save_path)
+    print(f"\n✓ SAE saved to {save_path}")
 
 #%%
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train BatchTopK SAE")
-    parser.add_argument("--d_sae", type=int, default=D_SAE, help=f"Dictionary size (default: {D_SAE})")
-    parser.add_argument("--top_k", type=int, default=TOP_K, help=f"TopK sparsity (default: {TOP_K})")
-    parser.add_argument("--lr", type=float, default=LR, help=f"Learning rate (default: {LR})")
-    parser.add_argument("--n_steps", type=int, default=N_STEPS, help=f"Training steps (default: {N_STEPS})")
-    parser.add_argument("--warmup_steps", type=int, default=WARMUP_STEPS, help=f"Warmup steps (default: {WARMUP_STEPS})")
+    parser = argparse.ArgumentParser(description="Train SAE on SEP token activations")
+    parser.add_argument("--sae_type", type=str, default=SAE_TYPE, choices=["btk", "jumprelu", "matryoshka"])
+    parser.add_argument("--d_sae", type=int, default=D_SAE)
+    parser.add_argument("--top_k", type=int, default=TOP_K, help="Top-k for btk/matryoshka")
+    parser.add_argument("--target_l0", type=float, default=TARGET_L0, help="Target L0 for jumprelu")
+    parser.add_argument("--n_groups", type=int, default=N_GROUPS, help="Number of nested groups for matryoshka")
+    parser.add_argument("--lr", type=float, default=LR)
+    parser.add_argument("--n_steps", type=int, default=N_STEPS)
+    parser.add_argument("--warmup_steps", type=int, default=WARMUP_STEPS)
     args = parser.parse_args()
-    
-    # Update globals with command-line overrides
+
+    SAE_TYPE = args.sae_type
     D_SAE = args.d_sae
     TOP_K = args.top_k
+    TARGET_L0 = args.target_l0
+    N_GROUPS = args.n_groups
     LR = args.lr
     N_STEPS = args.n_steps
     WARMUP_STEPS = args.warmup_steps
-    
-    # Update save path with new config
-    SAVE_NAME = f'sae_d{D_SAE}_k{TOP_K}_{MODEL_NAME}.pt'
-    SAVE_PATH = os.path.join(SAVE_FOLDER, SAVE_NAME)
-    
+
     train_sae()
