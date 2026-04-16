@@ -20,8 +20,8 @@ echo "------------------------------------------------------"
 
 
 # Train validation SAEs (one JumpReLU, one Matryoshka) and run crossover on each
-python3 scripts/nb_train_sae.py --sae_type jumprelu  --d_sae 128 --target_l0 3.0 --n_steps 20000
-python3 scripts/nb_train_sae.py --sae_type matryoshka --d_sae 128 --top_k 3 --n_groups 4 --n_steps 20000
+python3 scripts/nb_train_sae.py --sae_type jumprelu  --d_sae 128 --target_l0 3.0 --n_steps 20000 --lr 7e-5
+python3 scripts/nb_train_sae.py --sae_type matryoshka --d_sae 128 --top_k 3 --n_groups 4 --n_steps 20000 --lr 1e-4
 
 python3 scripts/run_crossover_analysis.py --sae jumprelu_sae_d128_tl03.0_2layer_100dig_64d.pt --report
 python3 scripts/run_crossover_analysis.py --sae matryoshka_sae_d128_k3_ng4_2layer_100dig_64d.pt --report
