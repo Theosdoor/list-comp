@@ -1,0 +1,29 @@
+# wandb sweep sweeps/jumprelu_sweep.yaml
+#
+# JumpReLU SAE sweep — comparable parameter range to btksae_sweep.yaml.
+# target_l0 plays the same role as top_k in BTK: it sets the target sparsity level.
+# lr: 7e-5 follows the DeepMind JumpReLU paper default (vs 1e-4 for BTK).
+
+program: scripts/sweep_sae.py
+project: jumprelu_sae_sweep
+method: grid
+
+parameters:
+  sae_type:
+    value: jumprelu
+  d_sae:
+    values: [128, 192, 256, 320]
+  target_l0:
+    values: [2, 3, 4, 5, 6]
+  sparsity_penalty:
+    value: 1.0
+  lr:
+    value: 7e-5
+  n_steps:
+    value: 75000
+  warmup_steps:
+    value: 1000
+  batch_size:
+    value: 4096
+  seed:
+    values: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]

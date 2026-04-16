@@ -6,7 +6,7 @@ import os
 import sys
 import torch
 from pathlib import Path
-from dictionary_learning.trainers.batch_top_k import BatchTopKSAE
+from src.sae.loading import instantiate_sae_from_cfg
 
 from ..models.utils import load_model as _load_model
 from ..models.transformer import parse_model_name_safe
@@ -172,41 +172,23 @@ def load_sae(
     # Extract config
     sae_cfg = checkpoint.get("cfg", {})
     d_sae = sae_cfg.get("dict_size", sae_cfg.get("d_sae", 256))
-    top_k = sae_cfg.get("k", 4)
-    
-    # Create SAE instance
-    sae = BatchTopKSAE(
-        activation_dim=d_model,
-        dict_size=d_sae,
-        k=top_k
-    ).to(device)
-    
-    # Load state dict (handle both old and new formats)
+    sae_type = sae_cfg.get("sae_type", "btk")
+
+    # Create SAE instance using shared dispatch
+    sae = instantiate_sae_from_cfg(sae_cfg, d_model, device)
+
+    # Load state dict (handle legacy BTK format)
     state_dict = checkpoint["state_dict"]
-    if "W_enc" in state_dict:
-        # Legacy format conversion
-        new_state_dict = {
+    if sae_type == "btk" and "W_enc" in state_dict:
+        state_dict = {
             "encoder.weight": state_dict["W_enc"].T,
             "encoder.bias": state_dict["b_enc"],
             "decoder.weight": state_dict["W_dec"],
             "decoder.bias": state_dict["b_dec"],
         }
-        sae.load_state_dict(new_state_dict)
-    else:
-        # New format
-        sae.load_state_dict(state_dict)
-    
-    print(f"✓ Loaded SAE from {sae_path}")
+    sae.load_state_dict(state_dict)
+
+    print(f"✓ Loaded {sae_type} SAE from {sae_path}")
     print(f"  - Dictionary size: {d_sae}")
-    print(f"  - Top-K: {top_k}")
-    
-    # Return SAE and config
-    config = {
-        'dict_size': d_sae,
-        'd_sae': d_sae,
-        'k': top_k,
-        'top_k': top_k,
-        **sae_cfg  # Include any additional config from checkpoint
-    }
-    
-    return sae, config
+
+    return sae, {'dict_size': d_sae, 'd_sae': d_sae, **sae_cfg}

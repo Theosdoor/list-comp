@@ -16,6 +16,8 @@ project: btksae_sweep
 method: grid
 
 parameters:
+  sae_type:
+    value: btk
   d_sae:
     values: [64, 128, 192, 256, 320, 384] # include all these for grid search (but focus on 128-320 for analysis)
   top_k:

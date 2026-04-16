@@ -17,9 +17,8 @@ import numpy as np
 from tqdm.auto import tqdm
 from datetime import datetime
 
-from dictionary_learning.trainers.batch_top_k import BatchTopKSAE
-
 from src.utils.runtime import configure_runtime
+from src.sae.loading import instantiate_sae_from_cfg
 from src.models.utils import load_model
 from src.models.transformer import parse_model_name_safe
 from src.data.datasets import get_dataset
@@ -49,18 +48,10 @@ def load_sae(sae_path):
     checkpoint = torch.load(sae_path, map_location=DEVICE, weights_only=False)
     cfg = checkpoint.get("cfg", {})
 
-    d_sae = cfg.get("dict_size", cfg.get("d_sae", 256))
-    k = cfg.get("k", 4)
-
-    sae = BatchTopKSAE(
-        activation_dim=D_MODEL,
-        dict_size=d_sae,
-        k=k,
-    ).to(DEVICE)
+    sae = instantiate_sae_from_cfg(cfg, D_MODEL, DEVICE)
     sae.load_state_dict(checkpoint["state_dict"])
 
     act_mean = checkpoint["act_mean"].to(DEVICE)
-
     return sae, act_mean
 
 #%%

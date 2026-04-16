@@ -18,6 +18,8 @@ from tqdm.auto import tqdm
 import wandb
 
 from dictionary_learning.trainers import BatchTopKTrainer
+from dictionary_learning.trainers.jumprelu import JumpReluTrainer
+from dictionary_learning.trainers.matryoshka_batch_top_k import MatryoshkaBatchTopKTrainer
 
 from src.models.transformer import make_model
 from src.models.utils import infer_model_config
@@ -37,7 +39,6 @@ from nb_train_sae import get_sep_activations
 MODEL_NAME = '2layer_100dig_64d'
 MODEL_PATH = f'models/{MODEL_NAME}.pt'
 MODEL_CFG = infer_model_config(MODEL_PATH)
-SAVE_FOLDER = 'results/sae_models/sweep_runs_v2'
 
 # Base Model Config (derived from checkpoint)
 N_LAYERS = MODEL_CFG['n_layers']
@@ -52,31 +53,131 @@ SEP_TOKEN_INDEX = 2
 DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 
 
+# ---------------------------------------------------------------------------
+# Trainer factories
+# Each factory receives (config, activation_dim, device) and returns
+# (trainer, run_name, extra_cfg) where extra_cfg holds type-specific
+# fields to be written into the checkpoint cfg block.
+#
+# To add a new SAE type: write a factory function and add it to TRAINER_REGISTRY.
+# ---------------------------------------------------------------------------
+
+def _make_btk_trainer(config, activation_dim, device):
+    d_sae = config.d_sae
+    top_k = config.top_k
+    lr = config.lr
+    seed = config.seed
+    n_steps = config.n_steps
+    warmup_steps = config.warmup_steps
+
+    trainer = BatchTopKTrainer(
+        steps=n_steps,
+        activation_dim=activation_dim,
+        dict_size=d_sae,
+        k=top_k,
+        layer=0,
+        lm_name="custom",
+        lr=lr,
+        warmup_steps=warmup_steps,
+        seed=seed,
+        device=device,
+    )
+    run_name = f"btk_sae_d{d_sae}_k{top_k}_lr{lr}_seed{seed}"
+    extra_cfg = {"sae_type": "btk", "k": top_k}
+    return trainer, run_name, extra_cfg
+
+
+def _make_jumprelu_trainer(config, activation_dim, device):
+    d_sae = config.d_sae
+    target_l0 = config.target_l0
+    sparsity_penalty = config.sparsity_penalty
+    lr = config.lr
+    seed = config.seed
+    n_steps = config.n_steps
+    warmup_steps = config.warmup_steps
+
+    trainer = JumpReluTrainer(
+        steps=n_steps,
+        activation_dim=activation_dim,
+        dict_size=d_sae,
+        layer=0,
+        lm_name="custom",
+        lr=lr,
+        warmup_steps=warmup_steps,
+        sparsity_penalty=sparsity_penalty,
+        target_l0=target_l0,
+        seed=seed,
+        device=device,
+    )
+    run_name = f"jumprelu_sae_d{d_sae}_tl0{target_l0}_lr{lr}_seed{seed}"
+    extra_cfg = {"sae_type": "jumprelu", "target_l0": target_l0, "sparsity_penalty": sparsity_penalty}
+    return trainer, run_name, extra_cfg
+
+
+def _make_matryoshka_trainer(config, activation_dim, device):
+    d_sae = config.d_sae
+    top_k = config.top_k
+    n_groups = config.n_groups
+    lr = config.lr
+    seed = config.seed
+    n_steps = config.n_steps
+    warmup_steps = config.warmup_steps
+
+    # Build equal group fractions, avoiding floating-point drift on the final entry
+    frac = 1.0 / n_groups
+    group_fractions = [frac] * (n_groups - 1) + [1.0 - frac * (n_groups - 1)]
+
+    trainer = MatryoshkaBatchTopKTrainer(
+        steps=n_steps,
+        activation_dim=activation_dim,
+        dict_size=d_sae,
+        k=top_k,
+        layer=0,
+        lm_name="custom",
+        lr=lr,
+        warmup_steps=warmup_steps,
+        group_fractions=group_fractions,
+        seed=seed,
+        device=device,
+    )
+    run_name = f"matryoshka_sae_d{d_sae}_k{top_k}_ng{n_groups}_lr{lr}_seed{seed}"
+    extra_cfg = {
+        "sae_type": "matryoshka",
+        "k": top_k,
+        "n_groups": n_groups,
+        "group_fractions": group_fractions,
+        "group_sizes": trainer.group_sizes,
+    }
+    return trainer, run_name, extra_cfg
+
+
+TRAINER_REGISTRY = {
+    "btk":        _make_btk_trainer,
+    "jumprelu":   _make_jumprelu_trainer,
+    "matryoshka": _make_matryoshka_trainer,
+}
+
+
 def train_sae_sweep():
     """Train SAE with W&B sweep configuration."""
     
     # Initialize W&B run
     run = wandb.init()
     config = wandb.config
-    
-    # Extract hyperparameters
-    d_sae = config.d_sae
-    top_k = config.top_k
-    lr = config.lr
-    n_steps = config.n_steps
-    warmup_steps = config.warmup_steps
-    batch_size = config.batch_size
+
+    # Determine SAE type and save folder
+    sae_type = config.get("sae_type", "btk")
+    if sae_type not in TRAINER_REGISTRY:
+        raise ValueError(f"Unknown sae_type '{sae_type}'. Known types: {list(TRAINER_REGISTRY)}")
+
+    sweep_id = run.sweep_id or "standalone"
+    save_folder = f"results/sae_models/sweep_{sweep_id}"
+
     seed = config.seed
-    
-    # Generate meaningful run name matching the SAE checkpoint name
-    sae_run_name = f'sae_d{d_sae}_k{top_k}_lr{lr}_seed{seed}'
-    run.name = sae_run_name  # Set name on the run object returned by init()
-    
-    # Set seed for reproducibility
     torch.manual_seed(seed)
-    
+
     print(f"\n{'='*60}")
-    print(f"Training SAE: d_sae={d_sae}, k={top_k}, lr={lr}, seed={seed}")
+    print(f"SAE type: {sae_type}  |  sweep: {sweep_id}")
     print(f"{'='*60}\n")
     
     # 1. Load Base Model
@@ -130,21 +231,13 @@ def train_sae_sweep():
     
     sae_dl = DataLoader(all_acts_centered, batch_size=batch_size, shuffle=True)
     
-    # 4. Initialize Trainer
-    trainer = BatchTopKTrainer(
-        steps=n_steps,
-        activation_dim=D_MODEL,
-        dict_size=d_sae,
-        k=top_k,
-        layer=0,
-        lm_name="custom",
-        lr=lr,
-        warmup_steps=warmup_steps,
-        seed=seed,
-        device=DEVICE,
-    )
-    
-    print(f"\nSAE Config: d_sae={d_sae}, k={top_k}")
+    # 4. Initialize Trainer via registry
+    trainer, run_name, extra_cfg = TRAINER_REGISTRY[sae_type](config, D_MODEL, DEVICE)
+    run.name = run_name
+
+    n_steps = config.n_steps
+    batch_size = config.batch_size
+    print(f"\nRun: {run_name}")
     print(f"Training for {n_steps} steps...")
 
     # 5. Training Loop
@@ -257,41 +350,42 @@ def train_sae_sweep():
         traceback.print_exc()
     
     # 7. Save SAE
-    os.makedirs(SAVE_FOLDER, exist_ok=True)
-    save_name = f'sae_d{d_sae}_k{top_k}_lr{lr}_seed{seed}_{MODEL_NAME}.pt'
-    save_path = os.path.join(SAVE_FOLDER, save_name)
-    
+    os.makedirs(save_folder, exist_ok=True)
+    save_name = f'{run_name}_{MODEL_NAME}.pt'
+    save_path = os.path.join(save_folder, save_name)
+
     sae = trainer.ae
     checkpoint = {
         "state_dict": sae.state_dict(),
         "cfg": {
             "activation_dim": D_MODEL,
-            "dict_size": d_sae,
-            "k": top_k,
+            "dict_size": config.d_sae,
             "d_model": D_MODEL,
-            "d_sae": d_sae,
-            "lr": lr,
+            "d_sae": config.d_sae,
+            "lr": config.lr,
             "seed": seed,
+            **extra_cfg,  # sae_type + type-specific fields
         },
         "act_mean": act_mean.cpu(),
         "final_loss": loss,
         "final_l0": final_l0,
     }
-    
+
     torch.save(checkpoint, save_path)
     print(f"\n✓ SAE saved to {save_path}")
-    
+
     # Save model as W&B artifact
     artifact = wandb.Artifact(
-        name=f"sae-d{d_sae}-k{top_k}-seed{seed}",
+        name=run_name.replace("_", "-"),
         type="model",
         metadata={
-            "d_sae": d_sae,
-            "top_k": top_k,
-            "lr": lr,
+            "sae_type": sae_type,
+            "d_sae": config.d_sae,
+            "lr": config.lr,
             "seed": seed,
             "final_loss": loss,
             "final_l0": final_l0,
+            **extra_cfg,
         }
     )
     artifact.add_file(save_path)
