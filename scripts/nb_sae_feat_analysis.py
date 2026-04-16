@@ -30,8 +30,9 @@ from src.sae.visualization import (
 DEVICE = setup_notebook(seed=42)
 
 # SAE_NAME   = "sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt"
+SAE_NAME   = "sae_d128_k3_lr0.0001_seed2_2layer_100dig_64d"
 # SAE_NAME   = "jumprelu_sae_d128_tl03.0_2layer_100dig_64d.pt"
-SAE_NAME   = "matryoshka_sae_d128_k3_ng4_2layer_100dig_64d.pt"
+# SAE_NAME   = "matryoshka_sae_d128_k3_ng4_2layer_100dig_64d.pt"
 MODEL_NAME = "2layer_100dig_64d"
 
 model, model_cfg = load_transformer_model(MODEL_NAME, device=DEVICE)
