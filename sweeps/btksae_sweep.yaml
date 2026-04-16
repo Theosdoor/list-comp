@@ -11,9 +11,14 @@
 # Sweep v2 focuses on the useful region: k in {3,4,5}, d_sae in {128,192,256,320},
 # multiple seeds for reproducibility, and minimises accuracy_drop_full.
 
-program: scripts/sweep_sae.py
+program: scripts/train_sae.py
 project: orderbyscale_sae_sweep
 method: grid
+command:
+  - ${env}
+  - python
+  - ${program}
+  - --wandb
 
 parameters:
   sae_type:

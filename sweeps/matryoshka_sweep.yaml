@@ -5,9 +5,14 @@
 # group_fractions are derived as equal splits in the script.
 # k=1,2 omitted (BTK sweep showed these are insufficient for this task).
 
-program: scripts/sweep_sae.py
+program: scripts/train_sae.py
 project: orderbyscale_sae_sweep
 method: grid
+command:
+  - ${env}
+  - python
+  - ${program}
+  - --wandb
 
 parameters:
   sae_type:
