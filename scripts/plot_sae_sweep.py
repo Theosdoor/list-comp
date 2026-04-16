@@ -23,6 +23,7 @@ import pandas as pd
 import seaborn as sns
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
+# python3 scripts/plot_sae_sweep.py --exclude-runs-col --no-table-errors --exclude-d-sae 100 448 512
 
 def parse_args():
     p = argparse.ArgumentParser()
@@ -305,7 +306,7 @@ def plot_sweep(df: pd.DataFrame, path: Path):
         sns.pointplot(
             data=plot_df, x=x, y=y, hue=hue, palette=palette,
             errorbar="sd", markers="o", linestyles="-",
-            err_kws={"linewidth": 1.5}, capsize=0.08,
+            capsize=0.08,
             ax=ax
         )
         ax.set_xlabel(xlabel, fontsize=11)

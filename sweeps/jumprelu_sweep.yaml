@@ -5,7 +5,7 @@
 # lr: 7e-5 follows the DeepMind JumpReLU paper default (vs 1e-4 for BTK).
 
 program: scripts/sweep_sae.py
-project: jumprelu_sae_sweep
+project: orderbyscale_sae_sweep
 method: grid
 
 parameters:

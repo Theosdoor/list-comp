@@ -228,15 +228,15 @@ def train_sae_sweep():
     all_acts_centered = all_acts - act_mean
     
     print(f"Collected {len(all_acts)} activations, shape: {all_acts.shape}")
-    
-    sae_dl = DataLoader(all_acts_centered, batch_size=batch_size, shuffle=True)
-    
-    # 4. Initialize Trainer via registry
-    trainer, run_name, extra_cfg = TRAINER_REGISTRY[sae_type](config, D_MODEL, DEVICE)
-    run.name = run_name
 
     n_steps = config.n_steps
     batch_size = config.batch_size
+
+    sae_dl = DataLoader(all_acts_centered, batch_size=batch_size, shuffle=True)
+
+    # 4. Initialize Trainer via registry
+    trainer, run_name, extra_cfg = TRAINER_REGISTRY[sae_type](config, D_MODEL, DEVICE)
+    run.name = run_name
     print(f"\nRun: {run_name}")
     print(f"Training for {n_steps} steps...")
 
@@ -297,7 +297,7 @@ def train_sae_sweep():
         l0 = (sae_acts_all > 0).float().sum(dim=1).mean()
         dead_features = (sae_acts_all.sum(dim=0) == 0).sum().item()
         wandb.summary["avg_l0"] = l0.item()
-        wandb.summary["dead_features_pct"] = 100 * dead_features / d_sae
+        wandb.summary["dead_features_pct"] = 100 * dead_features / config.d_sae
 
         # Explained variance
         print("  - Computing reconstruction metrics...")
