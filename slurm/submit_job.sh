@@ -21,10 +21,10 @@ echo "------------------------------------------------------"
 
 # Run the experiments
 # python3 scripts/compare_sae.py
+# python3 scripts/plot_sae_sweep.py
 
-SAE="sweep_runs/sae_d192_k3_lr0.0001_seed2_2layer_100dig_64d.pt"
-# python3 scripts/run_crossover_analysis.py --sae "$SAE"
-python3 scripts/analyze_failure_reasons.py --sae "$SAE"
+SAE="sweep_runs/sae_d128_k3_lr0.0001_seed0_2layer_100dig_64d.pt"
+python3 scripts/run_crossover_analysis.py --sae "$SAE" --report
 
 # SAE sweep (comment/uncomment as needed)
 # wandb agent theo-farrell99-durham-university/btksae_sweep/x7tgo6fv
