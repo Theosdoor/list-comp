@@ -5,26 +5,32 @@ Helper functions for creating hooks that patch SAE-reconstructed activations
 into transformer models during forward passes.
 """
 
+import inspect
 import torch
 
 
 def _encode_through_sae(activations, sae, act_mean, decode=False, use_threshold=True):
     """
     Helper to encode (and optionally decode) activations through SAE.
-    
+
     Args:
         activations: Input activations [batch, d_model]
         sae: Trained SAE model
         act_mean: Activation mean for centering
         decode: Whether to decode back to activation space
-        use_threshold: Whether to use threshold in encoding
-    
+        use_threshold: Whether to use threshold in encoding (BTK/Matryoshka only;
+                       ignored for SAE types whose encode() doesn't accept it)
+
     Returns:
         If decode=True: reconstructed activations [batch, d_model]
         If decode=False: SAE latent codes [batch, d_sae]
     """
     activations_centered = activations - act_mean.to(activations.device)
-    sae_z = sae.encode(activations_centered, use_threshold=use_threshold)
+    # use_threshold is BTK/Matryoshka-specific; JumpReLU always uses its threshold
+    if 'use_threshold' in inspect.signature(sae.encode).parameters:
+        sae_z = sae.encode(activations_centered, use_threshold=use_threshold)
+    else:
+        sae_z = sae.encode(activations_centered)
     
     if decode:
         reconstructed = sae.decode(sae_z)
