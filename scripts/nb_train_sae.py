@@ -178,12 +178,16 @@ def train_sae():
         loss = trainer.update(step, batch_acts)
         
         if step % 100 == 0:
-            # Get logging info - library uses 'effective_l0', not 'l0'
             log_info = trainer.get_logging_parameters()
-            pbar.set_postfix({
-                "loss": f"{loss:.4f}",
-                "L0": f"{log_info.get('effective_l0', 0):.1f}",
-            })
+            # effective_l0 is only exposed by BTK/Matryoshka trainers; for
+            # JumpReLU compute it directly from the current batch
+            if 'effective_l0' in log_info:
+                l0_val = log_info['effective_l0']
+            else:
+                with torch.no_grad():
+                    f = trainer.ae.encode(batch_acts.to(DEVICE))
+                    l0_val = (f > 0).float().sum(dim=-1).mean().item()
+            pbar.set_postfix({"loss": f"{loss:.4f}", "L0": f"{l0_val:.1f}"})
     
     # 6. Save - get SAE from trainer
     sae = trainer.ae
