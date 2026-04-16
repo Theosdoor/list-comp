@@ -860,6 +860,8 @@ plot_sep_attention_vs_accuracy(
 # %%
 # ---- Fig - scatter plot ----
 # Indices of incorrect samples
+all_correct = (original_output_predictions == output_targets).all(dim=-1).cpu().numpy()
+all_inputs = val_inputs
 incorrect_idx = np.where(~all_correct)[0]
 
 plt.figure(figsize=(6, 6))
