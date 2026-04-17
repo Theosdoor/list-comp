@@ -11,7 +11,7 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-CSV_PATH = "results/grid_search/results.csv"
+CSV_PATH = os.path.join(os.path.dirname(__file__), "..", "results/grid_search/results.csv")
 
 # --- Load and aggregate ---
 df = pd.read_csv(CSV_PATH)
@@ -65,6 +65,8 @@ ax.set_ylabel("N-gram Size")
 # Put LIST_LEN=1 at the bottom
 ax.invert_yaxis()
 plt.tight_layout()
+out_path = os.path.join(os.path.dirname(__file__), "..", "results/grid_search/heatmap.pdf")
+plt.savefig(out_path, bbox_inches="tight")
 plt.show()
 
 # %%
