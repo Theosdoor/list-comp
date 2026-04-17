@@ -8,12 +8,19 @@ from .transformer import make_model
 
 __all__ = [
     "accuracy",
+    "count_params",
     "save_model",
     "load_model",
     "infer_model_config",
 ]
 
 # metrics
+def count_params(model) -> tuple[int, int]:
+    total = sum(p.numel() for p in model.parameters())
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    return total, trainable
+
+
 def accuracy(m, val_dl, list_len=None, device=None):
     if list_len is None:
         list_len = _RUNTIME.list_len

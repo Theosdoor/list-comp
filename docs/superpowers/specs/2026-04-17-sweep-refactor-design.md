@@ -68,18 +68,9 @@ Everything else (training loop, DataLoaders, W&B init, early stopping) is identi
 
 ---
 
-## 3. `scripts/sweep_2layer.py` — thin wrapper
+## 3. `scripts/sweep_2layer.py` — left untouched
 
-Reduced to a backward-compatibility shim so the currently-running `2layer_dmodel` sweep (registered with `program: scripts/sweep_2layer.py`) continues working without interruption:
-
-```python
-from scripts.sweep_transformer import sweep_transformer
-
-if __name__ == "__main__":
-    sweep_transformer()
-```
-
-**Why this is safe:** W&B bakes the program path into the sweep registration at `wandb sweep` time. Running agents use the sweep ID, not the local YAML, so they keep calling `sweep_2layer.py` → which now delegates to `sweep_transformer.py`. No agent restarts or config changes needed.
+`sweep_2layer.py` is not modified. The currently-running `2layer_dmodel` sweep is registered against it and changing it mid-run is unnecessary risk. `sweep_transformer.py` is a fully independent new file. Once the running sweep finishes, future sweeps can be created from updated YAMLs pointing to `sweep_transformer.py`.
 
 ---
 

@@ -1,4 +1,4 @@
-program: scripts/sweep_2layer.py
+program: scripts/sweep_transformer.py
 method: grid
 project: order-by-scale
 entity: theo-farrell99-durham-university
