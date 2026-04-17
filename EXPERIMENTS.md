@@ -19,7 +19,7 @@ sbatch slurm/submit_2layer_sweep.sh fvg6y0ad
 
 **Table generation:**
 ```bash
-python3 scripts/make_2layer_table.py --flags-sweep-ids ou3mwr1m --dmodel-sweep-ids fvg6y0ad
+python3 scripts/make_2layer_table.py --flags-sweep-ids ou3mwr1m --dmodel-sweep-ids fvg6y0ad --nheads-sweep-ids 7lu56xj8
 ```
 
 
