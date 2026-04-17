@@ -29,8 +29,8 @@ from src.sae.visualization import (
 
 DEVICE = setup_notebook(seed=42)
 
-# SAE_NAME   = "sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt"
-SAE_NAME   = "sae_d128_k3_lr0.0001_seed2_2layer_100dig_64d"
+SAE_NAME   = "sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt"
+# SAE_NAME   = "sae_d128_k3_lr0.0001_seed2_2layer_100dig_64d"
 # SAE_NAME   = "jumprelu_sae_d128_tl03.0_2layer_100dig_64d.pt"
 # SAE_NAME   = "matryoshka_sae_d128_k3_ng4_2layer_100dig_64d.pt"
 MODEL_NAME = "2layer_100dig_64d"
@@ -172,12 +172,10 @@ fig.show()
 
 # %% [markdown]
 # ## Cell 4 — Selected feature heatmaps (seaborn, ~3 types)
-# There are roughly three heatmap archetypes:
-#   - tba
 
 # %%
 # Edit this list to compare features of interest
-FEATURES_TO_PLOT = [30, 0, 1, 2, 3, 4]
+FEATURES_TO_PLOT = [0, 94, 30]
 
 fig = create_feature_heatmaps_seaborn(
     d1_all, d2_all, sae_acts_all,
@@ -213,3 +211,85 @@ for feat_info in sorted(info["special_features"], key=lambda x: abs(x["correlati
 df_special = pd.DataFrame(rows)
 print(f"\nSpecial features (|r| > 0.5): {info['n_special_features']}")
 print(df_special.to_string(index=False))
+
+# %% [markdown]
+# ## Cell 6 — Bigram-level alignment: special feature vs α_diff
+
+# %%
+# Identify the primary special feature and report it
+info6 = identify_special_features(sae_acts_all, alpha_d1_all, alpha_d2_all, threshold=0.5)
+
+if not info6["special_features"]:
+    print("No special features found at threshold=0.5")
+else:
+    primary = max(info6["special_features"], key=lambda x: abs(x["correlation"]))
+    feat_idx  = primary["feature_idx"]
+    feat_corr = primary["correlation"]
+    feat_type = primary["type"]
+
+    print(f"Primary special feature: F{feat_idx}")
+    print(f"  Global Pearson r with (α_d1 − α_d2): {feat_corr:+.4f}  [{feat_type}]")
+    print(f"  Fire rate: {float((sae_acts_all[:, feat_idx] > 0).float().mean()) * 100:.1f}%")
+
+    feat_acts  = sae_acts_all[:, feat_idx].numpy()       # [N]
+    alpha_diff = (alpha_d1_all - alpha_d2_all).numpy()   # [N]
+    n_total    = len(feat_acts)
+
+    # ── Per-bigram concordance ───────────────────────────────────────────────
+    # For a d1-favoring feature (r > 0): expect feat active  when alpha_diff > 0
+    #                                          feat inactive  when alpha_diff < 0
+    # For a d2-favoring feature (r < 0): reversed.
+    feat_active = feat_acts > 0
+    alpha_pos   = alpha_diff > 0   # SEP attends more to d1 than d2
+
+    if feat_corr > 0:
+        concordant = (feat_active & alpha_pos) | (~feat_active & ~alpha_pos)
+    else:
+        concordant = (feat_active & ~alpha_pos) | (~feat_active & alpha_pos)
+
+    pct_concordant = 100.0 * concordant.sum() / n_total
+
+    # Only bigrams where the alpha_diff signal is clear (above bottom quartile)
+    alpha_abs_thresh = np.percentile(np.abs(alpha_diff), 25)
+    clear_mask = np.abs(alpha_diff) > alpha_abs_thresh
+    pct_concordant_clear = (
+        100.0 * concordant[clear_mask].sum() / clear_mask.sum()
+        if clear_mask.any() else float("nan")
+    )
+
+    print(f"\n  Bigrams with concordant (feature, α_diff) sign: {concordant.sum()} / {n_total}")
+    print(f"  → {pct_concordant:.1f}% of all bigrams")
+    print(f"  → {pct_concordant_clear:.1f}% of bigrams with |α_diff| > {alpha_abs_thresh:.3f} (clear signal)")
+
+    # ── Heatmaps ─────────────────────────────────────────────────────────────
+    d1_np = d1_all.numpy()
+    d2_np = d2_all.numpy()
+
+    act_grid  = np.full((N_DIGITS, N_DIGITS), np.nan)
+    conc_grid = np.full((N_DIGITS, N_DIGITS), np.nan)
+    for i in range(n_total):
+        act_grid [d1_np[i], d2_np[i]] = feat_acts[i]
+        conc_grid[d1_np[i], d2_np[i]] = float(concordant[i])
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+
+    im0 = axes[0].imshow(act_grid, origin="lower", aspect="auto", cmap="viridis")
+    axes[0].set_title(f"F{feat_idx} activation over (d1, d2)", fontsize=11)
+    axes[0].set_xlabel("d2"); axes[0].set_ylabel("d1")
+    plt.colorbar(im0, ax=axes[0], label="activation")
+
+    im1 = axes[1].imshow(conc_grid, origin="lower", aspect="auto", cmap="RdYlGn", vmin=0, vmax=1)
+    axes[1].set_title(
+        f"Concordance: F{feat_idx} sign matches sign(α_d1−α_d2)\n"
+        f"({pct_concordant:.1f}% of all bigrams aligned)",
+        fontsize=11,
+    )
+    axes[1].set_xlabel("d2"); axes[1].set_ylabel("d1")
+    plt.colorbar(im1, ax=axes[1], label="concordant (1=yes, 0=no)")
+
+    plt.tight_layout()
+    plt.show()
+
+# %% [markdown]
+# -------------
+# %%

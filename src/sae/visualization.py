@@ -35,7 +35,7 @@ def create_feature_heatmaps(d1_all, d2_all, sae_acts_all, n_digits=100, figsize=
     # Create subplot grid sized to active features only
     grid_size = int(np.ceil(np.sqrt(n_active)))
 
-    subplot_titles = [f'F{i}' for i in feature_indices]
+    subplot_titles = [f'Latent {i}' for i in feature_indices]
     total_subplots = grid_size * grid_size
     subplot_titles.extend([''] * (total_subplots - n_active))
     
@@ -58,7 +58,7 @@ def create_feature_heatmaps(d1_all, d2_all, sae_acts_all, n_digits=100, figsize=
                 colorscale='Viridis',
                 showscale=(j == n_active - 1),
                 hovertemplate='d1: %{x}<br>d2: %{y}<br>Activation: %{z:.4f}<extra></extra>',
-                name=f'F{feat_idx}',
+                name=f'Latent {feat_idx}',
             ),
             row=row,
             col=col
@@ -154,7 +154,7 @@ def create_feature_heatmaps_seaborn(d1_all, d2_all, sae_acts_all, feature_indice
         mat = act_matrices[j].numpy()
         sns.heatmap(mat, ax=ax, cmap="viridis", xticklabels=False, yticklabels=False,
                     cbar_kws={"shrink": 0.8})
-        ax.set_title(f"F{feat_idx}", fontsize=10)
+        ax.set_title(f"Latent {feat_idx}", fontsize=10)
         ax.set_xlabel("d2")
         ax.set_ylabel("d1")
 
