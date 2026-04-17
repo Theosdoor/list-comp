@@ -59,7 +59,7 @@ def fetch_runs(sweep_ids: list[str]) -> pd.DataFrame:
             if run.state != "finished":
                 n_skipped += 1
                 continue
-            val_accuracy = run.summary.get("final/val_accuracy")
+            val_accuracy = run.summary.get("best/accuracy")
             if val_accuracy is None:
                 n_no_acc += 1
                 continue
