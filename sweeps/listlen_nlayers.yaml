@@ -23,3 +23,17 @@ parameters:
     value: false
   use_mlp:
     value: false
+  n_digits:
+    value: 100
+  lr:
+    value: 0.001
+  weight_decay:
+    value: 0.01
+  max_steps:
+    value: 50000
+  early_stop_acc:
+    value: 0.999
+  train_batch_size:
+    value: 2048
+  val_batch_size:
+    value: 4096
