@@ -24,7 +24,6 @@ from src.utils.runtime import configure_runtime
 
 WANDB_PROJECT = "order-by-scale"
 N_DIGITS = 100
-VOCAB = N_DIGITS + 2
 DEV = "cuda" if torch.cuda.is_available() else "cpu"
 
 if torch.cuda.is_available():
@@ -67,10 +66,10 @@ def sweep_transformer():
     )
     config = wandb.config
 
-    list_len = getattr(config, "list_len", 2)
-    n_layers  = getattr(config, "n_layers", 2)
+    list_len = config.list_len
+    n_layers  = config.n_layers
     d_model   = config.d_model
-    n_heads   = getattr(config, "n_heads", 1)
+    n_heads   = config.n_heads
     use_ln    = config.use_ln
     use_bias  = config.use_bias
     use_wv    = config.use_wv
