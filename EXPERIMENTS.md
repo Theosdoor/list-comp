@@ -23,3 +23,9 @@ python scripts/make_2layer_table.py \
     --flags-sweep-ids rvon63i9 \
     --dmodel-sweep-ids n50fmwsa
 ```
+
+
+Top 3 fffff models (models/2_layer_sweep/)
+% d64_h1_lnF_biasF_wvF_woF_mlpF_s3_acc0.9405.pt   (seed=3, acc=0.9405)
+% d64_h1_lnF_biasF_wvF_woF_mlpF_s13_acc0.9343.pt   (seed=13, acc=0.9343)
+% d64_h1_lnF_biasF_wvF_woF_mlpF_s9_acc0.9337.pt   (seed=9, acc=0.9337)
