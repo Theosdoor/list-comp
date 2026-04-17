@@ -17,6 +17,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.utils.nb_utils import setup_notebook, load_transformer_model, load_sae
+from src.models.utils import infer_model_config, load_model as _load_model_direct
+from src.utils.runtime import configure_runtime
 from src.data.datasets import get_dataset
 from src.sae import (
     collect_sae_activations,
@@ -34,9 +36,11 @@ from src.sae import (
 def parse_args():
     p = argparse.ArgumentParser(description="Run crossover analysis pipeline")
     p.add_argument("--model", default="2layer_100dig_64d",
-                   help="Model name (without .pt extension)")
+                   help="Model name (without .pt extension), resolved from models/")
+    p.add_argument("--model_path", default=None,
+                   help="Full path to model checkpoint (overrides --model; infers config from weights)")
     p.add_argument("--sae", default="sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt",
-                   help="SAE checkpoint path relative to results/sae_models/")
+                   help="SAE checkpoint filename (relative to results/sae_models/) or full path")
     p.add_argument("--feature", type=str, default="auto", dest="feature_idx",
                    help="SAE feature index to analyse ('auto' to detect, or an integer to override)")
     p.add_argument("--threshold", type=float, default=0.5,
@@ -88,7 +92,7 @@ def run_pipeline(args):
     print("CROSSOVER ANALYSIS - GPU JOB")
     print("=" * 60)
     print(f"Device: {device}")
-    print(f"Model:  {args.model}")
+    print(f"Model:  {args.model_path or args.model}")
     print(f"SAE:    {args.sae}")
     print(f"Feature: {args.feature_idx}")
     if args.feature_idx == "auto":
@@ -102,15 +106,35 @@ def run_pipeline(args):
 
     # [1/7] Load models
     print("\n[1/7] Loading models...")
-    model, model_cfg = load_transformer_model(args.model, device=device)
-    d_model = model_cfg["d_model"]
-    n_digits = model_cfg["n_digits"]
-    list_len = model_cfg["list_len"]
-    sep_idx = model_cfg["sep_token_index"]
+    if args.model_path:
+        raw_cfg = infer_model_config(args.model_path, device=device)
+        d_model = raw_cfg["d_model"]
+        n_digits = raw_cfg["d_vocab"] - 2
+        list_len = raw_cfg["list_len"]
+        sep_idx = list_len
+        configure_runtime(list_len=list_len, seq_len=list_len * 2 + 1,
+                          vocab=raw_cfg["d_vocab"], device=device)
+        model = _load_model_direct(
+            args.model_path,
+            n_layers=raw_cfg["n_layers"], n_heads=raw_cfg["n_heads"], d_model=d_model,
+            ln=raw_cfg.get("use_ln", False), use_bias=raw_cfg.get("use_bias", False),
+            use_wv=raw_cfg.get("use_wv", False), use_wo=raw_cfg.get("use_wo", False),
+        )
+        print(f"✓ Loaded model from {args.model_path}")
+    else:
+        model, model_cfg = load_transformer_model(args.model, device=device)
+        d_model = model_cfg["d_model"]
+        n_digits = model_cfg["n_digits"]
+        list_len = model_cfg["list_len"]
+        sep_idx = model_cfg["sep_token_index"]
 
-    sae, sae_cfg = load_sae(args.sae, d_model, device=device)
+    # Resolve SAE path: treat as full path if it contains a separator, else relative to results/sae_models/
+    sae_path = args.sae if os.path.sep in args.sae or os.path.isabs(args.sae) \
+        else os.path.join("results/sae_models", args.sae)
 
-    sae_path = os.path.join("results/sae_models", args.sae)
+    sae, sae_cfg = load_sae(os.path.basename(sae_path), d_model, device=device,
+                             sae_dir=os.path.dirname(sae_path))
+
     sae_checkpoint = torch.load(sae_path, map_location=device, weights_only=False)
     act_mean = sae_checkpoint["act_mean"].to(device)
 

@@ -11,6 +11,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import argparse
 import os
+import sys
+from datetime import datetime
 
 import torch
 from torch.utils.data import DataLoader, ConcatDataset
@@ -33,19 +35,30 @@ from src.sae import (
 )
 
 
-MODEL_NAME = '2layer_100dig_64d'
-MODEL_PATH = f'models/{MODEL_NAME}.pt'
-MODEL_CFG = infer_model_config(MODEL_PATH)
-
-N_LAYERS = MODEL_CFG['n_layers']
-N_HEADS = MODEL_CFG['n_heads']
-D_MODEL = MODEL_CFG['d_model']
-VOCAB = MODEL_CFG['d_vocab']
-N_DIGITS = VOCAB - 2
-LIST_LEN = 2
-SEP_TOKEN_INDEX = 2
+_DEFAULT_MODEL_PATH = 'models/2layer_100dig_64d.pt'
 
 DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+
+# These are set by _init_model_globals() before training begins
+MODEL_NAME = None
+MODEL_PATH = None
+MODEL_CFG = None
+N_LAYERS = N_HEADS = D_MODEL = VOCAB = N_DIGITS = LIST_LEN = SEP_TOKEN_INDEX = None
+
+
+def _init_model_globals(model_path: str):
+    global MODEL_NAME, MODEL_PATH, MODEL_CFG
+    global N_LAYERS, N_HEADS, D_MODEL, VOCAB, N_DIGITS, LIST_LEN, SEP_TOKEN_INDEX
+    MODEL_PATH = model_path
+    MODEL_NAME = Path(model_path).stem
+    MODEL_CFG = infer_model_config(model_path)
+    N_LAYERS = MODEL_CFG['n_layers']
+    N_HEADS = MODEL_CFG['n_heads']
+    D_MODEL = MODEL_CFG['d_model']
+    VOCAB = MODEL_CFG['d_vocab']
+    N_DIGITS = VOCAB - 2
+    LIST_LEN = MODEL_CFG['list_len']
+    SEP_TOKEN_INDEX = LIST_LEN
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +145,8 @@ def _load_model_and_acts():
     configure_runtime(list_len=LIST_LEN, seq_len=LIST_LEN * 2 + 1, vocab=N_DIGITS + 2, device=DEVICE)
     model = make_model(
         n_layers=N_LAYERS, n_heads=N_HEADS, d_model=D_MODEL,
-        ln=False, use_bias=False,
+        ln=MODEL_CFG.get('use_ln', False),
+        use_bias=MODEL_CFG.get('use_bias', False),
         use_wv=MODEL_CFG.get('use_wv', False),
         use_wo=MODEL_CFG.get('use_wo', False),
     )
@@ -216,9 +230,11 @@ def _log_wandb_eval_metrics(model, sae, act_mean, d_sae):
 # Core training
 # ---------------------------------------------------------------------------
 
-def _train(cfg, use_wandb: bool, save_folder: str):
+def _train(cfg, use_wandb: bool, save_folder: str, model_path: str = None):
     """Train an SAE given a config object (argparse.Namespace or wandb.Config)."""
     import wandb as _wandb
+
+    _init_model_globals(model_path or _DEFAULT_MODEL_PATH)
 
     sae_type = cfg.sae_type
     if sae_type not in TRAINER_REGISTRY:
@@ -233,21 +249,30 @@ def _train(cfg, use_wandb: bool, save_folder: str):
     if use_wandb:
         _wandb.run.name = run_name
 
-    print(f"\nRun: {run_name}")
-    print(f"Training for {cfg.n_steps} steps...")
+    is_tty = sys.stdout.isatty()
+    log_interval = 100 if is_tty else 1000
+
+    print(f"\n{'='*60}")
+    print(f"Run:      {run_name}")
+    print(f"Model:    {MODEL_PATH}")
+    print(f"Steps:    {cfg.n_steps}  |  LR: {cfg.lr}  |  d_sae: {cfg.d_sae}  |  device: {DEVICE}")
+    print(f"Started:  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"{'='*60}\n")
+    sys.stdout.flush()
 
     def cycle(it):
         while True:
             yield from it
 
     iter_dl = cycle(sae_dl)
-    pbar = tqdm(range(cfg.n_steps))
+    pbar = tqdm(range(cfg.n_steps), disable=not is_tty, desc="Training", unit="step")
     loss = 0.0
+    t_start = datetime.now()
 
     for step in pbar:
         batch_acts = next(iter_dl)
         loss = trainer.update(step, batch_acts)
-        if step % 100 == 0:
+        if step % log_interval == 0:
             log_info = trainer.get_logging_parameters()
             if 'effective_l0' in log_info:
                 effective_l0 = log_info['effective_l0']
@@ -257,10 +282,24 @@ def _train(cfg, use_wandb: bool, save_folder: str):
                     effective_l0 = (f > 0).float().sum(dim=-1).mean().item()
             if use_wandb:
                 _wandb.log({"loss": loss, "effective_l0": effective_l0, "step": step})
-            pbar.set_postfix({"loss": f"{loss:.4f}", "L0": f"{effective_l0:.1f}"})
+            pct = 100 * step / cfg.n_steps
+            elapsed = (datetime.now() - t_start).total_seconds()
+            eta_s = (elapsed / max(step, 1)) * (cfg.n_steps - step)
+            eta_str = f"{int(eta_s // 60)}m{int(eta_s % 60):02d}s"
+            if is_tty:
+                pbar.set_postfix({"loss": f"{loss:.4f}", "L0": f"{effective_l0:.1f}", "ETA": eta_str})
+            else:
+                ts = datetime.now().strftime('%H:%M:%S')
+                print(f"[{ts}] step {step:>6}/{cfg.n_steps}  ({pct:4.1f}%)  loss={loss:.4f}  L0={effective_l0:.1f}  ETA={eta_str}")
+                sys.stdout.flush()
 
     log_info = trainer.get_logging_parameters()
     final_l0 = log_info.get('effective_l0', 0)
+    total_time = (datetime.now() - t_start).total_seconds()
+    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Training complete — "
+          f"final_loss={loss:.4f}  final_L0={final_l0:.1f}  "
+          f"time={int(total_time // 60)}m{int(total_time % 60):02d}s")
+    sys.stdout.flush()
 
     if use_wandb:
         _wandb.summary["final_loss"] = loss
@@ -276,6 +315,7 @@ def _train(cfg, use_wandb: bool, save_folder: str):
             "activation_dim": D_MODEL, "dict_size": cfg.d_sae,
             "d_model": D_MODEL, "d_sae": cfg.d_sae,
             "lr": cfg.lr, "seed": cfg.seed,
+            "model_path": MODEL_PATH,
             **extra_cfg,
         },
         "act_mean": act_mean.cpu(),
@@ -328,12 +368,14 @@ def main():
     parser.add_argument("--batch_size", type=int, default=4096)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--save_folder", type=str, default="results/sae_models")
+    parser.add_argument("--model_path", type=str, default=None,
+                        help="Path to transformer checkpoint (default: models/2layer_100dig_64d.pt)")
     args = parser.parse_args()
 
     if args.wandb:
         train_sae_sweep()
     else:
-        _train(args, use_wandb=False, save_folder=args.save_folder)
+        _train(args, use_wandb=False, save_folder=args.save_folder, model_path=args.model_path)
 
 
 if __name__ == "__main__":

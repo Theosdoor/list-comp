@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import os
 import glob
+from collections import defaultdict
 import torch
 from torch.utils.data import DataLoader, ConcatDataset
 import numpy as np
@@ -19,7 +20,7 @@ from datetime import datetime
 
 from src.utils.runtime import configure_runtime
 from src.sae.loading import instantiate_sae_from_cfg
-from src.models.utils import load_model
+from src.models.utils import load_model, infer_model_config
 from src.models.transformer import parse_model_name_safe
 from src.data.datasets import get_dataset
 from src.sae import identify_special_features
@@ -27,35 +28,29 @@ from src.sae.metrics import compute_sae_downstream_metrics
 
 #%%
 # --- Configuration ---
-MODEL_NAME = '2layer_100dig_64d'
-MODEL_CFG = parse_model_name_safe(MODEL_NAME)
+DEFAULT_MODEL_PATH = 'models/2layer_100dig_64d.pt'
 SAE_FOLDER = 'results/sae_models/'
 OUTPUT_FILE = f'sae_comparison_{datetime.now().strftime("%Y%m%d_%H%M%S")}.md'
-COMPUTE_RECON_ACC = True  # Toggle reconstruction accuracy computation
-
-# Model config
-D_MODEL = MODEL_CFG.d_model
-N_LAYERS = MODEL_CFG.n_layers
-N_DIGITS = MODEL_CFG.n_digits
-LIST_LEN = 2
-SEP_TOKEN_INDEX = 2
+COMPUTE_RECON_ACC = True
 
 DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 
 #%%
 def load_sae(sae_path):
-    """Load SAE checkpoint and return (sae, act_mean)."""
+    """Load SAE checkpoint and return (sae, act_mean, base_model_path)."""
     checkpoint = torch.load(sae_path, map_location=DEVICE, weights_only=False)
     cfg = checkpoint.get("cfg", {})
+    d_model = cfg.get("d_model", cfg.get("activation_dim"))
 
-    sae = instantiate_sae_from_cfg(cfg, D_MODEL, DEVICE)
+    sae = instantiate_sae_from_cfg(cfg, d_model, DEVICE)
     sae.load_state_dict(checkpoint["state_dict"])
 
     act_mean = checkpoint["act_mean"].to(DEVICE)
-    return sae, act_mean
+    base_model_path = cfg.get("model_path", DEFAULT_MODEL_PATH)
+    return sae, act_mean, base_model_path
 
 #%%
-def collect_activations(model, dataloader, sep_idx=2):
+def collect_activations(model, dataloader, sep_idx):
     """Collect SEP token activations and attention weights."""
     activations = []
     d1_all, d2_all = [], []
@@ -93,7 +88,7 @@ def collect_activations(model, dataloader, sep_idx=2):
     )
 
 #%%
-def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all=None, alpha_d2_all=None, model=None, val_dl=None):
+def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all=None, alpha_d2_all=None, model=None, val_dl=None, sep_idx=2):
     """Compute metrics for a single SAE.
 
     If model and val_dl are provided and COMPUTE_RECON_ACC=True, computes downstream metrics.
@@ -188,7 +183,7 @@ def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all
         print("  Computing downstream metrics...", end="", flush=True)
         downstream = compute_sae_downstream_metrics(
             model, sae, val_dl, act_mean,
-            layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE
+            layer_idx=0, sep_idx=sep_idx, device=DEVICE
         )
         acc_metrics = {
             'baseline_acc': downstream['baseline_acc'],
@@ -310,74 +305,106 @@ def generate_markdown_report(results, output_path):
     return report
 
 #%%
-def main():
-    print(f"Using device: {DEVICE}")
-    
-    # Setup runtime
+def _load_base_model(model_path):
+    """Load a transformer and return (model, model_cfg)."""
+    cfg = infer_model_config(model_path)
     configure_runtime(
-        list_len=LIST_LEN,
-        seq_len=LIST_LEN * 2 + 1,
-        vocab=N_DIGITS + 2,
-        device=DEVICE
+        list_len=cfg['list_len'],
+        seq_len=cfg['list_len'] * 2 + 1,
+        vocab=cfg['d_vocab'],
+        device=DEVICE,
     )
-    
-    # Load base model
-    model_path = f"models/{MODEL_NAME}.pt"
     model = load_model(
         model_path,
-        n_layers=N_LAYERS,
-        n_heads=1,
-        d_model=D_MODEL,
-        ln=False,
-        use_bias=False,
-        use_wv=False,
-        use_wo=False
+        n_layers=cfg['n_layers'],
+        n_heads=cfg['n_heads'],
+        d_model=cfg['d_model'],
+        ln=cfg.get('use_ln', False),
+        use_bias=cfg.get('use_bias', False),
+        use_wv=cfg.get('use_wv', False),
+        use_wo=cfg.get('use_wo', False),
     )
-    print(f"✓ Loaded base model from {model_path}")
-    
-    # Use full dataset (train+val) for exhaustive analysis — baseline accuracy is
-    # also measured on this same set so the comparison is meaningful.
-    train_ds, val_ds = get_dataset(
-        list_len=LIST_LEN,
-        n_digits=N_DIGITS,
-    )
-    full_dl = DataLoader(ConcatDataset([train_ds, val_ds]), batch_size=2048, shuffle=False)
-    val_dl = full_dl  # alias kept for rest of script
-    
-    # Collect activations and attention weights once
-    print("Collecting activations and attention weights...")
-    sep_acts, d1_all, d2_all, alpha_d1_all, alpha_d2_all = collect_activations(model, val_dl, SEP_TOKEN_INDEX)
-    n_samples = len(sep_acts)
-    print(f"✓ Collected {n_samples} samples")
-    
-    # Find all SAE checkpoints
+    return model, cfg
+
+
+def main():
+    print(f"Using device: {DEVICE}")
+
+    # Find all SAE checkpoints and group by their base model
     sae_paths = sorted(glob.glob(os.path.join(SAE_FOLDER, "**/*.pt"), recursive=True))
-    print(f"\nFound {len(sae_paths)} SAE checkpoints")
-    
-    # Evaluate each SAE
-    results = []
-    for sae_path in tqdm(sae_paths, desc="Evaluating SAEs"):
-        name = os.path.basename(sae_path).replace('.pt', '')
-        print(f"\nEvaluating: {name}")
-        
+    print(f"Found {len(sae_paths)} SAE checkpoints")
+
+    # Peek at each checkpoint to read base_model_path from cfg
+    groups = defaultdict(list)  # model_path -> [sae_path, ...]
+    for sae_path in sae_paths:
         try:
-            sae, act_mean = load_sae(sae_path)
-            metrics = evaluate_sae(
-                sae, act_mean, sep_acts, d1_all, d2_all, N_DIGITS,
-                alpha_d1_all=alpha_d1_all, alpha_d2_all=alpha_d2_all,
-                model=model, val_dl=val_dl
-            )
-            metrics['name'] = name
-            metrics['n_samples'] = n_samples
-            results.append(metrics)
-            
-            status = f"  L0: {metrics['l0']:.2f}, Dead: {metrics['n_dead']}/{metrics['d_sae']} ({metrics['dead_pct']:.1f}%)"
-            if 'patched_task_acc' in metrics:
-                status += f", Patched Task Acc: {metrics['patched_task_acc']:.4f}"
-            print(status)
-        except Exception as e:
-            print(f"  ✗ Error: {e}")
-    
+            ck = torch.load(sae_path, map_location='cpu', weights_only=False)
+            base = ck.get("cfg", {}).get("model_path", DEFAULT_MODEL_PATH)
+        except Exception:
+            base = DEFAULT_MODEL_PATH
+        groups[base].append(sae_path)
+
+    print(f"SAEs span {len(groups)} base model(s):")
+    for mp, paths in groups.items():
+        print(f"  {mp}  ({len(paths)} SAE(s))")
+
+    results = []
+
+    for model_path, group_sae_paths in groups.items():
+        print(f"\n{'='*60}")
+        print(f"Base model: {model_path}")
+        print(f"{'='*60}")
+
+        if not os.path.exists(model_path):
+            print(f"  ✗ Model file not found, skipping {len(group_sae_paths)} SAE(s)")
+            continue
+
+        model, model_cfg = _load_base_model(model_path)
+        print(f"✓ Loaded model")
+
+        n_digits = model_cfg['d_vocab'] - 2
+        list_len = model_cfg['list_len']
+        sep_idx = list_len
+
+        configure_runtime(
+            list_len=list_len,
+            seq_len=list_len * 2 + 1,
+            vocab=model_cfg['d_vocab'],
+            device=DEVICE,
+        )
+
+        train_ds, val_ds = get_dataset(list_len=list_len, n_digits=n_digits)
+        full_dl = DataLoader(ConcatDataset([train_ds, val_ds]), batch_size=2048, shuffle=False)
+
+        print("Collecting activations and attention weights...")
+        sep_acts, d1_all, d2_all, alpha_d1_all, alpha_d2_all = collect_activations(
+            model, full_dl, sep_idx
+        )
+        n_samples = len(sep_acts)
+        print(f"✓ Collected {n_samples} samples")
+
+        for sae_path in tqdm(group_sae_paths, desc="Evaluating SAEs"):
+            name = os.path.basename(sae_path).replace('.pt', '')
+            print(f"\nEvaluating: {name}")
+            try:
+                sae, act_mean, _ = load_sae(sae_path)
+                metrics = evaluate_sae(
+                    sae, act_mean, sep_acts, d1_all, d2_all, n_digits,
+                    alpha_d1_all=alpha_d1_all, alpha_d2_all=alpha_d2_all,
+                    model=model, val_dl=full_dl, sep_idx=sep_idx,
+                )
+                metrics['name'] = name
+                metrics['n_samples'] = n_samples
+                metrics['base_model'] = os.path.basename(model_path)
+                results.append(metrics)
+
+                status = f"  L0: {metrics['l0']:.2f}, Dead: {metrics['n_dead']}/{metrics['d_sae']} ({metrics['dead_pct']:.1f}%)"
+                if 'patched_task_acc' in metrics:
+                    status += f", Patched Task Acc: {metrics['patched_task_acc']:.4f}"
+                print(status)
+            except Exception as e:
+                print(f"  ✗ Error: {e}")
+
     # Generate report
     if results:
         report = generate_markdown_report(results, OUTPUT_FILE)
@@ -390,4 +417,17 @@ def main():
 
 #%%
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Compare SAE checkpoints")
+    parser.add_argument("--sae_folder", type=str, default=SAE_FOLDER,
+                        help="Folder to search for SAE checkpoints")
+    parser.add_argument("--model_path", type=str, default=None,
+                        help="Override base model for all SAEs (useful for SAEs trained before model_path was saved in cfg)")
+    args = parser.parse_args()
+
+    if args.sae_folder != SAE_FOLDER:
+        SAE_FOLDER = args.sae_folder
+    if args.model_path:
+        DEFAULT_MODEL_PATH = args.model_path
+
     main()

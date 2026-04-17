@@ -29,7 +29,8 @@ from src.sae.visualization import (
 
 DEVICE = setup_notebook(seed=42)
 
-SAE_NAME   = "sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt"
+# SAE_NAME   = "sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt"
+SAE_NAME = "new_model/btk_sae_d128_k3_lr0.0003_seed0_d64_h1_lnF_biasF_wvF_woF_mlpF_s3_acc0.9405.pt"
 # SAE_NAME   = "sae_d128_k3_lr0.0001_seed2_2layer_100dig_64d"
 # SAE_NAME   = "jumprelu_sae_d128_tl03.0_2layer_100dig_64d.pt"
 # SAE_NAME   = "matryoshka_sae_d128_k3_ng4_2layer_100dig_64d.pt"
@@ -59,7 +60,7 @@ d1_all, d2_all, sae_acts_all = collect_sae_activations(
 
 alpha_d1_all, alpha_d2_all = collect_attention_patterns(
     model=model, val_dl=all_dl,
-    layer_idx=0, sep_idx=SEP_IDX, device=DEVICE, use_scores=True,
+    layer_idx=0, sep_idx=SEP_IDX, device=DEVICE,
 )
 
 # %% [markdown]
