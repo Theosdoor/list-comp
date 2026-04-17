@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -43,14 +44,26 @@ def _coerce_bool(value: object, default: bool = False) -> bool:
 def fetch_runs(sweep_ids: list[str]) -> pd.DataFrame:
     api = wandb.Api()
     rows = []
-    for sweep_id in sweep_ids:
+    t0 = time.time()
+    for sweep_idx, sweep_id in enumerate(sweep_ids, 1):
+        print(f"[{sweep_idx}/{len(sweep_ids)}] Fetching sweep {sweep_id} ...", flush=True)
         sweep = api.sweep(f"{WANDB_ENTITY}/{WANDB_PROJECT}/{sweep_id}")
-        for run in sweep.runs:
+        all_runs = list(sweep.runs)
+        n_total = len(all_runs)
+        print(f"  Sweep {sweep_id}: {n_total} runs found", flush=True)
+        n_finished = n_skipped = n_no_acc = 0
+        for i, run in enumerate(all_runs, 1):
+            if i % 20 == 0 or i == n_total:
+                elapsed = time.time() - t0
+                print(f"  [{i}/{n_total}] elapsed={elapsed:.0f}s  accepted={n_finished}  skipped={n_skipped}  no_acc={n_no_acc}", flush=True)
             if run.state != "finished":
+                n_skipped += 1
                 continue
             val_accuracy = run.summary.get("final/val_accuracy")
             if val_accuracy is None:
+                n_no_acc += 1
                 continue
+            n_finished += 1
             cfg = run.config or {}
             d_model = _coerce_int(cfg.get("d_model", 64), 64)
             n_heads = _coerce_int(cfg.get("n_heads", 1), 1)
@@ -71,7 +84,9 @@ def fetch_runs(sweep_ids: list[str]) -> pd.DataFrame:
                     "val_accuracy": pd.to_numeric(val_accuracy, errors="coerce"),
                 }
             )
+        print(f"  Done sweep {sweep_id}: {n_finished} accepted, {n_skipped} non-finished, {n_no_acc} missing acc", flush=True)
 
+    print(f"Fetch complete: {len(rows)} total rows from {len(sweep_ids)} sweeps  ({time.time()-t0:.0f}s)", flush=True)
     df = pd.DataFrame(rows)
     if df.empty:
         raise SystemExit(
@@ -223,21 +238,31 @@ def print_top3_fffff(df: pd.DataFrame) -> None:
 
 
 def _load_or_fetch(all_sweep_ids: list[str], use_cache: bool) -> pd.DataFrame:
+    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    cache_df = pd.DataFrame()
     if use_cache and CACHE_PATH.exists():
         cache_df = pd.read_csv(CACHE_PATH)
-        cached_ids = set(cache_df.get("sweep_id", []))
-        missing_ids = [sweep_id for sweep_id in all_sweep_ids if sweep_id not in cached_ids]
-        if missing_ids:
-            new_df = fetch_runs(missing_ids)
-            cache_df = pd.concat([cache_df, new_df], ignore_index=True)
-            CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            cache_df.to_csv(CACHE_PATH, index=False)
+
+    cached_ids = set(cache_df["sweep_id"].unique()) if not cache_df.empty else set()
+    missing_ids = [sid for sid in all_sweep_ids if sid not in cached_ids]
+
+    if not missing_ids:
+        print(f"All {len(all_sweep_ids)} sweeps loaded from cache ({CACHE_PATH})", flush=True)
         return cache_df
 
-    df = fetch_runs(all_sweep_ids)
-    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(CACHE_PATH, index=False)
-    return df
+    if cached_ids & set(all_sweep_ids):
+        print(f"Cache hit for {sorted(cached_ids & set(all_sweep_ids))}; fetching missing: {missing_ids}", flush=True)
+    else:
+        print(f"No cache found; fetching {len(missing_ids)} sweeps from WandB ...", flush=True)
+
+    for sweep_id in missing_ids:
+        new_df = fetch_runs([sweep_id])
+        cache_df = pd.concat([cache_df, new_df], ignore_index=True)
+        cache_df.to_csv(CACHE_PATH, index=False)
+        print(f"  Saved cache after sweep {sweep_id} ({len(cache_df)} total rows)", flush=True)
+
+    return cache_df
 
 
 def _parse_args() -> argparse.Namespace:
@@ -254,9 +279,12 @@ def main() -> None:
     all_sweep_ids = list(dict.fromkeys(
         args.flags_sweep_ids + args.dmodel_sweep_ids + args.nheads_sweep_ids
     ))
+    print(f"Sweeps to process: {all_sweep_ids}", flush=True)
     df = _load_or_fetch(all_sweep_ids, use_cache=not args.no_cache)
     df = df[df["sweep_id"].isin(all_sweep_ids)].copy()
+    print(f"Loaded {len(df)} rows; computing stats ...", flush=True)
     stats = compute_stats(df)
+    print(f"Stats computed: {len(stats)} config combinations\n", flush=True)
 
     print("BLOCK 1: FLAGS TABLE")
     print(make_flags_table(stats))
