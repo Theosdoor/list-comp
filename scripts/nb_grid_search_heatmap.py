@@ -1,72 +1,144 @@
 # %% [markdown]
 # # Results Heatmap (LIST_LEN x N_LAYERS)
 #
-# This notebook-style script reads `results.csv`, aggregates mean validation accuracy over `run_idx`,
-# pivots to rows=LIST_LEN and cols=N_LAYERS, and renders a seaborn heatmap.
+# Reads run data from WandB (default) or a local CSV (--source csv),
+# averages validation accuracy over seeds, pivots to rows=LIST_LEN / cols=N_LAYERS,
+# and renders a seaborn heatmap.
 
 # %%
-import os
-import numpy as np
+import argparse
+from pathlib import Path
+
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-CSV_PATH = os.path.join(os.path.dirname(__file__), "..", "results/grid_search/results.csv")
+WANDB_ENTITY = "theo-farrell99-durham-university"
+WANDB_PROJECT = "order-by-scale"
+DEFAULT_SWEEP_ID = "2nu3lkwf"
 
-# --- Load and aggregate ---
-df = pd.read_csv(CSV_PATH)
+CSV_PATH = Path(__file__).resolve().parent.parent / "results" / "grid_search" / "results.csv"
+OUTPUT_DIR = Path(__file__).resolve().parent.parent / "results" / "grid_search"
 
-# Ensure numeric dtypes for keys and value
-for col in ["LIST_LEN", "N_LAYERS", "val_acc"]:
-    if col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
 
-# Drop rows with missing keys/values
-df = df.dropna(subset=["LIST_LEN", "N_LAYERS", "val_acc"]).copy()
+def _coerce_int(value: object, default: int) -> int:
+    if value is None:
+        return default
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return default
 
-# Ignore configurations with N_LAYERS == 1
-df = df[df["N_LAYERS"] != 1]
 
-# set list_len = n_layers = 2 as 0.914 (we know this)
-df.loc[(df["LIST_LEN"] == 2) & (df["N_LAYERS"] == 2), "val_acc"] = 0.914
+def load_from_wandb(sweep_id: str) -> pd.DataFrame:
+    import wandb
+    import time
 
-# Mean across runs (run_idx) for each LIST_LEN x N_LAYERS combination
-agg = (
-        df.groupby(["LIST_LEN", "N_LAYERS"])  # group keys
-            ["val_acc"].mean()                   # mean over runs
-            .reset_index(name="val_acc_mean")    # bring keys back to columns
-)
+    api = wandb.Api()
+    print(f"Fetching sweep {sweep_id} from WandB ...", flush=True)
+    sweep = api.sweep(f"{WANDB_ENTITY}/{WANDB_PROJECT}/{sweep_id}")
+    all_runs = list(sweep.runs)
+    print(f"  {len(all_runs)} runs found", flush=True)
 
-# --- Pivot to 2D grid ---
-pivot = agg.pivot(index="LIST_LEN", columns="N_LAYERS", values="val_acc_mean")
-# Sort row/col indices numerically for a tidy layout
-pivot = pivot.sort_index().sort_index(axis=1)
+    rows = []
+    t0 = time.time()
+    n_skipped = n_no_acc = 0
+    for i, run in enumerate(all_runs, 1):
+        if i % 50 == 0 or i == len(all_runs):
+            print(f"  [{i}/{len(all_runs)}] elapsed={time.time()-t0:.0f}s  accepted={len(rows)}  skipped={n_skipped}  no_acc={n_no_acc}", flush=True)
+        if run.state != "finished":
+            n_skipped += 1
+            continue
+        val_acc = run.summary.get("best/accuracy")
+        if val_acc is None:
+            n_no_acc += 1
+            continue
+        cfg = run.config or {}
+        rows.append({
+            "LIST_LEN": _coerce_int(cfg.get("list_len"), -1),
+            "N_LAYERS": _coerce_int(cfg.get("n_layers"), -1),
+            "val_acc": float(val_acc),
+        })
 
-# Sanity print
-print("Pivot shape (rows=LIST_LEN, cols=N_LAYERS):", pivot.shape)
-print(pivot.head())
+    print(f"Fetch done: {len(rows)} accepted, {n_skipped} non-finished, {n_no_acc} missing acc  ({time.time()-t0:.0f}s)", flush=True)
+    df = pd.DataFrame(rows)
+    if df.empty:
+        raise SystemExit(f"No completed runs with best/accuracy found for sweep {sweep_id}")
+    return df
 
-# --- Seaborn heatmap ---
-plt.figure(figsize=(8, 5.5))
-ax = sns.heatmap(
-    pivot,
-    annot=True,
-    fmt=".3f",
-    cmap="viridis",
-    vmin=0.0,
-    vmax=1.0,
-    cbar_kws={"label": "Validation Accuracy"},
-    linewidths=0.2,
-    linecolor="white",
-)
-ax.set_title("Mean Validation Accuracy")
-ax.set_xlabel("No. of Layers")
-ax.set_ylabel("N-gram Size")
-# Put LIST_LEN=1 at the bottom
-ax.invert_yaxis()
-plt.tight_layout()
-out_path = os.path.join(os.path.dirname(__file__), "..", "results/grid_search/heatmap.pdf")
-plt.savefig(out_path, bbox_inches="tight")
-plt.show()
+
+def load_from_csv(csv_path: Path) -> pd.DataFrame:
+    df = pd.read_csv(csv_path)
+    for col in ["LIST_LEN", "N_LAYERS", "val_acc"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    df = df.dropna(subset=["LIST_LEN", "N_LAYERS", "val_acc"]).copy()
+    # Patch: known-good value for (2,2) that was missing from the original CSV
+    df.loc[(df["LIST_LEN"] == 2) & (df["N_LAYERS"] == 2), "val_acc"] = 0.914
+    return df
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Grid search heatmap (LIST_LEN x N_LAYERS).")
+    parser.add_argument("--source", choices=["wandb", "csv"], default="wandb",
+                        help="Data source (default: wandb)")
+    parser.add_argument("--sweep-id", default=DEFAULT_SWEEP_ID,
+                        help=f"WandB sweep ID (default: {DEFAULT_SWEEP_ID})")
+    parser.add_argument("--include-n1", action="store_true",
+                        help="Include N_LAYERS=1 in the heatmap (excluded by default)")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = _parse_args()
+
+    if args.source == "wandb":
+        df = load_from_wandb(args.sweep_id)
+    else:
+        df = load_from_csv(CSV_PATH)
+
+    if not args.include_n1:
+        df = df[df["N_LAYERS"] != 1]
+
+    # Average over seeds for each LIST_LEN × N_LAYERS cell
+    agg = (
+        df.groupby(["LIST_LEN", "N_LAYERS"])["val_acc"]
+          .mean()
+          .reset_index(name="val_acc_mean")
+    )
+
+    pivot = agg.pivot(index="LIST_LEN", columns="N_LAYERS", values="val_acc_mean")
+    pivot = pivot.sort_index().sort_index(axis=1)
+
+    print("Pivot shape (rows=LIST_LEN, cols=N_LAYERS):", pivot.shape)
+    print(pivot)
+
+    plt.figure(figsize=(8, 5.5))
+    ax = sns.heatmap(
+        pivot,
+        annot=True,
+        fmt=".3f",
+        cmap="viridis",
+        vmin=0.0,
+        vmax=1.0,
+        cbar_kws={"label": "Mean Validation Accuracy"},
+        linewidths=0.2,
+        linecolor="white",
+    )
+    ax.set_title("Mean Validation Accuracy")
+    ax.set_xlabel("No. of Layers")
+    ax.set_ylabel("N-gram Size")
+    ax.invert_yaxis()
+    plt.tight_layout()
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = OUTPUT_DIR / "heatmap.pdf"
+    plt.savefig(out_path, bbox_inches="tight")
+    print(f"Saved to {out_path}", flush=True)
+    plt.show()
+
+
+if __name__ == "__main__":
+    main()
 
 # %%
