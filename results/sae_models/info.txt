@@ -1,2 +1,0 @@
-old_sae was made with a different train script - it worked though, interesting feature was 189
-^ see reference/[ref] OLD_train_btk_sae.py

@@ -2,9 +2,10 @@ models/2_layer_sweep
 
 *.err
 wandb/
-results/
-.claude/
-.worktrees/
+results/*
+!results/grid_search
+.claude/*
+.worktrees/*
 
 
 # Byte-compiled / optimized / DLL files
