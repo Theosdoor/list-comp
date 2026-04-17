@@ -11,7 +11,7 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-CSV_PATH = "results.csv"
+CSV_PATH = "results/grid_search/results.csv"
 
 # --- Load and aggregate ---
 df = pd.read_csv(CSV_PATH)
