@@ -68,6 +68,14 @@ def sweep_transformer():
 
     list_len = config.list_len
     n_layers  = config.n_layers
+
+    # list_len=1 gives only 100 sequences (one per digit). After 80/20 split, val digits
+    # are fully OOD — their embeddings are never updated during training — so val acc is
+    # always 0 regardless of architecture. Skip rather than log misleading zeros.
+    if list_len == 1:
+        wandb.log({"skip_reason": "list_len=1_ood_val"})
+        wandb.finish()
+        return
     d_model   = config.d_model
     n_heads   = config.n_heads
     use_ln    = config.use_ln
