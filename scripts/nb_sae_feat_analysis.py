@@ -167,8 +167,13 @@ plt.show()
 # ## Cell 3 — Full feature heatmap (Plotly interactive)
 
 # %%
-fig = create_feature_heatmaps(d1_all, d2_all, sae_acts_all, n_digits=N_DIGITS, figsize=(25, 25))
+fig = create_feature_heatmaps(d1_all, d2_all, sae_acts_all, 
+                              n_digits=N_DIGITS, figsize=(25, 25), 
+                              shared_scale=True)
 fig.show()
+
+# %%
+# list of top 5 sae features by activation magnitude, along with some max activating examples
 
 # %% [markdown]
 # ## Cell 4 — Selected feature heatmaps (seaborn, ~3 types)
@@ -182,6 +187,18 @@ fig = create_feature_heatmaps_seaborn(
     feature_indices=FEATURES_TO_PLOT,
     n_digits=N_DIGITS,
     ncols=3,
+    shared_scale=False,
+)
+plt.show()
+
+# %%
+# w/ shared scale
+fig = create_feature_heatmaps_seaborn(
+    d1_all, d2_all, sae_acts_all,
+    feature_indices=FEATURES_TO_PLOT,
+    n_digits=N_DIGITS,
+    ncols=3,
+    shared_scale=True,
 )
 plt.show()
 

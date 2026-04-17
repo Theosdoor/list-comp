@@ -12,7 +12,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 
-def create_feature_heatmaps(d1_all, d2_all, sae_acts_all, n_digits=100, figsize=(25, 25), skip_dead_latents=True):
+def create_feature_heatmaps(d1_all, d2_all, sae_acts_all, n_digits=100, figsize=(25, 25), skip_dead_latents=True, shared_scale=False):
     """
     Create interactive Plotly grid of heatmaps for all SAE features.
 
@@ -31,6 +31,8 @@ def create_feature_heatmaps(d1_all, d2_all, sae_acts_all, n_digits=100, figsize=
     feature_indices = [i for i in range(d_sae) if not (skip_dead_latents and sae_acts_all[:, i].sum() == 0)]
     n_active = len(feature_indices)
     all_act_matrices = _compute_act_matrices(d1_all, d2_all, sae_acts_all, feature_indices, n_digits)
+
+    global_max = float(max(m.max() for m in all_act_matrices)) if shared_scale else None
 
     # Create subplot grid sized to active features only
     grid_size = int(np.ceil(np.sqrt(n_active)))
@@ -56,6 +58,8 @@ def create_feature_heatmaps(d1_all, d2_all, sae_acts_all, n_digits=100, figsize=
             go.Heatmap(
                 z=all_act_matrices[j].numpy(),
                 colorscale='Viridis',
+                zmin=0 if shared_scale else None,
+                zmax=global_max if shared_scale else None,
                 showscale=(j == n_active - 1),
                 hovertemplate='d1: %{x}<br>d2: %{y}<br>Activation: %{z:.4f}<extra></extra>',
                 name=f'Latent {feat_idx}',
@@ -123,7 +127,7 @@ def _compute_act_matrices(d1_all, d2_all, sae_acts_all, feature_indices, n_digit
     return act_matrices
 
 
-def create_feature_heatmaps_seaborn(d1_all, d2_all, sae_acts_all, feature_indices, n_digits=100, ncols=3, skip_dead_latents=True):
+def create_feature_heatmaps_seaborn(d1_all, d2_all, sae_acts_all, feature_indices, n_digits=100, ncols=3, skip_dead_latents=True, shared_scale=False):
     """
     Create a compact seaborn grid of heatmaps for a specified subset of features.
 
@@ -147,12 +151,16 @@ def create_feature_heatmaps_seaborn(d1_all, d2_all, sae_acts_all, feature_indice
 
     act_matrices = _compute_act_matrices(d1_all, d2_all, sae_acts_all, feature_indices, n_digits)
 
+    global_max = float(max(m.max() for m in act_matrices)) if shared_scale else None
+
     fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 3.5 * nrows), squeeze=False)
 
     for j, feat_idx in enumerate(feature_indices):
         ax = axes[j // ncols, j % ncols]
         mat = act_matrices[j].numpy()
         sns.heatmap(mat, ax=ax, cmap="viridis", xticklabels=False, yticklabels=False,
+                    vmin=0 if shared_scale else None,
+                    vmax=global_max if shared_scale else None,
                     cbar_kws={"shrink": 0.8})
         ax.set_title(f"Latent {feat_idx}", fontsize=10)
         ax.set_xlabel("d2")
