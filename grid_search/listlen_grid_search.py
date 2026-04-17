@@ -23,7 +23,7 @@ import fcntl  # POSIX file locking
 import sys
 sys.path.insert(0, '../..')
 from transformer_lens import HookedTransformer
-from gridsearch_utils import (
+from grid_search.gridsearch_utils import (
     pick_device,
     set_global_seed,
     count_params,
