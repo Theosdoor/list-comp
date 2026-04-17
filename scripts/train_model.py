@@ -1,4 +1,3 @@
-# %%
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -26,7 +25,7 @@ from transformer_lens import HookedTransformer, HookedTransformerConfig, utils
 from src.utils.runtime import configure_runtime
 from src.models.transformer import make_model, build_attention_mask
 from src.models.train import train
-from src.models.utils import save_model, accuracy
+from src.models.utils import save_model, accuracy, count_params
 from src.data.datasets import get_dataset
 
 # Wandb project name (hardcoded for this script - keep sep from saes)
@@ -37,7 +36,7 @@ float_formatter = "{:.5f}".format
 np.set_printoptions(formatter={'float_kind':float_formatter})
 
 
-# %%
+
 # ---------- parameters ----------
 import argparse
 
@@ -83,20 +82,7 @@ def parse_args():
     
     return parser.parse_args()
 
-# Parse arguments (use defaults if running as notebook)
-try:
-    args = parse_args()
-except SystemExit:
-    # Running in notebook/interactive mode, use defaults
-    args = argparse.Namespace(
-        n_layers=2, n_heads=1, d_model=64, n_digits=100, list_len=2,
-        ln=False, bias=False, wv=False, wo=False, mlp=False,
-        lr=1e-3, weight_decay=0.01, max_steps=100000, seed=0,
-        checkpoint=False, name=None, min_acc=0.9, max_retries=3,
-        early_stop_acc=1.0, early_stopping_patience=5, early_stopping_threshold=0.9,
-        train_batch_size=2048, val_batch_size=1024, wandb=False,
-        use_lr_scheduler=False, warmup_steps=1000, max_grad_norm=None
-    )
+args = parse_args()
 
 # Extract to module-level variables for compatibility
 LIST_LEN = args.list_len
@@ -154,7 +140,7 @@ if torch.cuda.is_available():
 # Provide runtime config so we don't need to thread constants everywhere
 configure_runtime(list_len=LIST_LEN, seq_len=SEQ_LEN, vocab=VOCAB, device=DEV, seed=SEED)
 
-# %%
+
 # ---------- mask ----------
 # attention mask for [d1, d2, SEP, o1, o2] looks like this:
 # -    d1    d2    SEP    o1    o2   (keys)
@@ -169,7 +155,7 @@ configure_runtime(list_len=LIST_LEN, seq_len=SEQ_LEN, vocab=VOCAB, device=DEV, s
 mask_bias, _ = build_attention_mask()
 mask_bias.cpu()[0][0]
 
-# %%
+
 # ---------- dataset ----------
 train_ds, val_ds = get_dataset(
     list_len=LIST_LEN, 
@@ -191,7 +177,7 @@ print(f"Train dataset size: {len(train_ds)}, Validation dataset size: {len(val_d
 
 
 
-# %%
+
 # train and SAVE new model
 MIN_ACC = args.min_acc
 MAX_RETRIES = args.max_retries
@@ -252,6 +238,11 @@ for attempt in range(MAX_RETRIES):
         use_wo=USE_WO,
         attn_only=ATTN_ONLY,
     )
+    if attempt == 0:
+        total_params, trainable_params = count_params(model)
+        print(f"  Parameters: total={total_params:,}, trainable={trainable_params:,}")
+        if USE_WANDB:
+            wandb.log({"model/params_total": total_params, "model/params_trainable": trainable_params})
     acc = train(
         model, train_dl, val_dl,
         max_steps=MAX_TRAIN_STEPS,
@@ -289,7 +280,9 @@ else:
     print(f"Warning: Best accuracy {best_acc:.2%} after {MAX_RETRIES} attempts (target: {MIN_ACC:.1%})")
 
 total_elapsed = time.time() - run_start
+total_params, trainable_params = count_params(best_model)
 print(f"Total runtime: {total_elapsed/60:.1f}min")
+print(f"Parameters: total={total_params:,}, trainable={trainable_params:,}")
 
 # Always save the best model
 MODEL_NAME_WITH_ACC = f'{MODEL_NAME}_acc{best_acc:.4f}'
@@ -301,32 +294,3 @@ if USE_WANDB:
     wandb.log({"final/accuracy": best_acc, "final/total_elapsed_min": total_elapsed / 60, "final/n_attempts": attempt + 1})
     wandb.finish()
 
-# %%
-# --- Model Parameters Overview ---
-# m_for_overview = globals().get('model', None)
-# if m_for_overview is not None:
-#     print("--- Overview of Model Parameters ---")   
-#     total_params = 0
-#     trainable_params = 0
-
-#     # Use a formatted string for better alignment
-#     print(f"{'Parameter Name':<40} | {'Shape':<20} | {'Trainable':<10}")
-#     print("-" * 80)
-
-#     for name, param in m_for_overview.named_parameters():
-#         shape_str = str(tuple(param.shape))
-#         is_trainable = "Yes" if param.requires_grad else "No"
-#         total_params += param.numel()
-
-#         if not param.requires_grad:
-#             continue
-#         # Print only trainable parameters
-#         print(f"{name:<40} | {shape_str:<20} | {is_trainable:<10}")
-#         trainable_params += param.numel()
-
-#     print("-" * 80)
-#     print(f"Total parameters: {total_params}")
-#     print(f"Trainable parameters: {trainable_params}")
-#     print("-" * 80)
-
-# %%

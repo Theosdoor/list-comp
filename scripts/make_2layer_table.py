@@ -10,7 +10,7 @@ import wandb
 WANDB_ENTITY = "theo-farrell99-durham-university"
 WANDB_PROJECT = "order-by-scale"
 CACHE_PATH = Path(__file__).resolve().parent.parent / "results" / "2layer_sweep_cache.csv"
-BOLD_THRESHOLD = 0.90
+OUTPUT_DIR = Path(__file__).resolve().parent.parent / "results" / "grid_search"
 
 CONFIG_KEYS = ["d_model", "n_heads", "use_ln", "use_bias", "use_wv", "use_wo", "use_mlp"]
 FLAG_KEYS = ["use_ln", "use_bias", "use_wv", "use_wo", "use_mlp"]
@@ -107,11 +107,13 @@ def compute_stats(df: pd.DataFrame) -> pd.DataFrame:
     grouped = df.groupby(CONFIG_KEYS, dropna=False)["val_accuracy"]
     stats = grouped.agg(
         mean="mean",
+        std="std",
         max="max",
         min="min",
         median="median",
         n_seeds="count",
     )
+    stats["std"] = stats["std"].fillna(0.0)
     return stats.reset_index()
 
 
@@ -119,8 +121,8 @@ def tf(value: bool) -> str:
     return "T" if value else "F"
 
 
-def fmt_acc(val: float, bold: bool = False) -> str:
-    formatted = f"{val:.4f}"
+def fmt_acc(val: float, std: float = 0.0, bold: bool = False) -> str:
+    formatted = f"{val:.4f} $\\pm$ {std:.4f}"
     return f"\\textbf{{{formatted}}}" if bold else formatted
 
 
@@ -128,24 +130,30 @@ def _is_fffff(row: pd.Series) -> bool:
     return all(not row[key] for key in FLAG_KEYS)
 
 
+def _top3_threshold(means: pd.Series) -> float:
+    top3 = means.nlargest(3)
+    return float(top3.iloc[-1]) if len(top3) == 3 else float("-inf")
+
+
 def make_flags_table(stats: pd.DataFrame) -> str:
     subset = stats[stats["d_model"] == 64].copy()
     subset = subset.sort_values(FLAG_KEYS)
+    threshold = _top3_threshold(subset["mean"])
 
     lines = [
-        "\\begin{tabular}{c c c c c c c c c c c}",
-        "d\\_model & ln & bias & wv & wo & mlp & mean & max & min & median & n \\\\",
+        "\\begin{tabular}{c c c c c c l c}",
+        "\\toprule",
+        "$d_{model}$ & LN & Bias & $W_V$ & $W_O$ & MLP & Accuracy & Max \\\\",
         "\\midrule",
     ]
     for _, row in subset.iterrows():
-        mean_str = fmt_acc(row["mean"], bold=row["mean"] >= BOLD_THRESHOLD)
-        line = (
+        mean_str = fmt_acc(row["mean"], bold=row["mean"] >= threshold)
+        lines.append(
             f"{int(row['d_model'])} & {tf(row['use_ln'])} & {tf(row['use_bias'])} & "
             f"{tf(row['use_wv'])} & {tf(row['use_wo'])} & {tf(row['use_mlp'])} & "
-            f"{mean_str} & {fmt_acc(row['max'])} & {fmt_acc(row['min'])} & "
-            f"{fmt_acc(row['median'])} & {int(row['n_seeds'])} \\\\"
+            f"{mean_str} \\\\"
         )
-        lines.append(line)
+    lines.append("\\bottomrule")
     lines.append("\\end{tabular}")
     return "\n".join(lines)
 
@@ -184,34 +192,55 @@ def make_dmodel_table(stats: pd.DataFrame) -> str:
     )
 
 
+def _row_latex(row: pd.Series, bold_mean: bool = False, bold_max: bool = False) -> str:
+    max_str = f"\\textbf{{{row['max']:.4f}}}" if bold_max else f"{row['max']:.4f}"
+    return (
+        f"{int(row['d_model'])} & {tf(row['use_ln'])} & {tf(row['use_bias'])} & "
+        f"{tf(row['use_wv'])} & {tf(row['use_wo'])} & {tf(row['use_mlp'])} & "
+        f"{fmt_acc(row['mean'], std=row['std'], bold=bold_mean)} & "
+        f"{max_str} \\\\"
+    )
+
+
 def make_compact_table(stats: pd.DataFrame) -> str:
-    flags_block = stats[stats["d_model"] == 64].copy().sort_values(FLAG_KEYS)
-    dmodel_block = stats[stats.apply(_is_fffff, axis=1)].copy()
-    dmodel_block = dmodel_block[dmodel_block["d_model"] != 64].sort_values(
+    fffff_mask = stats.apply(_is_fffff, axis=1)
+
+    baseline = stats[(stats["d_model"] == 64) & fffff_mask].copy()
+    flags_sort = ["use_mlp"] + [k for k in FLAG_KEYS if k != "use_mlp"]
+    flags_block = stats[(stats["d_model"] == 64) & ~fffff_mask].copy().sort_values(flags_sort)
+    dmodel_block = stats[fffff_mask & (stats["d_model"] != 64)].copy().sort_values(
         "d_model", ascending=False
     )
 
+    flags_best_mean = flags_block["mean"].max()
+    flags_best_max = flags_block["max"].max()
+    dmodel_best_mean = dmodel_block["mean"].max()
+    dmodel_best_max = dmodel_block["max"].max()
+
     lines = [
-        "\\begin{tabular}{c c c c c c c}",
-        "d\\_model & ln & bias & wv & wo & mlp & mean \\\\",
+        "\\begin{tabular}{c c c c c c l c}",
+        "\\toprule",
+        "$d_{model}$ & LN & Bias & $W_V$ & $W_O$ & MLP & Accuracy & Max \\\\",
         "\\midrule",
     ]
+    for _, row in baseline.iterrows():
+        lines.append(_row_latex(row, bold_mean=False, bold_max=False))
+
+    lines.append("\\midrule")
     for _, row in flags_block.iterrows():
-        mean_str = fmt_acc(row["mean"], bold=row["mean"] >= BOLD_THRESHOLD)
-        lines.append(
-            f"{int(row['d_model'])} & {tf(row['use_ln'])} & {tf(row['use_bias'])} & "
-            f"{tf(row['use_wv'])} & {tf(row['use_wo'])} & {tf(row['use_mlp'])} & "
-            f"{mean_str} \\\\"
-        )
+        lines.append(_row_latex(row,
+            bold_mean=row["mean"] == flags_best_mean,
+            bold_max=row["max"] == flags_best_max,
+        ))
 
     lines.append("\\midrule")
     for _, row in dmodel_block.iterrows():
-        mean_str = fmt_acc(row["mean"], bold=row["mean"] >= BOLD_THRESHOLD)
-        lines.append(
-            f"{int(row['d_model'])} & {tf(row['use_ln'])} & {tf(row['use_bias'])} & "
-            f"{tf(row['use_wv'])} & {tf(row['use_wo'])} & {tf(row['use_mlp'])} & "
-            f"{mean_str} \\\\"
-        )
+        lines.append(_row_latex(row,
+            bold_mean=row["mean"] == dmodel_best_mean,
+            bold_max=row["max"] == dmodel_best_max,
+        ))
+
+    lines.append("\\bottomrule")
     lines.append("\\end{tabular}")
     return "\n".join(lines)
 
@@ -286,15 +315,15 @@ def main() -> None:
     stats = compute_stats(df)
     print(f"Stats computed: {len(stats)} config combinations\n", flush=True)
 
-    print("BLOCK 1: FLAGS TABLE")
-    print(make_flags_table(stats))
-    print("BLOCK 2: DMODEL TABLE")
-    print(make_dmodel_table(stats))
-    if args.nheads_sweep_ids:
-        print("BLOCK 3: NHEADS TABLE")
-        print(make_nheads_table(stats))
-    print("COMPACT TABLE")
-    print(make_compact_table(stats))
+    table = make_compact_table(stats)
+    print(table)
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    sweep_tag = "_".join(all_sweep_ids)
+    out_path = OUTPUT_DIR / f"2layer_table_{sweep_tag}.tex"
+    out_path.write_text(table + "\n")
+    print(f"\nSaved to {out_path}", flush=True)
+
     print_top3_fffff(df)
 
 
