@@ -85,7 +85,9 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--sweep-id", default=DEFAULT_SWEEP_ID,
                         help=f"WandB sweep ID (default: {DEFAULT_SWEEP_ID})")
     parser.add_argument("--include-n1", action="store_true",
-                        help="Include N_LAYERS=1 in the heatmap (excluded by default)")
+                        help="Include N_LAYERS=1 in the heatmap")
+    parser.add_argument("--include-l1", action="store_true",
+                        help="Include LIST_LEN=1 in the heatmap (excluded by default)")
     return parser.parse_args()
 
 
@@ -97,8 +99,8 @@ def main() -> None:
     else:
         df = load_from_csv(CSV_PATH)
 
-    if not args.include_n1:
-        df = df[df["N_LAYERS"] != 1]
+    if not args.include_l1:
+        df = df[df["LIST_LEN"] != 1]
 
     # Average over seeds for each LIST_LEN × N_LAYERS cell
     agg = (
