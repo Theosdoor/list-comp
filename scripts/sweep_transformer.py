@@ -50,6 +50,7 @@ def set_seeds(seed: int):
 def sweep_transformer():
     load_dotenv()
     run = wandb.init(
+        settings=wandb.Settings(init_timeout=300),
         project=WANDB_PROJECT,
         config={
             "max_steps": MAX_STEPS,
