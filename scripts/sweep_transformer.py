@@ -106,6 +106,9 @@ def sweep_transformer():
         seed=0,
     )
 
+    # Dataset seed is fixed (independent of config.seed) so all 30 model seeds
+    # for a given (list_len, n_layers) cell train on identical data. This isolates
+    # model-initialisation variance from data-sampling variance.
     train_ds, val_ds = get_dataset(
         list_len=list_len,
         n_digits=N_DIGITS,
@@ -137,9 +140,14 @@ def sweep_transformer():
     ).to(DEV)
 
     total_params, trainable_params = count_params(model)
+    full_dataset_size = N_DIGITS ** list_len
     wandb.log({
         "model/params_total": total_params,
         "model/params_trainable": trainable_params,
+        "data/n_train": len(train_ds),
+        "data/n_val": len(val_ds),
+        "data/full_dataset_size": full_dataset_size,
+        "data/sampled": full_dataset_size > len(train_ds) + len(val_ds),
     })
 
     print(
