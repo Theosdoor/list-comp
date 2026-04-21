@@ -121,9 +121,9 @@ def sweep_transformer():
     val_batch_size = min(VAL_BATCH_SIZE, len(val_ds))
     _pin = DEV == "cuda"
     train_dl = DataLoader(train_ds, batch_size=train_batch_size, shuffle=True, drop_last=True,
-                          pin_memory=_pin, num_workers=2, persistent_workers=True)
+                          pin_memory=_pin)
     val_dl = DataLoader(val_ds, batch_size=val_batch_size, drop_last=False,
-                        pin_memory=_pin, num_workers=2, persistent_workers=True)
+                        pin_memory=_pin)
 
     model = make_model(
         n_layers=n_layers,
@@ -176,6 +176,10 @@ def sweep_transformer():
         model_path.parent.mkdir(parents=True, exist_ok=True)
         save_model(model, str(model_path))
 
+    del model, train_dl, val_dl, train_ds, val_ds
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
     wandb.finish()
 
 
@@ -197,11 +201,9 @@ if __name__ == "__main__":
         set_seeds(_cfg.seed)
         _pin = DEV == "cuda"
         _train_dl = DataLoader(train_ds, batch_size=min(TRAIN_BATCH_SIZE, len(train_ds)),
-                               shuffle=True, drop_last=True, pin_memory=_pin,
-                               num_workers=2, persistent_workers=True)
+                               shuffle=True, drop_last=True, pin_memory=_pin)
         _val_dl = DataLoader(val_ds, batch_size=min(VAL_BATCH_SIZE, len(val_ds)),
-                             drop_last=False, pin_memory=_pin,
-                             num_workers=2, persistent_workers=True)
+                             drop_last=False, pin_memory=_pin)
         _model = make_model(n_layers=_cfg.n_layers, n_heads=_cfg.n_heads,
                             d_model=_cfg.d_model, ln=_cfg.use_ln,
                             use_bias=_cfg.use_bias, use_wv=_cfg.use_wv,
