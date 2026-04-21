@@ -118,6 +118,14 @@ def sweep_transformer():
         seed=0,
     )
 
+    full_dataset_size = N_DIGITS ** list_len
+    sampled = full_dataset_size > len(train_ds) + len(val_ds)
+    print(
+        f"[dataset] list_len={list_len}, full_size={full_dataset_size:,}, "
+        f"train={len(train_ds):,}, val={len(val_ds):,}"
+        + (" (sampled)" if sampled else " (full enumeration)")
+    )
+
     set_seeds(seed)
 
     train_batch_size = min(TRAIN_BATCH_SIZE, len(train_ds))
@@ -140,14 +148,13 @@ def sweep_transformer():
     ).to(DEV)
 
     total_params, trainable_params = count_params(model)
-    full_dataset_size = N_DIGITS ** list_len
     wandb.log({
         "model/params_total": total_params,
         "model/params_trainable": trainable_params,
         "data/n_train": len(train_ds),
         "data/n_val": len(val_ds),
         "data/full_dataset_size": full_dataset_size,
-        "data/sampled": full_dataset_size > len(train_ds) + len(val_ds),
+        "data/sampled": sampled,
     })
 
     print(
