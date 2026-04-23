@@ -143,7 +143,7 @@ def make_flags_table(stats: pd.DataFrame) -> str:
     lines = [
         "\\begin{tabular}{c c c c c c l c}",
         "\\toprule",
-        "$d_{model}$ & LN & Bias & $W_V$ & $W_O$ & MLP & Accuracy & Max \\\\",
+        "$d_\text{model}$ & LN & Bias & $W_V$ & $W_O$ & MLP & Accuracy & Max \\\\",
         "\\midrule",
     ]
     for _, row in subset.iterrows():
@@ -233,11 +233,11 @@ def make_compact_table(stats: pd.DataFrame) -> str:
     dmodel_best_max = dmodel_block["max"].max()
 
     col_spec = "c c c c c c c l c" if show_nheads else "c c c c c c l c"
-    nheads_header = " $n_{heads}$ &" if show_nheads else ""
+    nheads_header = " $n_\text{heads}$ &" if show_nheads else ""
     lines = [
         f"\\begin{{tabular}}{{{col_spec}}}",
         "\\toprule",
-        f"$d_{{model}}$ &{nheads_header} LN & Bias & $W_V$ & $W_O$ & MLP & Accuracy & Max \\\\",
+        f"$d_\text{{model}}$ &{nheads_header} LN & Bias & $W_V$ & $W_O$ & MLP & Accuracy & Max \\\\",
         "\\midrule",
     ]
     for _, row in baseline.iterrows():

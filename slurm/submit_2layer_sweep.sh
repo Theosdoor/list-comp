@@ -5,7 +5,7 @@
 #SBATCH --partition=ug-gpu-small
 #SBATCH --gres=gpu:turing:1
 #SBATCH --time=48:00:00
-#SBATCH --mem=28G
+#SBATCH --mem=16G
 set -euo pipefail
 
 # Usage: sbatch slurm/submit_2layer_sweep.sh <sweep_id>
