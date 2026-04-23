@@ -9,6 +9,8 @@ from pathlib import Path
 import time
 import random
 
+import gc
+
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -66,6 +68,13 @@ def sweep_transformer():
         },
     )
     print(f"[wandb] run_id={run.id} name={run.name} url={run.url}")
+
+    # Flush any leftover memory from previous runs (including crashed ones)
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        torch.cuda.empty_cache()
+
     config = wandb.config
 
     list_len = config.list_len
@@ -99,6 +108,12 @@ def sweep_transformer():
         wandb.log({"skip_reason": "list_len=1_ood_val"})
         wandb.finish()
         return
+
+    print(
+        f"[model] list_len={list_len}, n_layers={n_layers}, d_model={d_model}, "
+        f"n_heads={n_heads}, seq_len={seq_len}, vocab={vocab}, "
+        f"ln={use_ln}, bias={use_bias}, wv={use_wv}, wo={use_wo}, mlp={use_mlp}, seed={seed}"
+    )
 
     configure_runtime(
         list_len=list_len,
@@ -138,66 +153,69 @@ def sweep_transformer():
     val_dl = DataLoader(val_ds, batch_size=val_batch_size, drop_last=False,
                         pin_memory=_pin)
 
-    model = make_model(
-        n_layers=n_layers,
-        n_heads=n_heads,
-        d_model=d_model,
-        ln=use_ln,
-        use_bias=use_bias,
-        use_wv=use_wv,
-        use_wo=use_wo,
-        attn_only=not use_mlp,
-    ).to(DEV)
+    model = None
+    try:
+        model = make_model(
+            n_layers=n_layers,
+            n_heads=n_heads,
+            d_model=d_model,
+            ln=use_ln,
+            use_bias=use_bias,
+            use_wv=use_wv,
+            use_wo=use_wo,
+            attn_only=not use_mlp,
+        ).to(DEV)
 
-    total_params, trainable_params = count_params(model)
-    wandb.log({
-        "model/params_total": total_params,
-        "model/params_trainable": trainable_params,
-        "data/n_train": len(train_ds),
-        "data/n_val": len(val_ds),
-        "data/full_dataset_size": full_dataset_size,
-        "data/sampled": sampled,
-    })
+        total_params, trainable_params = count_params(model)
+        wandb.log({
+            "model/params_total": total_params,
+            "model/params_trainable": trainable_params,
+            "data/n_train": len(train_ds),
+            "data/n_val": len(val_ds),
+            "data/full_dataset_size": full_dataset_size,
+            "data/sampled": sampled,
+        })
 
-    print(
-        f"[sweep] list_len={list_len}, n_layers={n_layers}, d_model={d_model}, "
-        f"n_heads={n_heads}, ln={use_ln}, bias={use_bias}, wv={use_wv}, "
-        f"wo={use_wo}, mlp={use_mlp}, seed={seed}, params={total_params}"
-    )
+        print(
+            f"[sweep] list_len={list_len}, n_layers={n_layers}, d_model={d_model}, "
+            f"n_heads={n_heads}, ln={use_ln}, bias={use_bias}, wv={use_wv}, "
+            f"wo={use_wo}, mlp={use_mlp}, seed={seed}, params={total_params}"
+        )
 
-    t0 = time.time()
-    best_acc = train(
-        model,
-        train_dl,
-        val_dl,
-        max_steps=MAX_STEPS,
-        lr=LR,
-        weight_decay=WEIGHT_DECAY,
-        list_len=list_len,
-        vocab=vocab,
-        device=DEV,
-        early_stop_acc=EARLY_STOP_ACC,
-        use_wandb=True,
-        show_progress=False,
-    )
-    elapsed_min = (time.time() - t0) / 60
-    print(f"[sweep] done: best_acc={best_acc:.4f}, elapsed={elapsed_min:.1f}min")
+        t0 = time.time()
+        best_acc = train(
+            model,
+            train_dl,
+            val_dl,
+            max_steps=MAX_STEPS,
+            lr=LR,
+            weight_decay=WEIGHT_DECAY,
+            list_len=list_len,
+            vocab=vocab,
+            device=DEV,
+            early_stop_acc=EARLY_STOP_ACC,
+            use_wandb=True,
+            show_progress=False,
+        )
+        elapsed_min = (time.time() - t0) / 60
+        print(f"[sweep] done: best_acc={best_acc:.4f}, elapsed={elapsed_min:.1f}min")
 
-    wandb.log({"final/val_accuracy": best_acc, "final/elapsed_min": elapsed_min})
-    wandb.summary["final/val_accuracy"] = best_acc
-    wandb.summary["final/elapsed_min"] = elapsed_min
+        wandb.log({"final/val_accuracy": best_acc, "final/elapsed_min": elapsed_min})
+        wandb.summary["final/val_accuracy"] = best_acc
+        wandb.summary["final/elapsed_min"] = elapsed_min
 
-    if (not use_ln and not use_bias and not use_wv and not use_wo and not use_mlp and d_model == 64):
-        base_dir = Path(__file__).resolve().parents[1] / "models" / "2_layer_sweep"
-        model_path = base_dir / f"{run.name}_acc{best_acc:.4f}.pt"
-        model_path.parent.mkdir(parents=True, exist_ok=True)
-        save_model(model, str(model_path))
-
-    del model, train_dl, val_dl, train_ds, val_ds
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-
-    wandb.finish()
+        if (not use_ln and not use_bias and not use_wv and not use_wo and not use_mlp and d_model == 64):
+            base_dir = Path(__file__).resolve().parents[1] / "models" / "2_layer_sweep"
+            model_path = base_dir / f"{run.name}_acc{best_acc:.4f}.pt"
+            model_path.parent.mkdir(parents=True, exist_ok=True)
+            save_model(model, str(model_path))
+    finally:
+        del model, train_dl, val_dl, train_ds, val_ds
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+        wandb.finish()
 
 
 if __name__ == "__main__":
