@@ -7,6 +7,8 @@
 
 # %%
 import argparse
+import sys
+import types
 from pathlib import Path
 
 import pandas as pd
@@ -73,7 +75,7 @@ def load_from_csv(csv_path: Path) -> pd.DataFrame:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
     df = df.dropna(subset=["LIST_LEN", "N_LAYERS", "val_acc"]).copy()
-    # Patch: known-good value for (2,2) that was missing from the original CSV
+    # Known-good value for (2,2) that was missing from the original CSV
     df.loc[(df["LIST_LEN"] == 2) & (df["N_LAYERS"] == 2), "val_acc"] = 0.914
     return df
 
@@ -91,9 +93,7 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
-    args = _parse_args()
-
+def run(args) -> None:
     if args.source == "wandb":
         df = load_from_wandb(args.sweep_id)
     else:
@@ -101,8 +101,9 @@ def main() -> None:
 
     if not args.include_l1:
         df = df[df["LIST_LEN"] != 1]
+    if not args.include_n1:
+        df = df[df["N_LAYERS"] != 1]
 
-    # Average over seeds for each LIST_LEN × N_LAYERS cell
     agg = (
         df.groupby(["LIST_LEN", "N_LAYERS"])["val_acc"]
           .mean()
@@ -140,7 +141,17 @@ def main() -> None:
     plt.show()
 
 
-if __name__ == "__main__":
-    main()
+def main() -> None:
+    run(_parse_args())
+
 
 # %%
+if "ipykernel" in sys.modules or not sys.argv[0].endswith(".py"):
+    run(types.SimpleNamespace(
+        source="wandb",
+        sweep_id=DEFAULT_SWEEP_ID,
+        include_n1=False,
+        include_l1=False,
+    ))
+elif __name__ == "__main__":
+    main()
