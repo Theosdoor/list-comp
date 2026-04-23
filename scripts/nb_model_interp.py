@@ -36,7 +36,8 @@ np.set_printoptions(formatter={'float_kind':float_formatter})
 
 # %%
 # ---------- parameters ----------
-MODEL_NAME = '2layer_100dig_64d'
+# MODEL_NAME = '2layer_100dig_64d'
+MODEL_NAME = "2_layer_sweep/d64_h1_lnF_biasF_wvF_woF_mlpF_s3_acc0.9405"
 # Construct path relative to project root (parent of model_scripts/)
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_PATH = os.path.join(_PROJECT_ROOT, "models", MODEL_NAME + ".pt")
@@ -257,8 +258,7 @@ print("Accuracy with avg-attn:", accuracy(model_with_avg_attn, val_dl))
 # %%
 # ---- Ablation of Specific Attention Edges ----
 
-renorm_rows = True # whether to renormalize rows after ablation
-# ^ False gets graph from paper, but True is arguably more correct (Results don't signigicantly change)
+renorm_rows = False # whether to renormalize rows after ablation
 ablate_in_l0 = [
                 (4,3),
                 (0,0),
