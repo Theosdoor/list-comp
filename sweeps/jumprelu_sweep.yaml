@@ -19,11 +19,11 @@ parameters:
   d_sae:
     values: [128, 192, 256, 320]
   target_l0:
-    values: [2, 3, 4, 5, 6]
+    values: [2, 3, 4, 5]
   sparsity_penalty:
-    value: 1.0
+    values: [0.1, 0.5, 1.0, 5.0]
   lr:
-    value: 7e-5
+    values: [7e-5, 3e-4] # jumprelu default is 7e-5 but would be good to check 3e-4 like btk
   n_steps:
     value: 50000
   warmup_steps:
@@ -31,4 +31,4 @@ parameters:
   batch_size:
     value: 4096
   seed:
-    values: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+    values: [0, 1, 2, 3, 4]

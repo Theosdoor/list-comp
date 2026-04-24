@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=SAEs
+#SBATCH --job-name=job
 #SBATCH --output=slurm/logs/slurm_%j.log
 #SBATCH --error=slurm/logs/slurm_%j.err
 #SBATCH --partition=ug-gpu-small
@@ -21,7 +21,7 @@ echo "------------------------------------------------------"
 
 python3 scripts/run_crossover_analysis.py \
    --model 2layer_100dig_64d \
-   --sae sweep_runs_v2/sae_d128_k5_lr0.0001_seed2_2layer_100dig_64d.pt \
+   --sae results/sae_models/sweep_runs_v2/sae_d128_k4_lr0.0001_seed1_2layer_100dig_64d.pt \
    --feature auto \
    --threshold 0.5 \
    --max-features 2 \

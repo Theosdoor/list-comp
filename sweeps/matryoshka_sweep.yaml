@@ -22,7 +22,7 @@ parameters:
   top_k:
     values: [3, 4, 5]
   n_groups:
-    values: [2, 4]
+    values: [1, 2, 4] # 1 group is equivalent to BTK, 2 and 4 groups are the new matryoshka settings
   lr:
     value: 3e-4
   n_steps:
