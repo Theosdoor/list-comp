@@ -25,7 +25,7 @@ parameters:
   lr:
     value: 7e-5
   n_steps:
-    value: 75000
+    value: 50000
   warmup_steps:
     value: 1000
   batch_size:

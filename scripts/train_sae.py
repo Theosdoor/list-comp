@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import argparse
+import gc
 import os
 import sys
 from datetime import datetime
@@ -23,7 +24,7 @@ from dictionary_learning.trainers.jumprelu import JumpReluTrainer
 from dictionary_learning.trainers.matryoshka_batch_top_k import MatryoshkaBatchTopKTrainer
 
 from src.models.transformer import make_model
-from src.models.utils import infer_model_config
+from src.models.utils import infer_model_config, count_params
 from src.utils.runtime import configure_runtime
 from src.data.datasets import get_dataset
 from src.sae import (
@@ -153,15 +154,20 @@ def _load_model_and_acts():
     if not os.path.exists(MODEL_PATH):
         raise FileNotFoundError(f"Model not found: {MODEL_PATH}")
     model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
+    model.to(DEVICE)  # Explicitly move model to device after loading
     print(f"✓ Loaded model from {MODEL_PATH}")
 
-    train_ds, _ = get_dataset(
-        list_len=LIST_LEN, n_digits=N_DIGITS, mask_tok=N_DIGITS, sep_tok=N_DIGITS + 1
+    # Load FULL dataset (train + val) for SAE training to cover entire input space
+    # This ensures the SAE sees all digit combinations during training, not just 80% of them.
+    train_ds, val_ds = get_dataset(
+        list_len=LIST_LEN, n_digits=N_DIGITS, mask_tok=N_DIGITS, sep_tok=N_DIGITS + 1,
+        no_dupes=False
     )
-    train_dl = DataLoader(train_ds, batch_size=512, shuffle=True)
+    full_ds = ConcatDataset([train_ds, val_ds])
+    train_dl = DataLoader(full_ds, batch_size=512, shuffle=True)
 
     all_acts = get_sep_activations(model, train_dl, layer_idx=0, sep_idx=SEP_TOKEN_INDEX).to(DEVICE)
-    act_mean = all_acts.mean(0)
+    act_mean = all_acts.mean(0)  # Computed after .to(DEVICE) to ensure act_mean is on correct device
     print(f"Collected {len(all_acts)} activations, shape: {all_acts.shape}")
     return model, act_mean, all_acts - act_mean
 
@@ -241,102 +247,162 @@ def _train(cfg, use_wandb: bool, save_folder: str, model_path: str = None):
         raise ValueError(f"Unknown sae_type '{sae_type}'. Known: {list(TRAINER_REGISTRY)}")
 
     torch.manual_seed(cfg.seed)
-    model, act_mean, all_acts_centered = _load_model_and_acts()
+    # Initialize all variables to None for safe cleanup in finally block
+    model = None
+    trainer = None
+    act_mean = None
+    all_acts_centered = None
+    sae_dl = None
+    iter_dl = None
+    try:
+        model, act_mean, all_acts_centered = _load_model_and_acts()
 
-    sae_dl = DataLoader(all_acts_centered, batch_size=cfg.batch_size, shuffle=True)
-    trainer, run_name, extra_cfg = TRAINER_REGISTRY[sae_type](cfg, D_MODEL, DEVICE)
+        sae_dl = DataLoader(all_acts_centered, batch_size=cfg.batch_size, shuffle=True)
+        trainer, run_name, extra_cfg = TRAINER_REGISTRY[sae_type](cfg, D_MODEL, DEVICE)
 
-    if use_wandb:
-        _wandb.run.name = run_name
+        if use_wandb:
+            _wandb.run.name = run_name
+            
+            # Log model metrics (use summary for static metadata to avoid incrementing step counter)
+            total_params, trainable_params = count_params(trainer.ae)
+            full_dataset_size = N_DIGITS ** LIST_LEN
+            sampled = full_dataset_size > len(all_acts_centered)
+            
+            _wandb.summary.update({
+                "model/params_total": total_params,
+                "model/params_trainable": trainable_params,
+                "model/d_model": D_MODEL,
+                "model/model_name": MODEL_NAME,
+                "data/full_dataset_size": full_dataset_size,
+                "data/n_total": len(all_acts_centered),
+                "data/sampled": sampled,
+                "data/batch_size": cfg.batch_size,
+                "config/warmup_steps": cfg.warmup_steps,
+                "config/n_steps": cfg.n_steps,
+            })
 
-    is_tty = sys.stdout.isatty()
-    log_interval = 100 if is_tty else 1000
+        is_tty = sys.stdout.isatty()
+        log_interval = 100 if is_tty else 1000
 
-    print(f"\n{'='*60}")
-    print(f"Run:      {run_name}")
-    print(f"Model:    {MODEL_PATH}")
-    print(f"Steps:    {cfg.n_steps}  |  LR: {cfg.lr}  |  d_sae: {cfg.d_sae}  |  device: {DEVICE}")
-    print(f"Started:  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"{'='*60}\n")
-    sys.stdout.flush()
+        print(f"\n{'='*60}")
+        print(f"Run:      {run_name}")
+        print(f"Model:    {MODEL_PATH}")
+        print(f"Steps:    {cfg.n_steps}  |  LR: {cfg.lr}  |  d_sae: {cfg.d_sae}  |  device: {DEVICE}")
+        print(f"Started:  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"{'='*60}\n")
+        sys.stdout.flush()
 
-    def cycle(it):
-        while True:
-            yield from it
+        def cycle(it):
+            while True:
+                yield from it
 
-    iter_dl = cycle(sae_dl)
-    pbar = tqdm(range(cfg.n_steps), disable=not is_tty, desc="Training", unit="step")
-    loss = 0.0
-    t_start = datetime.now()
+        iter_dl = cycle(sae_dl)
+        pbar = tqdm(range(cfg.n_steps), disable=not is_tty, desc="Training", unit="step")
+        loss = 0.0
+        t_start = datetime.now()
+        best_loss = float('inf')
+        best_step = 0
 
-    for step in pbar:
-        batch_acts = next(iter_dl)
-        loss = trainer.update(step, batch_acts)
-        if step % log_interval == 0:
-            log_info = trainer.get_logging_parameters()
-            if 'effective_l0' in log_info:
-                effective_l0 = log_info['effective_l0']
-            else:
-                with torch.no_grad():
-                    f = trainer.ae.encode(batch_acts.to(DEVICE))
-                    effective_l0 = (f > 0).float().sum(dim=-1).mean().item()
-            if use_wandb:
-                _wandb.log({"loss": loss, "effective_l0": effective_l0, "step": step})
-            pct = 100 * step / cfg.n_steps
-            elapsed = (datetime.now() - t_start).total_seconds()
-            eta_s = (elapsed / max(step, 1)) * (cfg.n_steps - step)
-            eta_str = f"{int(eta_s // 60)}m{int(eta_s % 60):02d}s"
-            if is_tty:
-                pbar.set_postfix({"loss": f"{loss:.4f}", "L0": f"{effective_l0:.1f}", "ETA": eta_str})
-            else:
-                ts = datetime.now().strftime('%H:%M:%S')
-                print(f"[{ts}] step {step:>6}/{cfg.n_steps}  ({pct:4.1f}%)  loss={loss:.4f}  L0={effective_l0:.1f}  ETA={eta_str}")
-                sys.stdout.flush()
+        for step in pbar:
+            batch_acts = next(iter_dl)
+            loss = trainer.update(step, batch_acts)
+            if step % log_interval == 0:
+                log_info = trainer.get_logging_parameters()
+                if 'effective_l0' in log_info:
+                    # NOTE: trainer.effective_l0 is hardcoded to k (the target sparsity), not actual sparsity.
+                    # It's logged for reference but is constant throughout training.
+                    # Real sparsity (avg num nonzero features per token) is computed in _log_wandb_eval_metrics
+                    # from actual activations after training completes.
+                    effective_l0 = log_info['effective_l0']
+                else:
+                    with torch.no_grad():
+                        f = trainer.ae.encode(batch_acts.to(DEVICE))
+                        effective_l0 = (f > 0).float().sum(dim=-1).mean().item()
+                
+                pct_complete = 100 * step / cfg.n_steps
+                
+                # Track best metrics
+                if loss < best_loss:
+                    best_loss = loss
+                    best_step = step
+                
+                if use_wandb:
+                    # Get actual LR from optimizer (accounts for warmup schedule)
+                    actual_lr = trainer.optimizer.param_groups[0]['lr']
+                    _wandb.log({
+                        "train/loss": loss,
+                        "train/l0": effective_l0,
+                        "train/lr": actual_lr,
+                        "train/pct_complete": pct_complete,
+                    }, step=step)
+                elapsed = (datetime.now() - t_start).total_seconds()
+                eta_s = (elapsed / max(step, 1)) * (cfg.n_steps - step)
+                eta_str = f"{int(eta_s // 60)}m{int(eta_s % 60):02d}s"
+                if is_tty:
+                    pbar.set_postfix({"loss": f"{loss:.4f}", "L0": f"{effective_l0:.1f}", "ETA": eta_str})
+                else:
+                    ts = datetime.now().strftime('%H:%M:%S')
+                    print(f"[{ts}] step {step:>6}/{cfg.n_steps}  ({pct_complete:4.1f}%)  loss={loss:.4f}  L0={effective_l0:.1f}  ETA={eta_str}")
+                    sys.stdout.flush()
 
-    log_info = trainer.get_logging_parameters()
-    final_l0 = log_info.get('effective_l0', 0)
-    total_time = (datetime.now() - t_start).total_seconds()
-    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Training complete — "
-          f"final_loss={loss:.4f}  final_L0={final_l0:.1f}  "
-          f"time={int(total_time // 60)}m{int(total_time % 60):02d}s")
-    sys.stdout.flush()
+        log_info = trainer.get_logging_parameters()
+        final_l0 = log_info.get('effective_l0', 0)
+        total_time = (datetime.now() - t_start).total_seconds()
+        elapsed_min = total_time / 60
+        print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Training complete — "
+              f"final_loss={loss:.4f}  final_L0={final_l0:.1f}  "
+              f"time={int(total_time // 60)}m{int(total_time % 60):02d}s")
+        sys.stdout.flush()
 
-    if use_wandb:
-        _wandb.summary["final_loss"] = loss
-        _wandb.summary["final_l0"] = final_l0
-        _log_wandb_eval_metrics(model, trainer.ae.to(DEVICE), act_mean, cfg.d_sae)
+        if use_wandb:
+            _wandb.summary["final/loss"] = loss
+            _wandb.summary["final/l0"] = final_l0
+            _wandb.summary["best/loss"] = best_loss
+            _wandb.summary["best/step"] = best_step
+            _wandb.summary["final/elapsed_min"] = elapsed_min
+            _wandb.summary["final/step"] = cfg.n_steps
+            _log_wandb_eval_metrics(model, trainer.ae.to(DEVICE), act_mean, cfg.d_sae)
 
-    # Save checkpoint
-    os.makedirs(save_folder, exist_ok=True)
-    save_path = os.path.join(save_folder, f"{run_name}_{MODEL_NAME}.pt")
-    torch.save({
-        "state_dict": trainer.ae.state_dict(),
-        "cfg": {
-            "activation_dim": D_MODEL, "dict_size": cfg.d_sae,
-            "d_model": D_MODEL, "d_sae": cfg.d_sae,
-            "lr": cfg.lr, "seed": cfg.seed,
-            "model_path": MODEL_PATH,
-            **extra_cfg,
-        },
-        "act_mean": act_mean.cpu(),
-        "final_loss": loss,
-        "final_l0": final_l0,
-    }, save_path)
-    print(f"\n✓ SAE saved to {save_path}")
-
-    if use_wandb:
-        artifact = _wandb.Artifact(
-            name=run_name.replace("_", "-"), type="model",
-            metadata={
-                "sae_type": sae_type, "d_sae": cfg.d_sae,
+        # Save checkpoint
+        os.makedirs(save_folder, exist_ok=True)
+        save_path = os.path.join(save_folder, f"{run_name}_{MODEL_NAME}.pt")
+        torch.save({
+            "state_dict": trainer.ae.state_dict(),
+            "cfg": {
+                "activation_dim": D_MODEL, "dict_size": cfg.d_sae,
+                "d_model": D_MODEL, "d_sae": cfg.d_sae,
                 "lr": cfg.lr, "seed": cfg.seed,
-                "final_loss": loss, "final_l0": final_l0,
+                "model_path": MODEL_PATH,
                 **extra_cfg,
             },
-        )
-        artifact.add_file(save_path)
-        _wandb.log_artifact(artifact)
-        _wandb.finish()
+            "act_mean": act_mean.cpu(),
+            "final_loss": loss,
+            "final_l0": final_l0,
+        }, save_path)
+        print(f"\n✓ SAE saved to {save_path}")
+
+        if use_wandb:
+            artifact = _wandb.Artifact(
+                name=run_name.replace("_", "-"), type="model",
+                metadata={
+                    "sae_type": sae_type, "d_sae": cfg.d_sae,
+                    "lr": cfg.lr, "seed": cfg.seed,
+                    "final_loss": loss, "final_l0": final_l0,
+                    **extra_cfg,
+                },
+            )
+            artifact.add_file(save_path)
+            _wandb.log_artifact(artifact)
+    finally:
+        # Clean up GPU memory and close wandb run (must be in finally to guarantee execution)
+        # Delete all references to GPU-held tensors to ensure memory is freed
+        del model, trainer, act_mean, all_acts_centered, sae_dl, iter_dl
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+        if use_wandb:
+            _wandb.finish()
 
 
 # ---------------------------------------------------------------------------

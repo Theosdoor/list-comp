@@ -5,7 +5,7 @@
 #SBATCH --partition=ug-gpu-small
 #SBATCH --gres=gpu:turing:1
 #SBATCH --time=48:00:00
-#SBATCH --mem=28G
+#SBATCH --mem=20G
 
 # go to folder and sync venv
 cd /home2/nchw73/Year4/L4_Project/list-comp-priv
@@ -20,7 +20,7 @@ echo "------------------------------------------------------"
 
 
 # btk
-wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/5awoztdt
+wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/k2bsjr0n
 
 # matryoshka
 # wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/tbxyl1y7

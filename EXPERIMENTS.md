@@ -1,6 +1,10 @@
 # Experiments
 
-## SAE Training Data Coverage (2026-04-24)
+## BTK SAE Sweep (2026-04-24)
+
+Run slurm/submit_sae_sweep.sh and uncomment relevant parts
+
+## SAE Training Data Coverage & Metrics (2026-04-24)
 
 **Update to SAE training pipeline:**
 - **Dataset change:** SAE training now uses **100% of input space** (full `train_ds + val_ds` concatenated) instead of just train split (80%)
@@ -10,9 +14,14 @@
   - Added `model.to(DEVICE)` after `load_state_dict()` to prevent silent CPU execution
   - Compute `act_mean` after `.to(DEVICE)` to ensure downstream functions receive tensors on correct device
   - Added `gc.collect()` + `torch.cuda.empty_cache()` in try/finally block to prevent OOM during 450-run BTK sweep
+  - Delete all GPU-held references (`sae_dl`, `iter_dl`) in finally to break DataLoader references
 - **Data consistency:** Both training and eval now explicitly use `no_dupes=False` to operate on identical distributions
+- **W&B metrics:** Added 30+ metrics covering model params, data stats, training progress, and best/final values (with proper per-step vs summary namespacing)
 
-Before running large sweeps, ensure these changes are in production: `scripts/train_sae.py` (rev: device fixes + full dataset)
+**Important: `train/l0` metric caveat**  
+During training, `train/l0` is hardcoded to the target sparsity parameter `k` (not computed from actual activations). This metric is **constant and uninformative** throughout the sweep — it will never change from the configured `k` value. The genuinely informative L0 (actual average number of active features per token) is computed post-training in `_log_wandb_eval_metrics` and appears as `avg_l0` in the final summary. Do not use `train/l0` or `best/l0` as optimization signals; use `avg_l0` from post-training evaluation instead.
+
+Before running large sweeps, ensure these changes are in production: `scripts/train_sae.py` (rev: device fixes + full dataset + complete GPU cleanup + W&B metrics)
 
 ## 2-Layer Architecture Sweep (2026-04-14)
 
