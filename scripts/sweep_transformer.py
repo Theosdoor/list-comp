@@ -167,7 +167,7 @@ def sweep_transformer():
         ).to(DEV)
 
         total_params, trainable_params = count_params(model)
-        wandb.log({
+        wandb.summary.update({
             "model/params_total": total_params,
             "model/params_trainable": trainable_params,
             "data/n_train": len(train_ds),

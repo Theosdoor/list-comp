@@ -123,8 +123,7 @@ def train(
                             "train/pct_complete": step / max_steps,
                             "best/accuracy": best_acc,
                             "best/step": best_step,
-                            "step": step,
-                        })
+                        }, step=step)
                 except ImportError:
                     pass
 
