@@ -6,6 +6,7 @@ Functions for creating plots and visualizations of SAE features and activations.
 
 import torch
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.graph_objects as go
@@ -85,26 +86,64 @@ def create_feature_heatmaps(d1_all, d2_all, sae_acts_all, n_digits=100, figsize=
     return fig
 
 
-def create_firing_rate_histogram(sae_acts_all, figsize=(10, 6)):
+def create_firing_rate_histogram(sae_acts_all, figsize=(10, 6), print_top_above_mean=False):
     """
     Create seaborn histogram of feature firing rates.
 
     Args:
         sae_acts_all: SAE activations [n_samples, d_sae]
         figsize: Figure size
+        print_top_above_mean: If True, print features by std deviation from mean (top 3 per category)
 
     Returns:
         fig: Matplotlib figure object
     """
     firing_rate = (sae_acts_all > 0).float().mean(dim=0).numpy()
     mean_rate = firing_rate.mean()
+    std_rate = firing_rate.std()
+
+    if print_top_above_mean:
+        z_scores = np.abs((firing_rate - mean_rate) / std_rate)
+        
+        categories = [
+            (3, "≥3σ from mean"),
+            (2, "2-3σ from mean"),
+            (1, "1-2σ from mean"),
+        ]
+        
+        print(f"Firing Rate Distribution (μ={mean_rate:.4f}, σ={std_rate:.4f}):")
+        print("─" * 60)
+        
+        for std_threshold, label in categories:
+            prev_threshold = std_threshold - 1 if std_threshold > 1 else 0
+            if std_threshold == 1:
+                mask = (z_scores >= 1)
+            else:
+                mask = (z_scores >= std_threshold) & (z_scores < std_threshold + 1)
+            
+            indices = np.where(mask)[0]
+            if len(indices) == 0:
+                print(f"{label:20s}: 0 features")
+                continue
+            
+            indices_sorted = indices[np.argsort(-firing_rate[indices])][:3]
+            print(f"{label:20s}: {len(indices):3d} features")
+            for rank, feat_idx in enumerate(indices_sorted, 1):
+                print(f"  {rank}. Feature {feat_idx:3d}: {firing_rate[feat_idx]:.4f}")
+        
+        within_1std = np.abs(z_scores) < 1
+        print(f"{'<1σ from mean':20s}: {within_1std.sum()} features (not shown)")
 
     fig, ax = plt.subplots(figsize=figsize)
-    sns.histplot(firing_rate, bins=50, ax=ax, color="steelblue", edgecolor="white", linewidth=0.4)
+    sns.histplot(firing_rate, bins=50, ax=ax, color="steelblue", edgecolor="white", linewidth=0.4, kde=True)
     ax.axvline(mean_rate, color="crimson", linestyle="--", label=f"Mean: {mean_rate:.4f}")
     ax.set_xlabel("Firing Rate")
-    ax.set_ylabel("Number of Features")
-    ax.set_title("Distribution of Feature Firing Rates")
+    ax.set_ylabel("Number of Latents")
+    ax.set_yscale("symlog", linthresh=1)
+    ax.set_ylim(bottom=0)
+    # ax.set_yticks([0, 1, 10, 100])
+    # ax.get_yaxis().set_major_formatter(matplotlib.ticker.ScalarFormatter())
+    ax.set_title("Distribution of SAE Latent Firing Rates")
     ax.legend()
     sns.despine(ax=ax)
 
@@ -174,16 +213,18 @@ def create_feature_heatmaps_seaborn(d1_all, d2_all, sae_acts_all, feature_indice
     return fig
 
 
-def create_alpha_diff_correlation_plot(sae_acts_all, alpha_d1_all, alpha_d2_all, figsize=(12, 5)):
+def create_alpha_diff_correlation_plot(sae_acts_all, alpha_d1_all, alpha_d2_all, figsize=(12, 5), special_thresh=0.5, feat_idx=None):
     """
     Two-panel seaborn figure: bar chart of per-feature alpha-diff correlations,
-    and a scatter of the top correlated feature's activations vs alpha_diff.
+    and a scatter of a specified feature's activations vs alpha_diff.
 
     Args:
         sae_acts_all: SAE activations [n_samples, d_sae]
         alpha_d1_all: Attention weights SEP→d1 [n_samples]
         alpha_d2_all: Attention weights SEP→d2 [n_samples]
         figsize: Figure size
+        special_thresh: Threshold for marking special features on bar chart (default 0.5)
+        feat_idx: Feature index to show in right panel. If None, shows top correlated feature (default None)
 
     Returns:
         fig: Matplotlib figure
@@ -202,26 +243,30 @@ def create_alpha_diff_correlation_plot(sae_acts_all, alpha_d1_all, alpha_d2_all,
     colors = ["crimson" if c > 0 else "steelblue" for c in correlations]
     ax1.bar(np.arange(d_sae), correlations, color=colors, width=0.8)
     ax1.axhline(0, color="black", linewidth=0.8)
-    ax1.axhline(0.5, color="crimson", linestyle="--", linewidth=0.8, label="|r|=0.5")
-    ax1.axhline(-0.5, color="crimson", linestyle="--", linewidth=0.8)
+    ax1.axhline(special_thresh, color="crimson", linestyle="--", linewidth=0.8, label=f"|r|={special_thresh}")
+    ax1.axhline(-special_thresh, color="crimson", linestyle="--", linewidth=0.8)
     ax1.set_yscale("symlog", linthresh=0.05)
-    ax1.set_xlabel("Feature index")
-    ax1.set_ylabel("Correlation with α_d1 − α_d2 (symlog)")
-    ax1.set_title("Feature–alpha_diff correlations")
+    ax1.set_xlabel("Latent index")
+    ax1.set_ylabel(r"Correlation with $\alpha_{d1} - \alpha_{d2}$ (symlog)")
+    ax1.set_title(r"Latent-$\Delta \alpha$ correlations")
     ax1.legend(fontsize=8)
     sns.despine(ax=ax1)
 
-    # Right: scatter for the most correlated feature
-    top_feat = int(np.argmax(np.abs(correlations)))
+    # Right: scatter for specified feature (or top correlated if not specified)
+    if feat_idx is None:
+        top_feat = int(np.argmax(np.abs(correlations)))
+    else:
+        top_feat = feat_idx
+    
     feat_acts = sae_acts_all[:, top_feat].numpy()
     active = feat_acts > 0
     ax2.scatter(alpha_diff[active], feat_acts[active], alpha=0.3, s=10, color="steelblue",
                 label="active")
     ax2.scatter(alpha_diff[~active], feat_acts[~active], alpha=0.1, s=5, color="grey",
                 label="inactive")
-    ax2.set_xlabel("α_d1 − α_d2")
-    ax2.set_ylabel(f"F{top_feat} activation")
-    ax2.set_title(f"F{top_feat} vs alpha_diff  (r={correlations[top_feat]:.3f})")
+    ax2.set_xlabel(r"$\alpha_{d1} - \alpha_{d2}$")
+    ax2.set_ylabel(fr"Latent {top_feat} activation")
+    ax2.set_title(fr"Latent {top_feat} vs $\Delta \alpha$ ($r={correlations[top_feat]:.3f}$)")
     ax2.legend(fontsize=8)
     sns.despine(ax=ax2)
 

@@ -7,6 +7,9 @@
 # SETUP
 
 import os
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import torch
 import numpy as np
@@ -29,11 +32,21 @@ from src.sae.visualization import (
 
 DEVICE = setup_notebook(seed=42)
 
+# Create output directory for figures (relative to repo root, not scripts dir)
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SAVE_DIR = os.path.join(REPO_ROOT, "results/sae_feat_analysis")
+os.makedirs(SAVE_DIR, exist_ok=True)
+
 # SAE_NAME   = "sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt"
 # SAE_NAME = "new_model/btk_sae_d128_k3_lr0.0003_seed0_d64_h1_lnF_biasF_wvF_woF_mlpF_s3_acc0.9405.pt"
 
-# SAE_NAME   = "sweep_runs_v2/sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt" 
-SAE_NAME   = "sweep_runs_v2/sae_d128_k5_lr0.0001_seed2_2layer_100dig_64d.pt"
+# SAE_NAME = "sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt"
+SAE_NAME   = "sweep_runs_v2/sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt" 
+# ^ this one is good because its the sparsest (low L0 - need to explain intuitively why this is good!)
+#   with ev > 0.99 and in top N for lowest CE increase
+#   also has lowest dead latent rate for k=3
+# SAE_NAME   = "sweep_runs_v2/sae_d128_k5_lr0.0001_seed2_2layer_100dig_64d.pt"
+# SAE_NAME   = "sweep_runs_v2/sae_d128_k4_lr0.0001_seed1_2layer_100dig_64d.pt"
 
 # SAE_NAME   = "jumprelu_sae_d128_tl03.0_2layer_100dig_64d.pt"
 # SAE_NAME   = "matryoshka_sae_d128_k3_ng4_2layer_100dig_64d.pt"
@@ -41,6 +54,8 @@ SAE_NAME   = "sweep_runs_v2/sae_d128_k5_lr0.0001_seed2_2layer_100dig_64d.pt"
 # TODO - could infer model name from sae config or name
 MODEL_NAME = "2layer_100dig_64d"
 # MODEL_NAME = "2_layer_sweep/d64_h1_lnF_biasF_wvF_woF_mlpF_s3_acc0.9405"
+
+SPECIAL_THRESH = 0.3 # Threshold for identifying special features
 
 model, model_cfg = load_transformer_model(MODEL_NAME, device=DEVICE)
 D_MODEL   = model_cfg["d_model"]
@@ -79,7 +94,7 @@ l0          = float((sae_acts_all > 0).float().sum(dim=1).mean())
 
 # Explained variance
 recon_metrics = compute_reconstruction_metrics(
-        model=model, sae=sae, val_dl=val_dl,
+        model=model, sae=sae, val_dl=all_dl,
         act_mean=act_mean, layer_idx=0, sep_idx=SEP_IDX, device=DEVICE,
     )
 
@@ -88,7 +103,7 @@ downstream = compute_sae_downstream_metrics(
     act_mean=act_mean, layer_idx=0, sep_idx=SEP_IDX, device=DEVICE,
 )
 
-special_info = identify_special_features(sae_acts_all, alpha_d1_all, alpha_d2_all, threshold=0.5)
+special_info = identify_special_features(sae_acts_all, alpha_d1_all, alpha_d2_all, threshold=SPECIAL_THRESH)
 
 print(f"SAE: {SAE_NAME}")
 print(f"{'─'*60}")
@@ -103,17 +118,10 @@ print(f"  CE Increase:  {downstream['ce_increase']:.4f}")
 print(f"  N Special:    {special_info['n_special_features']}")
 print(f"{'─'*60}")
 
-# %% [markdown]
-# ## Cell 1 — Firing rate histogram (seaborn)
+# Sort features by total activation; analyse top-N
+total_act    = sae_acts_all.sum(dim=0).numpy()
+top_features = np.argsort(total_act)[::-1][:20].tolist()
 
-# %%
-fig = create_firing_rate_histogram(sae_acts_all)
-plt.show()
-
-# %% [markdown]
-# ## Cell 2 — Digit distribution for top features
-
-# %%
 def compute_feature_digit_stats(feat_idx, d1_all, d2_all, sae_acts_all, n_digits):
     active_mask = sae_acts_all[:, feat_idx] > 0
     n_inputs = active_mask.sum().item()
@@ -132,19 +140,25 @@ def compute_feature_digit_stats(feat_idx, d1_all, d2_all, sae_acts_all, n_digits
         "d2_digit_dist":  100 * d2_counts / n_inputs,
     }
 
-
-# Sort features by total activation; analyse top-N
-firing_freq  = (sae_acts_all > 0).float().mean(dim=0).numpy()
-total_act    = sae_acts_all.sum(dim=0).numpy()
-top_features = np.argsort(total_act)[::-1][:20].tolist()
-
 feature_stats = {
     fi: compute_feature_digit_stats(fi, d1_all, d2_all, sae_acts_all, N_DIGITS)
     for fi in tqdm(top_features, desc="Computing digit stats")
 }
 
+# %% [markdown]
+# ## Cell 1 — Firing rate histogram (seaborn)
+
+# %%
+fig = create_firing_rate_histogram(sae_acts_all, print_top_above_mean=True)
+fig.savefig(f"{SAVE_DIR}/01_firing_rate_histogram.pdf", dpi=150, bbox_inches="tight")
+plt.show()
+
+# %% [markdown]
+# ## Cell 2 — Digit distribution for top features
+
+# %%
 # --- Visualize: grid of (all | d1 | d2) bar charts for top features ---
-n_vis  = min(6, len(top_features))
+n_vis  = min(4, len(top_features))
 digits = np.arange(N_DIGITS)
 
 fig, axes = plt.subplots(n_vis, 3, figsize=(18, 4 * n_vis))
@@ -159,7 +173,10 @@ for idx, fi in enumerate(top_features[:n_vis]):
     stats = feature_stats[fi]
     for c, (key, colour, label) in enumerate(zip(dist_keys, col_colours, col_labels)):
         ax = axes[idx, c]
-        ax.bar(digits, stats[key], color=colour, alpha=0.75, edgecolor="white", linewidth=0.4)
+        dist = stats[key]
+        # Only plot non-zero values to avoid spurious bars
+        nonzero_mask = dist > 0
+        ax.bar(digits[nonzero_mask], dist[nonzero_mask], color=colour, alpha=0.75, edgecolor="white", linewidth=0.4)
         ax.set_xlim(-1, N_DIGITS)
         ax.set_title(f"F{fi}: {label}  (n={stats['n_inputs']})", fontsize=9)
         ax.set_xlabel("Digit")
@@ -168,6 +185,7 @@ for idx, fi in enumerate(top_features[:n_vis]):
         sns.despine(ax=ax)
 
 plt.tight_layout()
+fig.savefig(f"{SAVE_DIR}/02_digit_distribution_top_features.pdf", dpi=150, bbox_inches="tight")
 plt.show()
 
 # %% [markdown]
@@ -177,6 +195,7 @@ plt.show()
 fig = create_feature_heatmaps(d1_all, d2_all, sae_acts_all, 
                               n_digits=N_DIGITS, figsize=(25, 25), 
                               shared_scale=True)
+fig.write_html(f"{SAVE_DIR}/03_full_feature_heatmap.html")
 fig.show()
 
 # %%
@@ -187,15 +206,16 @@ fig.show()
 
 # %%
 # Edit this list to compare features of interest
-FEATURES_TO_PLOT = [0, 94, 30]
+FEATURES_TO_PLOT = [0, 5, 11, 56]
 
 fig = create_feature_heatmaps_seaborn(
     d1_all, d2_all, sae_acts_all,
     feature_indices=FEATURES_TO_PLOT,
     n_digits=N_DIGITS,
-    ncols=3,
+    ncols=2,
     shared_scale=False,
 )
+fig.savefig(f"{SAVE_DIR}/04_selected_features_heatmaps_unscaled.pdf", dpi=150, bbox_inches="tight")
 plt.show()
 
 # %%
@@ -204,18 +224,23 @@ fig = create_feature_heatmaps_seaborn(
     d1_all, d2_all, sae_acts_all,
     feature_indices=FEATURES_TO_PLOT,
     n_digits=N_DIGITS,
-    ncols=3,
+    ncols=2,
     shared_scale=True,
 )
+fig.savefig(f"{SAVE_DIR}/05_selected_features_heatmaps_scaled.pdf", dpi=150, bbox_inches="tight")
 plt.show()
 
 # %% [markdown]
 # ## Cell 5 — Alpha-diff correlation analysis
 
 # %%
+alpha_diff_correlation_plot_idx = 11
 fig, correlations = create_alpha_diff_correlation_plot(
     sae_acts_all, alpha_d1_all, alpha_d2_all,
+    special_thresh=SPECIAL_THRESH,
+    feat_idx=alpha_diff_correlation_plot_idx,
 )
+fig.savefig(f"{SAVE_DIR}/06_alpha_diff_correlation_plot.pdf", dpi=150, bbox_inches="tight")
 plt.show()
 
 # --- Summary table (reuse special_info from cell 0) ---
@@ -233,7 +258,7 @@ for feat_info in sorted(info["special_features"], key=lambda x: abs(x["correlati
     })
 
 df_special = pd.DataFrame(rows)
-print(f"\nSpecial features (|r| > 0.5): {info['n_special_features']}")
+print(f"\nSpecial features (|r| > {SPECIAL_THRESH}): {info['n_special_features']}")
 print(df_special.to_string(index=False))
 
 # %% [markdown]
@@ -241,10 +266,10 @@ print(df_special.to_string(index=False))
 
 # %%
 # Identify the primary special feature and report it
-info6 = identify_special_features(sae_acts_all, alpha_d1_all, alpha_d2_all, threshold=0.5)
+info6 = identify_special_features(sae_acts_all, alpha_d1_all, alpha_d2_all, threshold=SPECIAL_THRESH)
 
 if not info6["special_features"]:
-    print("No special features found at threshold=0.5")
+    print(f"No special features found at threshold={SPECIAL_THRESH}")
 else:
     primary = max(info6["special_features"], key=lambda x: abs(x["correlation"]))
     feat_idx  = primary["feature_idx"]
@@ -312,15 +337,18 @@ else:
     plt.colorbar(im1, ax=axes[1], label="concordant (1=yes, 0=no)")
 
     plt.tight_layout()
+    fig.savefig(f"{SAVE_DIR}/07_bigram_alignment_heatmaps.pdf", dpi=150, bbox_inches="tight")
     plt.show()
 
 # %%
 # test steering
 from src.sae import *  # Import all SAE analysis utilities
 
+FEAT_IDX = 76  # Use the primary special feature identified above
+
 results = feature_steering_experiment(
     model, sae, act_mean,
-    feature_idx=feat_idx,
+    feature_idx=FEAT_IDX,
     d1_all=d1_all, 
     d2_all=d2_all, 
     sae_acts_all=sae_acts_all, 
@@ -330,13 +358,66 @@ results = feature_steering_experiment(
 crossover_df = analyze_feature_crossovers(
     results=results,
     model=model, sae=sae, act_mean=act_mean,
-    feature_idx=feat_idx,
+    feature_idx=FEAT_IDX,
     d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_all,
     dataset=all_ds,
     layer_idx=0,
     sep_idx=2,
     verbose=True
 )
+
+# %%
+# check how many inputs activate latent A, how many activate latent B, and how many are activated by both and by neither (+ any other relvant stats)
+
+# k=5
+latentA = 76
+latentB = 121
+
+# k=4
+# latentA = 11
+# latentB = 56
+
+# Extract activations for the two features
+acts_A = sae_acts_all[:, latentA] > 0
+acts_B = sae_acts_all[:, latentB] > 0
+
+# Count activations
+n_total = len(sae_acts_all)
+n_A_only = (acts_A & ~acts_B).sum().item()
+n_B_only = (~acts_A & acts_B).sum().item()
+n_both = (acts_A & acts_B).sum().item()
+n_neither = (~acts_A & ~acts_B).sum().item()
+
+n_A = acts_A.sum().item()
+n_B = acts_B.sum().item()
+
+# Print statistics
+print(f"Feature Co-activation Analysis (Latent {latentA} & {latentB})")
+print(f"{'─'*60}")
+print(f"  Total inputs:         {n_total}")
+print(f"  Activate A only:      {n_A_only:6d}  ({100*n_A_only/n_total:5.1f}%)")
+print(f"  Activate B only:      {n_B_only:6d}  ({100*n_B_only/n_total:5.1f}%)")
+print(f"  Activate both A & B:  {n_both:6d}  ({100*n_both/n_total:5.1f}%)")
+print(f"  Activate neither:     {n_neither:6d}  ({100*n_neither/n_total:5.1f}%)")
+print(f"{'─'*60}")
+print(f"  Total A activations:  {n_A:6d}  ({100*n_A/n_total:5.1f}%)")
+print(f"  Total B activations:  {n_B:6d}  ({100*n_B/n_total:5.1f}%)")
+
+# Mean activation values when active
+mean_A_when_active = sae_acts_all[acts_A, latentA].mean().item() if n_A > 0 else 0
+mean_B_when_active = sae_acts_all[acts_B, latentB].mean().item() if n_B > 0 else 0
+print(f"  Mean A (when active): {mean_A_when_active:7.3f}")
+print(f"  Mean B (when active): {mean_B_when_active:7.3f}")
+
+# Create a co-activation contingency table
+contingency = np.array([
+    [n_neither, n_B_only],
+    [n_A_only, n_both]
+])
+print(f"\nContingency Table:")
+print(f"           B inactive  B active")
+print(f"A inactive     {n_neither:6d}      {n_B_only:6d}")
+print(f"A active       {n_A_only:6d}      {n_both:6d}")
 
 # %% [markdown]
 # -------------
