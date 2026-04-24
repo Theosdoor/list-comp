@@ -30,11 +30,17 @@ from src.sae.visualization import (
 DEVICE = setup_notebook(seed=42)
 
 # SAE_NAME   = "sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt"
-SAE_NAME = "new_model/btk_sae_d128_k3_lr0.0003_seed0_d64_h1_lnF_biasF_wvF_woF_mlpF_s3_acc0.9405.pt"
-# SAE_NAME   = "sae_d128_k3_lr0.0001_seed2_2layer_100dig_64d"
+# SAE_NAME = "new_model/btk_sae_d128_k3_lr0.0003_seed0_d64_h1_lnF_biasF_wvF_woF_mlpF_s3_acc0.9405.pt"
+
+# SAE_NAME   = "sweep_runs_v2/sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt" 
+SAE_NAME   = "sweep_runs_v2/sae_d128_k5_lr0.0001_seed2_2layer_100dig_64d.pt"
+
 # SAE_NAME   = "jumprelu_sae_d128_tl03.0_2layer_100dig_64d.pt"
 # SAE_NAME   = "matryoshka_sae_d128_k3_ng4_2layer_100dig_64d.pt"
+
+# TODO - could infer model name from sae config or name
 MODEL_NAME = "2layer_100dig_64d"
+# MODEL_NAME = "2_layer_sweep/d64_h1_lnF_biasF_wvF_woF_mlpF_s3_acc0.9405"
 
 model, model_cfg = load_transformer_model(MODEL_NAME, device=DEVICE)
 D_MODEL   = model_cfg["d_model"]
@@ -78,7 +84,7 @@ recon_metrics = compute_reconstruction_metrics(
     )
 
 downstream = compute_sae_downstream_metrics(
-    model=model, sae=sae, val_dl=val_dl,
+    model=model, sae=sae, val_dl=all_dl,
     act_mean=act_mean, layer_idx=0, sep_idx=SEP_IDX, device=DEVICE,
 )
 
@@ -308,6 +314,35 @@ else:
     plt.tight_layout()
     plt.show()
 
+# %%
+# test steering
+from src.sae import *  # Import all SAE analysis utilities
+
+results = feature_steering_experiment(
+    model, sae, act_mean,
+    feature_idx=feat_idx,
+    d1_all=d1_all, 
+    d2_all=d2_all, 
+    sae_acts_all=sae_acts_all, 
+    dataset=all_ds,
+)
+
+crossover_df = analyze_feature_crossovers(
+    results=results,
+    model=model, sae=sae, act_mean=act_mean,
+    feature_idx=feat_idx,
+    d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_all,
+    dataset=all_ds,
+    layer_idx=0,
+    sep_idx=2,
+    verbose=True
+)
+
 # %% [markdown]
 # -------------
-# %%
+# -------------
+# -------------
+# -------------
+# -------------
+# -------------
+# Need sae that really good (high exp var, low ce increase) but with high firing rate for special features (if theres 2 spec feats, then its the sum of the firing rate because theyre usually mutually exclusive)

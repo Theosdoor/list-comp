@@ -43,6 +43,8 @@ def parse_args():
                    help="Omit ± std from table cells, showing means only")
     p.add_argument("--exclude-runs-col", action="store_true",
                    help="Omit the N runs column from tables")
+    p.add_argument("--exclude-special-col", action="store_true",
+                   help="Omit the N Special Features column from tables")
     return p.parse_args()
 
 # ── Parsing ───────────────────────────────────────────────────────────────────
@@ -136,31 +138,37 @@ def fmt(mean, std, decimals=4, no_errors=False):
 
 
 def write_markdown_table(agg: pd.DataFrame, path: Path,
-                         no_errors: bool = False, exclude_runs_col: bool = False):
+                         no_errors: bool = False, exclude_runs_col: bool = False,
+                         exclude_special_col: bool = False):
     runs_hdr = "" if exclude_runs_col else " N runs |"
+    special_hdr = "" if exclude_special_col else " N Special Feats |"
+    runs_sep = "" if exclude_runs_col else "--------|"
+    special_sep = "" if exclude_special_col else "----------------|"
     lines = [
         "# SAE Sweep: Aggregated Metrics by (L0, d_sae)\n",
         "Aggregated over all seeds and learning rates. "
         + ("Values shown as means only.\n" if no_errors else "Values shown as mean ± std.\n"),
         "",
-        f"| L0 | d\\_sae |{runs_hdr} EV | PCE | Dead % | N Special Feats |",
-        f"|----|--------|{'--------|' if not exclude_runs_col else ''}----|-----|--------|----------------|",
+        f"| L0 | d\\_sae |{runs_hdr} EV | PCE | Dead % |{special_hdr}",
+        f"|----|--------|{runs_sep}----|-----|--------|{special_sep}",
     ]
     for _, r in agg.iterrows():
         runs_cell = "" if exclude_runs_col else f" {int(r.n_runs)} |"
+        special_cell = "" if exclude_special_col else f" {fmt(r.n_special_mean, r.n_special_std, decimals=2, no_errors=no_errors)} |"
         lines.append(
             f"| {int(r.l0)} | {int(r.d_sae)} |{runs_cell}"
             f" {fmt(r.ev_mean, r.ev_std, no_errors=no_errors)} "
             f"| {fmt(r.patched_ce_mean, r.patched_ce_std, no_errors=no_errors)} "
             f"| {fmt(r.dead_pct_mean, r.dead_pct_std, decimals=1, no_errors=no_errors)}% "
-            f"| {fmt(r.n_special_mean, r.n_special_std, decimals=2, no_errors=no_errors)} |"
+            f"|{special_cell}"
         )
     path.write_text("\n".join(lines) + "\n")
     print(f"  Markdown table → {path}")
 
 
 def write_latex_table(agg: pd.DataFrame, path: Path,
-                      no_errors: bool = False, exclude_runs_col: bool = False):
+                      no_errors: bool = False, exclude_runs_col: bool = False,
+                      exclude_special_col: bool = False):
     """LaTeX booktabs table suitable for a dissertation.
 
     Within each L0 section the best cell per column is bolded.
@@ -189,7 +197,7 @@ def write_latex_table(agg: pd.DataFrame, path: Path,
     def _fmt(mean, std, col, l0, dec=4, plain=False) -> str:
         """Format a cell with bold (section best) or underline+bold (global best).
 
-        Math-mode cells use \\mathbf{} on the mean so bold renders inside $.
+        Math-mode cells use \\mathbf{} on entire value (mean, ±, std).
         Plain-text cells (dead %) use \\textbf{}.
         """
         is_global  = np.isclose(mean, global_best[col], rtol=1e-6)
@@ -203,12 +211,16 @@ def write_latex_table(agg: pd.DataFrame, path: Path,
             mean_str = rf"\textbf{{{mean_str}}}" if bold else mean_str
             return rf"\underline{{{mean_str}}}" if is_global else mean_str
 
-        # Math-mode: bold only the mean, leave ±std unbolded
-        mean_str = (rf"\mathbf{{{mean:.{dec}f}}}" if bold else f"{mean:.{dec}f}")
+        # Math-mode: bold the entire value including ± and std
         if no_errors or std == 0 or np.isnan(std):
-            text = f"${mean_str}$"
+            content = f"{mean:.{dec}f}"
         else:
-            text = f"${mean_str} \\pm {std:.{dec}f}$"
+            content = f"{mean:.{dec}f} \\pm {std:.{dec}f}"
+        
+        if bold:
+            text = f"$\\mathbf{{{content}}}$"
+        else:
+            text = f"${content}$"
         return rf"\underline{{{text}}}" if is_global else text
 
     def lf(mean, std, dec=4):
@@ -217,6 +229,12 @@ def write_latex_table(agg: pd.DataFrame, path: Path,
         return f"${mean:.{dec}f} \\pm {std:.{dec}f}$"
 
     # ── build table ───────────────────────────────────────────────────────────
+    ncols = ("ccrrrrr" if exclude_runs_col else "cccrrrrr") if not exclude_special_col else ("ccrrrrr" if exclude_runs_col else "cccrrrrr")
+    if exclude_special_col:
+        ncols = "ccrrrr" if exclude_runs_col else "cccrrrr"
+    else:
+        ncols = "ccrrrrr" if exclude_runs_col else "cccrrrrr"
+    
     lines = [
         r"\begin{table}[htbp]",
         r"\centering",
@@ -224,17 +242,26 @@ def write_latex_table(agg: pd.DataFrame, path: Path,
         r"$L_0$: mean active features per token. $d_\text{SAE}$: dictionary size. "
         r"\textbf{EV} (explained variance): fraction of activation variance recovered by the SAE reconstruction ($\uparrow$ better). "
         r"\textbf{PCE} (patched cross-entropy): language-model CE after substituting SAE reconstructions for true activations ($\downarrow$ better; baseline $= 0.1115$). "
-        r"\textbf{Dead\,\%}: percentage of dictionary features with zero activation across the evaluation set ($\downarrow$ better). "
-        r"$N_\text{special}$: features whose activation strongly correlates with the SEP attention difference $\alpha_{d_1}-\alpha_{d_2}$, as discussed in Section \ref{s:res_rq2}. "
+        r"\textbf{Dead\,\%}: percentage of dictionary features with zero activation across the evaluation set ($\downarrow$ better). " +
+        (r"$N_\text{special}$: features whose activation strongly correlates with the SEP attention difference $\alpha_{d_1}-\alpha_{d_2}$, as discussed in Section \ref{s:res_rq2}. " if not exclude_special_col else "") +
         r"\textbf{Bold}: best within each $L_0$ block; \underline{\textbf{underlined}}: best overall.}",
         r"\label{tab:sae_sweep}",
-        r"\begin{tabular}{" + ("ccrrrrr" if exclude_runs_col else "cccrrrrr") + r"}",
+        r"\begin{tabular}{" + ncols + r"}",
         r"\toprule",
-        (r"$L_0$ & $d_\text{SAE}$ & EV ($\uparrow$) & PCE ($\downarrow$) & Dead \% ($\downarrow$) & $N_\text{special}$ \\"
-         if exclude_runs_col else
-         r"$L_0$ & $d_\text{SAE}$ & Runs & EV ($\uparrow$) & PCE ($\downarrow$) & Dead \% ($\downarrow$) & $N_\text{special}$ \\"),
-        r"\midrule",
     ]
+    
+    if exclude_special_col:
+        header = (r"$L_0$ & $d_\text{SAE}$ & EV ($\uparrow$) & PCE ($\downarrow$) & Dead \% ($\downarrow$) \\"
+                  if exclude_runs_col else
+                  r"$L_0$ & $d_\text{SAE}$ & Runs & EV ($\uparrow$) & PCE ($\downarrow$) & Dead \% ($\downarrow$) \\")
+    else:
+        header = (r"$L_0$ & $d_\text{SAE}$ & EV ($\uparrow$) & PCE ($\downarrow$) & Dead \% ($\downarrow$) & $N_\text{special}$ \\"
+                  if exclude_runs_col else
+                  r"$L_0$ & $d_\text{SAE}$ & Runs & EV ($\uparrow$) & PCE ($\downarrow$) & Dead \% ($\downarrow$) & $N_\text{special}$ \\")
+    
+    lines.append(header)
+    lines.append(r"\midrule")
+    
     prev_l0 = None
     for _, r in agg.iterrows():
         l0 = int(r.l0)
@@ -247,10 +274,11 @@ def write_latex_table(agg: pd.DataFrame, path: Path,
         dead_cell = _fmt(r.dead_pct_mean,  r.dead_pct_std,  "dead_pct_mean",   l0, dec=1, plain=True)
 
         runs_cell = "" if exclude_runs_col else f"& {int(r.n_runs)} "
+        special_cell = "" if exclude_special_col else f"& {lf(r.n_special_mean, r.n_special_std, dec=2)} "
         lines.append(
             f"  {l0} & {int(r.d_sae)} {runs_cell}"
             f"& {ev_cell} & {ce_cell} & {dead_cell} "
-            f"& {lf(r.n_special_mean, r.n_special_std, dec=2)} \\\\"
+            f"{special_cell}\\\\"
         )
     lines += [
         r"\bottomrule",
@@ -345,9 +373,11 @@ def main():
     print(f"Aggregated to {len(agg)} (L0, d_sae) groups")
 
     write_markdown_table(agg, output_dir / "sae_sweep_table.md",
-                         no_errors=args.no_table_errors, exclude_runs_col=args.exclude_runs_col)
+                         no_errors=args.no_table_errors, exclude_runs_col=args.exclude_runs_col,
+                         exclude_special_col=args.exclude_special_col)
     write_latex_table(agg, output_dir / "sae_sweep_table.tex",
-                      no_errors=args.no_table_errors, exclude_runs_col=args.exclude_runs_col)
+                      no_errors=args.no_table_errors, exclude_runs_col=args.exclude_runs_col,
+                      exclude_special_col=args.exclude_special_col)
     plot_sweep(df, output_dir / "sae_sweep_figure.pdf")
     plot_sweep(df, output_dir / "sae_sweep_figure.png")
 

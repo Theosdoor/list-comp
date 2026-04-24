@@ -1,5 +1,19 @@
 # Experiments
 
+## SAE Training Data Coverage (2026-04-24)
+
+**Update to SAE training pipeline:**
+- **Dataset change:** SAE training now uses **100% of input space** (full `train_ds + val_ds` concatenated) instead of just train split (80%)
+  - Rationale: This ensures SAE sees all digit combinations during training, not just 80%. For a 100-digit, 2-element-list task, this means ~10k total sequences instead of ~8k.
+  - Code change: `_load_model_and_acts()` now loads both splits via `ConcatDataset([train_ds, val_ds])` and explicitly passes `no_dupes=False`.
+- **Device management fixes:** 
+  - Added `model.to(DEVICE)` after `load_state_dict()` to prevent silent CPU execution
+  - Compute `act_mean` after `.to(DEVICE)` to ensure downstream functions receive tensors on correct device
+  - Added `gc.collect()` + `torch.cuda.empty_cache()` in try/finally block to prevent OOM during 450-run BTK sweep
+- **Data consistency:** Both training and eval now explicitly use `no_dupes=False` to operate on identical distributions
+
+Before running large sweeps, ensure these changes are in production: `scripts/train_sae.py` (rev: device fixes + full dataset)
+
 ## 2-Layer Architecture Sweep (2026-04-14)
 
 **Command:**
@@ -44,3 +58,11 @@ When `n_digits^list_len > MAX_DATASET_SIZE`, the dataset randomly samples 1M seq
 via `torch.randint` instead of enumerating all combinations. L2/L3 behaviour is unchanged
 (their full datasets are ≤1M rows). The list-copy task generalises from a random sample
 because digit identity is arbitrary — the model just needs to see enough diversity.
+
+## SAE plot sweep
+
+Latex table goes in rq2 method
+
+```bash
+python scripts/plot_sae_sweep.py --exclude-d-sae 100 448 512 --exclude-runs-col --exclude-special-col
+```
