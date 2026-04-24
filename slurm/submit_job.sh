@@ -5,7 +5,7 @@
 #SBATCH --partition=ug-gpu-small
 #SBATCH --gres=gpu:turing:1
 #SBATCH --time=24:00:00
-#SBATCH --mem=28G
+#SBATCH --mem=20G
 
 # go to folder and sync venv
 cd /home2/nchw73/Year4/L4_Project/list-comp-priv
@@ -18,13 +18,22 @@ echo "------------------------------------------------------"
 python3 -c "import torch; print(f'[slurm] CUDA Available: {torch.cuda.is_available()}'); print(f'[slurm] Device: {torch.cuda.get_device_name(0)}')"
 echo "------------------------------------------------------"
 
-python3 scripts/train_sae.py \
-    --model_path models/2_layer_sweep/d64_h1_lnF_biasF_wvF_woF_mlpF_s3_acc0.9405.pt \
-    --sae_type btk \
-    --d_sae 128 \
-    --top_k 3 \
-    --n_steps 150000 \
-    --save_folder results/sae_models/new_model
+
+python3 scripts/run_crossover_analysis.py \
+   --model 2layer_100dig_64d \
+   --sae sweep_runs_v2/sae_d128_k5_lr0.0001_seed2_2layer_100dig_64d.pt \
+   --feature auto \
+   --threshold 0.5 \
+   --max-features 2 \
+   --report
+
+# python3 scripts/train_sae.py \
+#     --model_path models/2_layer_sweep/d64_h1_lnF_biasF_wvF_woF_mlpF_s3_acc0.9405.pt \
+#     --sae_type btk \
+#     --d_sae 128 \
+#     --top_k 3 \
+#     --n_steps 150000 \
+#     --save_folder results/sae_models/new_model
 
 # python scripts/nb_compare_sae.py \
 #     --sae_folder results/sae_models/new_model \
