@@ -84,7 +84,7 @@ def _make_jumprelu_trainer(cfg, activation_dim, device):
         sparsity_penalty=cfg.sparsity_penalty, target_l0=cfg.target_l0,
         seed=cfg.seed, device=device,
     )
-    run_name = f"jumprelu_sae_d{cfg.d_sae}_tl0{cfg.target_l0}_lr{cfg.lr}_seed{cfg.seed}"
+    run_name = f"jumprelu_sae_d{cfg.d_sae}_tl0{cfg.target_l0}_sp{cfg.sparsity_penalty}_lr{cfg.lr}_seed{cfg.seed}"
     extra_cfg = {
         "sae_type": "jumprelu",
         "target_l0": cfg.target_l0,
