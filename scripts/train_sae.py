@@ -306,7 +306,7 @@ def _train(cfg, use_wandb: bool, save_folder: str, model_path: str = None):
         for step in pbar:
             batch_acts = next(iter_dl)
             loss = trainer.update(step, batch_acts)
-            if step % log_interval == 0:
+            if step % log_interval == 0 or step == cfg.n_steps - 1:
                 log_info = trainer.get_logging_parameters()
                 if 'effective_l0' in log_info:
                     # NOTE: trainer.effective_l0 is hardcoded to k (the target sparsity), not actual sparsity.
@@ -319,7 +319,7 @@ def _train(cfg, use_wandb: bool, save_folder: str, model_path: str = None):
                         f = trainer.ae.encode(batch_acts.to(DEVICE))
                         effective_l0 = (f > 0).float().sum(dim=-1).mean().item()
                 
-                pct_complete = 100 * (step+1) / cfg.n_steps
+                pct_complete = 100 * step / cfg.n_steps
                 
                 # Track best metrics
                 if loss < best_loss:
