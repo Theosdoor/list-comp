@@ -239,7 +239,7 @@ def generate_example_visuals(
 
     plots_dir.mkdir(parents=True, exist_ok=True)
     safe_reason = reason.replace("/", "_")
-    plot_filename = f"steering_feat{feature_idx}_{safe_reason}.png"
+    plot_filename = f"steering_feat{feature_idx}_{safe_reason}.pdf"
     plot_path = plots_dir / plot_filename
     plot_rel = f"plots/{plot_filename}"
 

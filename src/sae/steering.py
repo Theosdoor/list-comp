@@ -407,10 +407,10 @@ def _determine_test_pairs(test_pairs, sae_acts_all, feature_idx, d1_all, d2_all,
     
     # Select test cases where the feature actually fires
     active_indices = torch.where(sae_acts_all[:, feature_idx] > 0)[0]
-    print(f"Feature {feature_idx} fires on {len(active_indices)} / {len(d1_all)} inputs")
+    print(f"Latent {feature_idx} fires on {len(active_indices)} / {len(d1_all)} inputs")
     
     if len(active_indices) == 0:
-        raise ValueError(f"Feature {feature_idx} never fires in the dataset")
+        raise ValueError(f"Latent {feature_idx} never fires in the dataset")
     
     # Sample from active inputs only
     np.random.seed(seed)
@@ -516,11 +516,11 @@ def _plot_steering_results(all_results, feature_idx, n_digits, save_dir, save_pa
         _dir = os.path.dirname(save_path)
         if _dir:
             os.makedirs(_dir, exist_ok=True)
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.savefig(save_path, dpi=150, bbox_inches='tight', format='pdf')
         print(f"Saved plot to {save_path}")
     elif save_dir:
-        _path = os.path.join(save_dir, f'feature_{feature_idx}_logit_steering.png')
-        plt.savefig(_path, dpi=150, bbox_inches='tight')
+        _path = os.path.join(save_dir, f'feature_{feature_idx}_logit_steering.pdf')
+        plt.savefig(_path, dpi=150, bbox_inches='tight', format='pdf')
         print(f"Saved plot to {_path}")
     else:
         plt.show()
@@ -543,9 +543,9 @@ def _plot_output_position(ax, scales, all_logits, logit_d1, logit_d2,
     ax.axvline(x=1.0, color='green', linestyle='--', alpha=0.5, label='Original')
     ax.axvline(x=0.0, color='black', linestyle=':', alpha=0.5, label='Ablated')
     
-    ax.set_xlabel(f'Feature {feature_idx} Scale Factor')
+    ax.set_xlabel(f'Latent {feature_idx} Scale Factor')
     ax.set_ylabel(f'Logit at {output_name.split()[-1]}')
-    ax.set_title(f'All Logits at {output_name}\nInput: ({d1}, {d2}), Original f{feature_idx}={feat_orig:.3f}')
+    ax.set_title(f'All Logits at {output_name}\nInput: ({d1}, {d2}), Original magnitude={feat_orig:.3f}')
     ax.legend()
     ax.grid(True, alpha=0.3)
 
@@ -622,7 +622,7 @@ def get_xovers_df(
     all_results = []
     n_batches = (n_data_samples + batch_size - 1) // batch_size
     
-    for batch_idx in tqdm(range(n_batches), desc="Finding crossovers (batched)", leave=True):
+    for batch_idx in tqdm(range(n_batches), desc="Finding crossovers", leave=True):
         batch_start = batch_idx * batch_size
         batch_end = min(batch_start + batch_size, n_data_samples)
         batch_indices = range(batch_start, batch_end)

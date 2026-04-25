@@ -1,5 +1,5 @@
 # %% [markdown]
-# # SAE Feature Analysis
+# # (Single) SAE Feature Analysis
 # Feature heatmaps, firing rate histograms, digit distribution analysis,
 # and correlation with attention difference (alpha_diff).
 
@@ -371,11 +371,15 @@ else:
     fig.savefig(f"{SAVE_DIR}/07_bigram_alignment_heatmaps.pdf", dpi=150, bbox_inches="tight")
     plt.show()
 
+# %% [markdown]
+# ## Cell 6 — Test feature steering
+
 # %%
-# test steering
 from src.sae import *  # Import all SAE analysis utilities
 
 steering_idx = 11  # Use the primary special feature identified above
+
+
 
 results = feature_steering_experiment(
     model, sae, act_mean,
@@ -384,6 +388,9 @@ results = feature_steering_experiment(
     d2_all=d2_all, 
     sae_acts_all=sae_acts_all, 
     dataset=all_ds,
+    test_pairs=[(20,49)],
+    transpose=True,
+    save_dir=SAVE_DIR,
 )
 
 crossover_df = analyze_feature_crossovers(
@@ -394,7 +401,7 @@ crossover_df = analyze_feature_crossovers(
     dataset=all_ds,
     layer_idx=0,
     sep_idx=2,
-    verbose=True
+    verbose=True,
 )
 
 # %%
