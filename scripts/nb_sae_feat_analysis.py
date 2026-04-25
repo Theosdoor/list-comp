@@ -153,6 +153,17 @@ fig = create_firing_rate_histogram(sae_acts_all, print_top_above_mean=True)
 fig.savefig(f"{SAVE_DIR}/01_firing_rate_histogram.pdf", dpi=150, bbox_inches="tight")
 plt.show()
 
+# --- Top 3 latents by firing rate ---
+top_3_indices = np.argsort(firing_freq)[-3:][::-1]
+print(f"\nTop 3 latents by firing rate:")
+print(f"{'Latent':<10} {'Fire_Rate_%':<15} {'N_Active':<10}")
+print("─" * 35)
+for idx in top_3_indices:
+    fire_pct = firing_freq[idx] * 100
+    n_active = (sae_acts_all[:, idx] > 0).sum().item()
+    print(f"{idx:<10} {fire_pct:<15.2f} {n_active:<10}")
+
+
 # %% [markdown]
 # ## Cell 2 — Digit distribution for top features
 
@@ -261,6 +272,26 @@ df_special = pd.DataFrame(rows)
 print(f"\nSpecial features (|r| > {SPECIAL_THRESH}): {info['n_special_features']}")
 print(df_special.to_string(index=False))
 
+# --- Next 3 highest correlating features below threshold ---
+print(f"\nTop 3 non-special features (|r| ≤ {SPECIAL_THRESH}) by correlation:")
+rows_runner_up = []
+for feat_info in info["all_correlations"].argsort()[-3:][::-1]:
+    corr = float(info["all_correlations"][feat_info])
+    if abs(corr) <= SPECIAL_THRESH:
+        rows_runner_up.append({
+            "Feature": feat_info,
+            "Correlation": round(corr, 4),
+            "Type": "d1_favoring" if corr > 0 else "d2_favoring",
+            "Fire_Rate_%": round(float(firing_freq[feat_info]) * 100, 2),
+            "N_Active": feature_stats[feat_info]["n_inputs"] if feat_info in feature_stats else "—",
+        })
+
+if rows_runner_up:
+    df_runner_up = pd.DataFrame(rows_runner_up)
+    print(df_runner_up.to_string(index=False))
+else:
+    print("(none found)")
+
 # %% [markdown]
 # ## Cell 6 — Bigram-level alignment: special feature vs α_diff
 
@@ -271,12 +302,12 @@ info6 = identify_special_features(sae_acts_all, alpha_d1_all, alpha_d2_all, thre
 if not info6["special_features"]:
     print(f"No special features found at threshold={SPECIAL_THRESH}")
 else:
-    primary = max(info6["special_features"], key=lambda x: abs(x["correlation"]))
+    primary = info6["special_features"][0] # switch to [0] for strongest corr, or [-1] for most balanced corr
     feat_idx  = primary["feature_idx"]
     feat_corr = primary["correlation"]
     feat_type = primary["type"]
 
-    print(f"Primary special feature: F{feat_idx}")
+    print(f"Selected special feature: F{feat_idx}")
     print(f"  Global Pearson r with (α_d1 − α_d2): {feat_corr:+.4f}  [{feat_type}]")
     print(f"  Fire rate: {float((sae_acts_all[:, feat_idx] > 0).float().mean()) * 100:.1f}%")
 
@@ -344,11 +375,11 @@ else:
 # test steering
 from src.sae import *  # Import all SAE analysis utilities
 
-FEAT_IDX = 76  # Use the primary special feature identified above
+steering_idx = 11  # Use the primary special feature identified above
 
 results = feature_steering_experiment(
     model, sae, act_mean,
-    feature_idx=FEAT_IDX,
+    feature_idx=steering_idx,
     d1_all=d1_all, 
     d2_all=d2_all, 
     sae_acts_all=sae_acts_all, 
@@ -358,7 +389,7 @@ results = feature_steering_experiment(
 crossover_df = analyze_feature_crossovers(
     results=results,
     model=model, sae=sae, act_mean=act_mean,
-    feature_idx=FEAT_IDX,
+    feature_idx=steering_idx,
     d1_all=d1_all, d2_all=d2_all, sae_acts_all=sae_acts_all,
     dataset=all_ds,
     layer_idx=0,
@@ -370,8 +401,8 @@ crossover_df = analyze_feature_crossovers(
 # check how many inputs activate latent A, how many activate latent B, and how many are activated by both and by neither (+ any other relvant stats)
 
 # k=5
-latentA = 76
-latentB = 121
+latentA = 11
+latentB = 56
 
 # k=4
 # latentA = 11
@@ -426,4 +457,3 @@ print(f"A active       {n_A_only:6d}      {n_both:6d}")
 # -------------
 # -------------
 # -------------
-# Need sae that really good (high exp var, low ce increase) but with high firing rate for special features (if theres 2 spec feats, then its the sum of the firing rate because theyre usually mutually exclusive)
