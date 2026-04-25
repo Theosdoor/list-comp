@@ -106,6 +106,26 @@ def _find_input_index(d1_all, d2_all, d1_val, d2_val):
     return torch.where(mask)[0][0].item()
 
 
+def _build_index_lookup(d1_all, d2_all) -> dict:
+    """Build a {(d1, d2): index} dict for O(1) lookup.
+    
+    Safe when all (d1, d2) pairs are unique (guaranteed by full-enumeration dataset).
+    When duplicates exist, maps to the first occurrence.
+    
+    Args:
+        d1_all: Tensor of d1 values [n_samples]
+        d2_all: Tensor of d2 values [n_samples]
+    
+    Returns:
+        Dictionary mapping (d1, d2) tuples to indices. Keys are (int, int) tuples,
+        values are integer indices into the original tensors.
+    """
+    return {
+        (d1_all[i].item(), d2_all[i].item()): i
+        for i in range(len(d1_all))
+    }
+
+
 def _run_model_with_scaled_feature(
     model, sae, act_mean, inputs, z_orig, feature_idx, 
     feat_orig, scale, layer_idx, sep_idx, hook_name_resid
@@ -1265,6 +1285,9 @@ def swap_outputs(
     device = _get_device(model, device)
     hook_name_resid = f"blocks.{layer_idx}.hook_resid_post"
     
+    # Build index lookup dict for O(1) access
+    idx_lookup = _build_index_lookup(d1_all, d2_all)
+    
     # Filter to only successful swap bounds (failure_reason must be null AND midpoint must be non-null)
     valid_df = swap_bounds_df[
         swap_bounds_df['failure_reason'].isna() & swap_bounds_df['midpoint'].notna()
@@ -1281,7 +1304,8 @@ def swap_outputs(
         result = _verify_single_swap(
             row, d1_all, d2_all, dataset, sae_acts_all,
             model, sae, act_mean, feature_idx,
-            layer_idx, sep_idx, n_digits, device, hook_name_resid
+            layer_idx, sep_idx, n_digits, device, hook_name_resid,
+            idx_lookup
         )
         results.append(result)
     
@@ -1291,7 +1315,8 @@ def swap_outputs(
 def _verify_single_swap(
     row, d1_all, d2_all, dataset, sae_acts_all,
     model, sae, act_mean, feature_idx,
-    layer_idx, sep_idx, n_digits, device, hook_name_resid
+    layer_idx, sep_idx, n_digits, device, hook_name_resid,
+    idx_lookup
 ):
     """Verify swap for a single input pair."""
     d1_val = int(row['d1'])
