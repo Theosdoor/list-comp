@@ -346,7 +346,13 @@ def _train(cfg, use_wandb: bool, save_folder: str, model_path: str = None):
                     sys.stdout.flush()
 
         log_info = trainer.get_logging_parameters()
-        final_l0 = log_info.get('effective_l0', 0)
+        if 'effective_l0' in log_info:
+            final_l0 = log_info['effective_l0']
+        else:
+            with torch.no_grad():
+                sample = next(iter(sae_dl))
+                f = trainer.ae.encode(sample.to(DEVICE))
+                final_l0 = (f > 0).float().sum(dim=-1).mean().item()
         total_time = (datetime.now() - t_start).total_seconds()
         elapsed_min = total_time / 60
         print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Training complete — "
