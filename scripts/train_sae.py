@@ -319,7 +319,7 @@ def _train(cfg, use_wandb: bool, save_folder: str, model_path: str = None):
                         f = trainer.ae.encode(batch_acts.to(DEVICE))
                         effective_l0 = (f > 0).float().sum(dim=-1).mean().item()
                 
-                pct_complete = 100 * step / cfg.n_steps
+                pct_complete = 100 * (step+1) / cfg.n_steps
                 
                 # Track best metrics
                 if loss < best_loss:
