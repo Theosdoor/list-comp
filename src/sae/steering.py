@@ -689,7 +689,15 @@ def get_xovers_df(
         
         all_results.extend(batch_results)
     
-    return pd.DataFrame(all_results)
+    df = pd.DataFrame(all_results)
+    
+    # Convert orig_o1 and orig_o2 to Int64 nullable type (allows NaN for degenerate cases)
+    if 'orig_o1' in df.columns:
+        df['orig_o1'] = df['orig_o1'].astype('Int64')
+    if 'orig_o2' in df.columns:
+        df['orig_o2'] = df['orig_o2'].astype('Int64')
+    
+    return df
 
 
 def _process_crossover_batch(
@@ -844,6 +852,15 @@ def _analyze_single_sample_crossovers(
         OUTPUT_POS_O2, layer_idx, sep_idx, n_digits, device
     )
 
+    # Extract orig_o1/orig_o2 at scale=1.0
+    scale_1_idx = int(np.argmin(np.abs(np.asarray(scale_factors) - 1.0)))
+    assert scale_factors[scale_1_idx] == 1.0, (
+        f"scale=1.0 not found in grid; nearest is {scale_factors[scale_1_idx]}. "
+        "orig_o1/orig_o2 would be incorrect."
+    )
+    orig_o1 = int(argmax_o1[scale_1_idx])
+    orig_o2 = int(argmax_o2[scale_1_idx])
+
     return {
         'd1': d1_val,
         'd2': d2_val,
@@ -858,8 +875,8 @@ def _analyze_single_sample_crossovers(
         'argmax_o1': argmax_o1.tolist(),
         'argmax_o2': argmax_o2.tolist(),
         'o1_failure_reason': o1_failure_reason,
-        'orig_o1': None,
-        'orig_o2': None,
+        'orig_o1': orig_o1,
+        'orig_o2': orig_o2,
     }
 
 
@@ -1048,14 +1065,32 @@ def get_output_swap_bounds(xovers_df, scale_range=[0.0, 10.0]):
                 When multiple disjoint o2 swap windows exist (multiple o2 crossovers
                 with contradictory bounds) the o2 crossover constraints are dropped
                 and the argmax dominance check selects the correct window.
+            - orig_o1, orig_o2: Original predictions at scale=1.0 (cached from xovers_df)
     """
     results = []
     
     for _, row in xovers_df.iterrows():
         result = _determine_swap_bounds_for_sample(row, scale_range)
+        # Propagate orig_o1 and orig_o2 from xovers_df if present
+        if 'orig_o1' in row and pd.notna(row['orig_o1']):
+            result['orig_o1'] = int(row['orig_o1'])
+        else:
+            result['orig_o1'] = None
+        if 'orig_o2' in row and pd.notna(row['orig_o2']):
+            result['orig_o2'] = int(row['orig_o2'])
+        else:
+            result['orig_o2'] = None
         results.append(result)
     
-    return pd.DataFrame(results)
+    df = pd.DataFrame(results)
+    
+    # Convert orig_o1 and orig_o2 to Int64 nullable type for consistency
+    if 'orig_o1' in df.columns:
+        df['orig_o1'] = df['orig_o1'].astype('Int64')
+    if 'orig_o2' in df.columns:
+        df['orig_o2'] = df['orig_o2'].astype('Int64')
+    
+    return df
 
 
 def _find_argmax_dominance_ranges(scales, argmax_seq, target_val):
@@ -1326,20 +1361,48 @@ def _verify_single_swap(
     if scale is None or (isinstance(scale, float) and pd.isna(scale)):
         raise ValueError(f"midpoint is None/NaN for ({d1_val}, {d2_val}) — this row should have been filtered out")
     
+    # Try to use cached orig_o1/orig_o2 from xovers_df (via swap_bounds_df)
+    # If not present or None, compute from scratch
+    if 'orig_o1' in row and pd.notna(row['orig_o1']):
+        orig_o1 = int(row['orig_o1'])
+    else:
+        # Find this input in the dataset using O(1) dict lookup
+        idx = idx_lookup[(d1_val, d2_val)]
+        
+        inputs_i = dataset[idx][0].unsqueeze(0).to(device)
+        z_orig = sae_acts_all[idx].clone().to(device)
+        feat_orig = z_orig[feature_idx].item()
+        
+        # Get original output (scale = 1.0)
+        orig_logits = _run_model_with_scaled_feature(
+            model, sae, act_mean, inputs_i, z_orig, feature_idx,
+            feat_orig, 1.0, layer_idx, sep_idx, hook_name_resid
+        )
+        orig_o1 = orig_logits[0, OUTPUT_POS_O1, :n_digits].argmax().item()
+    
+    if 'orig_o2' in row and pd.notna(row['orig_o2']):
+        orig_o2 = int(row['orig_o2'])
+    else:
+        # Find this input in the dataset using O(1) dict lookup
+        idx = idx_lookup[(d1_val, d2_val)]
+        
+        inputs_i = dataset[idx][0].unsqueeze(0).to(device)
+        z_orig = sae_acts_all[idx].clone().to(device)
+        feat_orig = z_orig[feature_idx].item()
+        
+        # Get original output (scale = 1.0)
+        orig_logits = _run_model_with_scaled_feature(
+            model, sae, act_mean, inputs_i, z_orig, feature_idx,
+            feat_orig, 1.0, layer_idx, sep_idx, hook_name_resid
+        )
+        orig_o2 = orig_logits[0, OUTPUT_POS_O2, :n_digits].argmax().item()
+    
     # Find this input in the dataset using O(1) dict lookup
     idx = idx_lookup[(d1_val, d2_val)]
     
     inputs_i = dataset[idx][0].unsqueeze(0).to(device)
     z_orig = sae_acts_all[idx].clone().to(device)
     feat_orig = z_orig[feature_idx].item()
-    
-    # Get original output (scale = 1.0)
-    orig_logits = _run_model_with_scaled_feature(
-        model, sae, act_mean, inputs_i, z_orig, feature_idx,
-        feat_orig, 1.0, layer_idx, sep_idx, hook_name_resid
-    )
-    orig_o1 = orig_logits[0, OUTPUT_POS_O1, :n_digits].argmax().item()
-    orig_o2 = orig_logits[0, OUTPUT_POS_O2, :n_digits].argmax().item()
     
     # Get patched output at midpoint
     patched_logits = _run_model_with_scaled_feature(
