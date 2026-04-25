@@ -100,7 +100,7 @@ FAILURE_ORDER = [
 ]
 
 # Reasons that appear only in the summary table — no breakdown section or visuals.
-SUMMARY_ONLY = {"dead_latent"}
+SUMMARY_ONLY = {"dead_latent", "feat_zero"}
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
