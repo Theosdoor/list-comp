@@ -1326,8 +1326,8 @@ def _verify_single_swap(
     if scale is None or (isinstance(scale, float) and pd.isna(scale)):
         raise ValueError(f"midpoint is None/NaN for ({d1_val}, {d2_val}) — this row should have been filtered out")
     
-    # Find this input in the dataset
-    idx = _find_input_index(d1_all, d2_all, d1_val, d2_val)
+    # Find this input in the dataset using O(1) dict lookup
+    idx = idx_lookup[(d1_val, d2_val)]
     
     inputs_i = dataset[idx][0].unsqueeze(0).to(device)
     z_orig = sae_acts_all[idx].clone().to(device)
@@ -1408,6 +1408,9 @@ def analyze_feature_crossovers(
     """
     device = _get_device(model, device)
     
+    # Build index lookup dict for O(1) access
+    idx_lookup = _build_index_lookup(d1_all, d2_all)
+    
     crossover_data = []
     
     if verbose:
@@ -1419,7 +1422,7 @@ def analyze_feature_crossovers(
         analysis = _analyze_single_result_crossovers(
             i, result, d1_all, d2_all, sae_acts_all, dataset,
             model, sae, act_mean, feature_idx,
-            layer_idx, sep_idx, n_digits, device, verbose
+            layer_idx, sep_idx, n_digits, device, verbose, idx_lookup
         )
         crossover_data.append(analysis)
     
@@ -1429,7 +1432,7 @@ def analyze_feature_crossovers(
 def _analyze_single_result_crossovers(
     i, result, d1_all, d2_all, sae_acts_all, dataset,
     model, sae, act_mean, feature_idx,
-    layer_idx, sep_idx, n_digits, device, verbose
+    layer_idx, sep_idx, n_digits, device, verbose, idx_lookup
 ):
     """Analyze crossovers for a single result from steering experiment."""
     d1_val = result['d1']
@@ -1438,8 +1441,8 @@ def _analyze_single_result_crossovers(
     all_logits_o1 = result['all_logits_o1']
     all_logits_o2 = result['all_logits_o2']
     
-    # Get data needed for bisection
-    idx = _find_input_index(d1_all, d2_all, d1_val, d2_val)
+    # Get data needed for bisection using O(1) dict lookup
+    idx = idx_lookup[(d1_val, d2_val)]
     inputs_i = dataset[idx][0].unsqueeze(0).to(device)
     z_orig = sae_acts_all[idx].clone().to(device)
     feat_orig = z_orig[feature_idx].item()
