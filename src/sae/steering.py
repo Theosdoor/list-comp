@@ -716,59 +716,123 @@ def _process_crossover_batch(
     batch_d2 = d2_all[batch_start:batch_end]
     batch_z_orig = sae_acts_all[batch_start:batch_end].to(device)
     batch_feat_orig = batch_z_orig[:, feature_idx].clone()
-    
+
     batch_inputs = torch.stack([dataset[i][0] for i in batch_indices]).to(device)
-    
-    # === FAST-PATH OPTIMIZATION: Partition by feat_zero ===
+
     feat_zero_mask = (batch_feat_orig == 0)
-    non_zero_indices = (~feat_zero_mask).nonzero(as_tuple=True)[0]
-    zero_indices = feat_zero_mask.nonzero(as_tuple=True)[0]
-    
-    # Initialize results array to maintain original order
+    non_zero_indices = (~feat_zero_mask).nonzero(as_tuple=True)[0].cpu()
+    zero_indices = feat_zero_mask.nonzero(as_tuple=True)[0].cpu()
+
     batch_results = [None] * current_batch_size
-    
-    # Handle feat_zero samples immediately (no forward passes)
+
+    # Fast-path: feat_zero samples need no forward passes
     for idx in zero_indices:
-        result = _empty_result(
+        batch_results[idx.item()] = _empty_result(
             'feat_zero',
             d1_val=batch_d1[idx].item(),
             d2_val=batch_d2[idx].item(),
             feat_orig=0.0,
-            scale_factors=scale_factors
+            scale_factors=scale_factors,
         )
-        batch_results[idx] = result
-    
-    # Run steering grid only on non-zero samples
-    if len(non_zero_indices) > 0:
-        # Extract subset of data for non-zero samples
-        # Move GPU indices to CPU for CPU tensor indexing
-        non_zero_indices_cpu = non_zero_indices.cpu() if hasattr(non_zero_indices, 'cpu') else non_zero_indices
-        subset_z_orig = batch_z_orig[non_zero_indices]
-        subset_feat_orig = batch_feat_orig[non_zero_indices]
-        subset_inputs = batch_inputs[non_zero_indices]
-        subset_d1 = batch_d1[non_zero_indices_cpu]
-        subset_d2 = batch_d2[non_zero_indices_cpu]
-        subset_indices = [batch_indices[i] for i in non_zero_indices]
-        subset_size = len(non_zero_indices)
-        
-        # Run model for all scales on subset only
-        subset_logits_o1, subset_logits_o2 = _run_batched_steering(
-            model, sae, act_mean, subset_inputs, subset_z_orig,
-            feature_idx, subset_feat_orig, scale_factors,
-            layer_idx, sep_idx, n_digits, hook_name_resid
+
+    if len(non_zero_indices) == 0:
+        return batch_results
+
+    # Extract subset tensors for non-zero samples
+    subset_z_orig = batch_z_orig[non_zero_indices]
+    subset_feat_orig = batch_feat_orig[non_zero_indices]
+    subset_inputs = batch_inputs[non_zero_indices]
+    subset_d1 = batch_d1[non_zero_indices]
+    subset_d2 = batch_d2[non_zero_indices]
+
+    # Run grid over all non-zero samples
+    subset_logits_o1, subset_logits_o2 = _run_batched_steering(
+        model, sae, act_mean, subset_inputs, subset_z_orig,
+        feature_idx, subset_feat_orig, scale_factors,
+        layer_idx, sep_idx, n_digits, hook_name_resid
+    )
+
+    # Collect all o2 sign changes across the subset in one pass
+    subset_d1_np = subset_d1.cpu().numpy()
+    subset_d2_np = subset_d2.cpu().numpy()
+    tasks = _collect_o2_sign_changes(
+        subset_logits_o2, subset_d1_np, subset_d2_np, scale_factors
+    )
+
+    # Run vectorised bisection on all tasks at once
+    if len(tasks) > 0:
+        exact_scales, bisection_bound_types = _run_vectorised_bisection(
+            tasks, model, sae, act_mean, feature_idx,
+            subset_inputs, subset_z_orig, subset_feat_orig,
+            layer_idx, sep_idx, n_digits, device
         )
-        
-        # Process each non-zero sample
-        for subset_i, original_i in enumerate(non_zero_indices):
-            global_idx = batch_start + original_i
-            result = _analyze_single_sample_crossovers(
-                subset_i, global_idx, subset_d1, subset_d2, subset_feat_orig,
-                subset_logits_o1, subset_logits_o2, subset_z_orig,
-                dataset, model, sae, act_mean, feature_idx, scale_factors,
-                layer_idx, sep_idx, n_digits, device
-            )
+    else:
+        exact_scales, bisection_bound_types = [], []
+
+    # Group bisection results by subset sample index
+    from collections import defaultdict
+    sample_to_o2 = defaultdict(list)  # subset_i -> [(exact_scale, bound_type), ...]
+    for task_i, task in enumerate(tasks):
+        sample_to_o2[task['sample_idx']].append(
+            (exact_scales[task_i], bisection_bound_types[task_i])
+        )
+
+    # Assemble per-sample results
+    scale_1_idx = int(np.argmin(np.abs(scale_factors - 1.0)))
+    assert scale_factors[scale_1_idx] == 1.0, (
+        f"scale=1.0 not in grid; nearest is {scale_factors[scale_1_idx]}. "
+        "orig_o1/orig_o2 would be incorrect."
+    )
+
+    for subset_i, original_i in enumerate(non_zero_indices):
+        original_i = original_i.item()
+        d1_val = subset_d1[subset_i].item()
+        d2_val = subset_d2[subset_i].item()
+        feat_orig = subset_feat_orig[subset_i].item()
+
+        logits_o1 = subset_logits_o1[subset_i]  # [n_scales, n_digits]
+        logits_o2 = subset_logits_o2[subset_i]
+        argmax_o1 = logits_o1.argmax(axis=1)
+        argmax_o2 = logits_o2.argmax(axis=1)
+
+        if d1_val == d2_val:
+            result = _empty_result('d1_eq_d2', d1_val, d2_val, feat_orig, scale_factors)
+            result['argmax_o1'] = argmax_o1.tolist()
+            result['argmax_o2'] = argmax_o2.tolist()
             batch_results[original_i] = result
-    
+            continue
+
+        # o1: analytical linear fit (unchanged)
+        o1_crossovers, o1_bound_types, o1_failure_reason = _find_o1_crossover_linear(
+            logits_o1, d1_val, d2_val, scale_factors
+        )
+
+        # o2: results from vectorised bisection
+        o2_pairs = sample_to_o2[subset_i]
+        o2_crossovers = [p[0] for p in o2_pairs]
+        o2_bound_types = [p[1] for p in o2_pairs]
+
+        orig_o1 = int(argmax_o1[scale_1_idx])
+        orig_o2 = int(argmax_o2[scale_1_idx])
+
+        batch_results[original_i] = {
+            'd1': d1_val,
+            'd2': d2_val,
+            'feat_orig': feat_orig,
+            'o1_crossovers': o1_crossovers,
+            'o2_crossovers': o2_crossovers,
+            'o1_bound_types': o1_bound_types,
+            'o2_bound_types': o2_bound_types,
+            'n_o1_xover': len(o1_crossovers),
+            'n_o2_xover': len(o2_crossovers),
+            'scales': scale_factors.tolist(),
+            'argmax_o1': argmax_o1.tolist(),
+            'argmax_o2': argmax_o2.tolist(),
+            'o1_failure_reason': o1_failure_reason,
+            'orig_o1': orig_o1,
+            'orig_o2': orig_o2,
+        }
+
     return batch_results
 
 
