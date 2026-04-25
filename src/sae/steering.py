@@ -45,6 +45,37 @@ LINEAR_FIT_SCALE_CAP = 20.0
 # Helper Functions
 # ============================================================================
 
+def _empty_result(failure_reason, d1_val, d2_val, feat_orig, scale_factors):
+    """
+    Create an empty result dict for degenerate cases (feat_zero, d1==d2, etc).
+    
+    Used for fast-path optimization when feature activation is zero or other
+    degenerate conditions prevent meaningful crossover analysis.
+    
+    Args:
+        failure_reason: String indicating why analysis failed ('feat_zero', 'd1_eq_d2', etc)
+        d1_val: Input digit 1 value
+        d2_val: Input digit 2 value
+        feat_orig: Original feature activation (should be 0 for feat_zero case)
+        scale_factors: Array of scale factors (used for populating result structure)
+    
+    Returns:
+        Dictionary with empty crossover lists and failure reason set.
+    """
+    return {
+        'd1': d1_val, 'd2': d2_val, 'feat_orig': feat_orig,
+        'o1_crossovers': [], 'o2_crossovers': [],
+        'o1_bound_types': [], 'o2_bound_types': [],
+        'n_o1_xover': 0, 'n_o2_xover': 0,
+        'scales': scale_factors.tolist(),
+        'argmax_o1': [],
+        'argmax_o2': [],
+        'o1_failure_reason': failure_reason,
+        'orig_o1': None,
+        'orig_o2': None,
+    }
+
+
 def _validate_inputs(model, sae, d1_all, d2_all, sae_acts_all, dataset, feature_idx):
     """Validate common inputs across functions."""
     if len(d1_all) != len(d2_all):
@@ -647,7 +678,12 @@ def _process_crossover_batch(
     model, sae, act_mean, scale_factors,
     layer_idx, sep_idx, n_digits, device, hook_name_resid
 ):
-    """Process a single batch for crossover detection."""
+    """Process a single batch for crossover detection.
+    
+    Implements fast-path optimization: samples with feat_orig == 0 are handled
+    immediately without running the steering grid. Only non-zero samples run
+    through the full grid search pipeline.
+    """
     batch_d1 = d1_all[batch_start:batch_end]
     batch_d2 = d2_all[batch_start:batch_end]
     batch_z_orig = sae_acts_all[batch_start:batch_end].to(device)
@@ -655,24 +691,53 @@ def _process_crossover_batch(
     
     batch_inputs = torch.stack([dataset[i][0] for i in batch_indices]).to(device)
     
-    # Run model for all scales
-    batch_logits_o1, batch_logits_o2 = _run_batched_steering(
-        model, sae, act_mean, batch_inputs, batch_z_orig, 
-        feature_idx, batch_feat_orig, scale_factors,
-        layer_idx, sep_idx, n_digits, hook_name_resid
-    )
+    # === FAST-PATH OPTIMIZATION: Partition by feat_zero ===
+    feat_zero_mask = (batch_feat_orig == 0)
+    non_zero_indices = (~feat_zero_mask).nonzero(as_tuple=True)[0]
+    zero_indices = feat_zero_mask.nonzero(as_tuple=True)[0]
     
-    # Process each sample in batch
-    batch_results = []
-    for i in range(current_batch_size):
-        global_idx = batch_start + i
-        result = _analyze_single_sample_crossovers(
-            i, global_idx, batch_d1, batch_d2, batch_feat_orig,
-            batch_logits_o1, batch_logits_o2, batch_z_orig,
-            dataset, model, sae, act_mean, feature_idx, scale_factors,
-            layer_idx, sep_idx, n_digits, device
+    # Initialize results array to maintain original order
+    batch_results = [None] * current_batch_size
+    
+    # Handle feat_zero samples immediately (no forward passes)
+    for idx in zero_indices:
+        result = _empty_result(
+            'feat_zero',
+            d1_val=batch_d1[idx].item(),
+            d2_val=batch_d2[idx].item(),
+            feat_orig=0.0,
+            scale_factors=scale_factors
         )
-        batch_results.append(result)
+        batch_results[idx] = result
+    
+    # Run steering grid only on non-zero samples
+    if len(non_zero_indices) > 0:
+        # Extract subset of data for non-zero samples
+        subset_z_orig = batch_z_orig[non_zero_indices]
+        subset_feat_orig = batch_feat_orig[non_zero_indices]
+        subset_inputs = batch_inputs[non_zero_indices]
+        subset_d1 = batch_d1[non_zero_indices]
+        subset_d2 = batch_d2[non_zero_indices]
+        subset_indices = [batch_indices[i] for i in non_zero_indices]
+        subset_size = len(non_zero_indices)
+        
+        # Run model for all scales on subset only
+        subset_logits_o1, subset_logits_o2 = _run_batched_steering(
+            model, sae, act_mean, subset_inputs, subset_z_orig,
+            feature_idx, subset_feat_orig, scale_factors,
+            layer_idx, sep_idx, n_digits, hook_name_resid
+        )
+        
+        # Process each non-zero sample
+        for subset_i, original_i in enumerate(non_zero_indices):
+            global_idx = batch_start + original_i
+            result = _analyze_single_sample_crossovers(
+                subset_i, global_idx, subset_d1, subset_d2, subset_feat_orig,
+                subset_logits_o1, subset_logits_o2, subset_z_orig,
+                dataset, model, sae, act_mean, feature_idx, scale_factors,
+                layer_idx, sep_idx, n_digits, device
+            )
+            batch_results[original_i] = result
     
     return batch_results
 
@@ -727,25 +792,22 @@ def _analyze_single_sample_crossovers(
     argmax_o1 = logits_o1.argmax(axis=1)
     argmax_o2 = logits_o2.argmax(axis=1)
 
-    def _empty_result(failure_reason):
-        return {
-            'd1': d1_val, 'd2': d2_val, 'feat_orig': feat_orig,
-            'o1_crossovers': [], 'o2_crossovers': [],
-            'o1_bound_types': [], 'o2_bound_types': [],
-            'n_o1_xover': 0, 'n_o2_xover': 0,
-            'scales': scale_factors.tolist(),
-            'argmax_o1': argmax_o1.tolist(),
-            'argmax_o2': argmax_o2.tolist(),
-            'o1_failure_reason': failure_reason,
-        }
-
     # Degenerate: feature not active
+    # This check is now typically handled by the fast-path in _process_crossover_batch,
+    # but kept as a guard in case _analyze_single_sample_crossovers is called directly.
     if feat_orig == 0:
-        return _empty_result('feat_zero')
+        empty_result = _empty_result('feat_zero', d1_val, d2_val, feat_orig, scale_factors)
+        # Fill in argmax values computed from logits
+        empty_result['argmax_o1'] = argmax_o1.tolist()
+        empty_result['argmax_o2'] = argmax_o2.tolist()
+        return empty_result
 
     # Degenerate: both digits are the same — logit diff is always ~0
     if d1_val == d2_val:
-        return _empty_result('d1_eq_d2')
+        empty_result = _empty_result('d1_eq_d2', d1_val, d2_val, feat_orig, scale_factors)
+        empty_result['argmax_o1'] = argmax_o1.tolist()
+        empty_result['argmax_o2'] = argmax_o2.tolist()
+        return empty_result
 
     # --- o1: analytical linear fit ---
     o1_crossovers, o1_bound_types, o1_failure_reason = _find_o1_crossover_linear(
@@ -776,6 +838,8 @@ def _analyze_single_sample_crossovers(
         'argmax_o1': argmax_o1.tolist(),
         'argmax_o2': argmax_o2.tolist(),
         'o1_failure_reason': o1_failure_reason,
+        'orig_o1': None,
+        'orig_o2': None,
     }
 
 
