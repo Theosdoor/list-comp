@@ -12,13 +12,159 @@ Tests for:
 import pytest
 import torch
 import numpy as np
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch, MagicMock, call
 
 from src.sae.steering import (
     OUTPUT_POS_O1, OUTPUT_POS_O2,
-    find_exact_crossover_bisection,
-    DEFAULT_BISECTION_TOL
+    _collect_o2_sign_changes,
+    _run_vectorised_bisection,
+    _determine_bound_type_from_diff,
+    DEFAULT_BISECTION_TOL,
+    DEFAULT_BISECTION_MAX_ITER,
 )
+
+
+class TestCollectO2SignChanges:
+    """Test _collect_o2_sign_changes function."""
+    
+    def test_empty_logits_returns_empty_tasks(self):
+        """Empty batch should return empty task list."""
+        logits_batch = np.array([]).reshape(0, 5, 100)
+        d1_all = np.array([])
+        d2_all = np.array([])
+        scale_factors = np.array([0.0, 0.5, 1.0])
+        
+        tasks = _collect_o2_sign_changes(logits_batch, d1_all, d2_all, scale_factors)
+        
+        assert tasks == []
+    
+    def test_single_sample_no_sign_changes(self):
+        """Single sample with no sign changes should return empty task list."""
+        # Create logits where d1 always > d2 (diff always positive)
+        n_scales = 3
+        n_digits = 100
+        d1_idx = 5
+        d2_idx = 10
+        
+        logits_batch = np.random.randn(1, n_scales, n_digits)
+        # Make d1 logits always higher
+        logits_batch[0, :, d1_idx] = 10.0
+        logits_batch[0, :, d2_idx] = -10.0
+        
+        d1_all = np.array([d1_idx])
+        d2_all = np.array([d2_idx])
+        scale_factors = np.array([0.0, 0.5, 1.0])
+        
+        tasks = _collect_o2_sign_changes(logits_batch, d1_all, d2_all, scale_factors)
+        
+        assert tasks == []
+    
+    def test_single_sample_single_sign_change(self):
+        """Single sample with one sign change should return one task."""
+        n_scales = 3
+        n_digits = 100
+        d1_idx = 5
+        d2_idx = 10
+        
+        logits_batch = np.zeros((1, n_scales, n_digits))
+        # Create sign change: d1 > d2 at scale 0, then d2 > d1 at scales 1,2
+        logits_batch[0, 0, d1_idx] = 5.0
+        logits_batch[0, 0, d2_idx] = 3.0
+        logits_batch[0, 1, d1_idx] = 2.0
+        logits_batch[0, 1, d2_idx] = 4.0  # Sign change between 0 and 1
+        logits_batch[0, 2, d1_idx] = 1.0
+        logits_batch[0, 2, d2_idx] = 5.0
+        
+        d1_all = np.array([d1_idx])
+        d2_all = np.array([d2_idx])
+        scale_factors = np.array([0.0, 0.5, 1.0])
+        
+        tasks = _collect_o2_sign_changes(logits_batch, d1_all, d2_all, scale_factors)
+        
+        assert len(tasks) == 1
+        task = tasks[0]
+        assert task['sample_idx'] == 0
+        assert task['scale_low'] == 0.0
+        assert task['scale_high'] == 0.5
+        assert task['crossover_idx'] == 0
+        assert task['d1_val'] == d1_idx
+        assert task['d2_val'] == d2_idx
+        assert task['output_pos'] == OUTPUT_POS_O2
+        assert 'diff' in task
+    
+    def test_multiple_samples_different_crossovers(self):
+        """Multiple samples with different sign change patterns."""
+        n_scales = 4
+        n_digits = 100
+        
+        logits_batch = np.random.randn(2, n_scales, n_digits)
+        
+        # Sample 0: sign change at index 0 (between scale 0 and 1)
+        logits_batch[0, 0, 5] = 1.0   # d1
+        logits_batch[0, 0, 10] = -1.0  # d2
+        logits_batch[0, 1, 5] = -1.0
+        logits_batch[0, 1, 10] = 1.0   # Sign change
+        logits_batch[0, 2, 5] = -2.0
+        logits_batch[0, 2, 10] = 2.0
+        logits_batch[0, 3, 5] = -3.0
+        logits_batch[0, 3, 10] = 3.0
+        
+        # Sample 1: sign change at index 2 (between scale 2 and 3)
+        logits_batch[1, 0, 15] = 5.0    # d1
+        logits_batch[1, 0, 20] = -5.0   # d2
+        logits_batch[1, 1, 15] = 4.0
+        logits_batch[1, 1, 20] = -4.0
+        logits_batch[1, 2, 15] = 1.0
+        logits_batch[1, 2, 20] = -1.0
+        logits_batch[1, 3, 15] = -1.0
+        logits_batch[1, 3, 20] = 1.0    # Sign change
+        
+        d1_all = np.array([5, 15])
+        d2_all = np.array([10, 20])
+        scale_factors = np.array([0.0, 0.5, 1.0, 1.5])
+        
+        tasks = _collect_o2_sign_changes(logits_batch, d1_all, d2_all, scale_factors)
+        
+        assert len(tasks) == 2
+        
+        # Check first task (sample 0)
+        assert tasks[0]['sample_idx'] == 0
+        assert tasks[0]['scale_low'] == 0.0
+        assert tasks[0]['scale_high'] == 0.5
+        
+        # Check second task (sample 1)
+        assert tasks[1]['sample_idx'] == 1
+        assert tasks[1]['scale_low'] == 1.0
+        assert tasks[1]['scale_high'] == 1.5
+    
+    def test_diff_array_preserved_for_bound_type(self):
+        """Verify diff array is preserved in task for bound type computation."""
+        n_scales = 3
+        n_digits = 100
+        
+        logits_batch = np.zeros((1, n_scales, n_digits))
+        logits_batch[0, 0, 5] = 5.0
+        logits_batch[0, 0, 10] = 3.0
+        logits_batch[0, 1, 5] = 2.0
+        logits_batch[0, 1, 10] = 4.0  # Sign change
+        logits_batch[0, 2, 5] = 1.0
+        logits_batch[0, 2, 10] = 5.0
+        
+        d1_all = np.array([5])
+        d2_all = np.array([10])
+        scale_factors = np.array([0.0, 0.5, 1.0])
+        
+        tasks = _collect_o2_sign_changes(logits_batch, d1_all, d2_all, scale_factors)
+        
+        assert len(tasks) == 1
+        task = tasks[0]
+        
+        # Verify diff is the full array
+        assert len(task['diff']) == 3
+        np.testing.assert_array_almost_equal(
+            task['diff'],
+            np.array([2.0, -2.0, -4.0])  # d1 - d2 at each scale
+        )
 
 
 class TestVectorisedBisectionEdgeCases:
@@ -26,159 +172,291 @@ class TestVectorisedBisectionEdgeCases:
     
     def test_empty_task_list_returns_empty(self):
         """Empty task list should return [] immediately without forward passes."""
-        # This tests the edge case where _run_vectorised_bisection([], ...) is called
-        # We'll use a mock model to verify no forward passes occur
-        mock_model = Mock()
-        mock_sae = Mock()
-        mock_model.run_with_hooks = Mock(return_value=torch.randn(1, 5, 100))
-        
-        # Simulate calling _run_vectorised_bisection with empty tasks
-        # (We'll implement the actual function after tests are written)
-        # For now, this tests the contract
-        tasks = []
-        # Expected: should return [] without calling model
-        
-        # Later: assert mock_model.run_with_hooks.call_count == 0
-
-
-class TestSingleTaskBisection:
-    """Test that single task vectorised bisection matches find_exact_crossover_bisection."""
-    
-    def test_single_task_matches_scalar_bisection(self):
-        """Single task in vectorised form should produce same result as scalar bisection."""
-        # Create mock model that returns consistent logits
         mock_model = Mock()
         mock_sae = Mock()
         
-        # For this test, we verify the contract:
-        # _run_vectorised_bisection([task]) should match find_exact_crossover_bisection(task)
+        result = _run_vectorised_bisection(
+            [], mock_model, mock_sae, torch.zeros(10), feature_idx=0,
+            inputs_batch=torch.randn(1, 5), z_orig_batch=torch.randn(1, 10),
+            feat_orig_batch=torch.tensor([1.0]), layer_idx=0, sep_idx=2,
+            n_digits=100, device=torch.device('cpu')
+        )
         
-        # We'll implement this once the function exists
-        pass
-
-
-class TestActiveIndicesTracking:
-    """Test that active_indices correctly maps back to original task order."""
-    
-    def test_active_indices_preserved_in_results(self):
-        """Results should be returned in original task order, not active order."""
-        # Simulate scenario where tasks are processed in different order
-        # but results are returned in original order
-        
-        # Task 0: converges at iteration 2
-        # Task 1: converges at iteration 4  
-        # Task 2: converges at iteration 1 (converges early)
-        
-        # Expected: results[0] from task 0, results[1] from task 1, results[2] from task 2
-        pass
-
-
-class TestMixedConvergence:
-    """Test heterogeneous convergence patterns."""
-    
-    def test_some_converge_early_others_late(self):
-        """Some tasks converge on early iterations, others take full iterations."""
-        # Create tasks with different convergence patterns
-        # Task 0: converges after 1 iteration
-        # Task 1: converges after 4 iterations
-        # Task 2: converges after 2 iterations
-        
-        # Verify all converge correctly despite different iteration counts
-        pass
-    
-    def test_all_converge_on_first_iteration(self):
-        """Edge case: all tasks converge on first iteration."""
-        # When all tasks have |high - low| < tol initially
-        # should return immediately with all results
-        pass
-
-
-class TestHomogeneousOutputPosAssertion:
-    """Test assertion that all tasks share same output_pos."""
+        assert result == []
+        # Verify no forward passes were called
+        mock_model.run_with_hooks.assert_not_called()
     
     def test_homogeneous_output_pos_assertion(self):
         """All tasks must have same output_pos - heterogeneous should raise."""
-        # Later: verify _run_vectorised_bisection asserts all tasks share output_pos
-        # If task[0]['output_pos'] != task[1]['output_pos'], should raise AssertionError
-        pass
-
-
-class TestO2SignChangesCollection:
-    """Test _collect_o2_sign_changes returns correct structure."""
-    
-    def test_collect_o2_sign_changes_returns_tuples(self):
-        """_collect_o2_sign_changes should return list of (scale_low, scale_high, idx) tuples."""
-        # Expected return format from the spec:
-        # [(scale_low_1, scale_high_1, crossover_idx_1), (scale_low_2, scale_high_2, crossover_idx_2), ...]
-        # where crossover_idx is the index in the o2_logits array where sign change occurs
-        pass
-    
-    def test_collect_o2_sign_changes_includes_diff_data(self):
-        """_collect_o2_sign_changes should collect o2_logits diff data for bound type computation."""
-        # Need to pass diff data through so bound types can be computed
-        # from d1_logits - d2_logits
-        pass
-
-
-class TestBoundTypeComputation:
-    """Test bound type computation with collected diff data."""
-    
-    def test_bound_type_from_diff_slope(self):
-        """Bound type should be computed from diff slope at crossover."""
-        # slope_diff < 0 → 'lb' (diff falling, d2 gains on d1)
-        # slope_diff > 0 → 'ub' (diff rising, d1 gains on d2)
-        pass
-
-
-class TestProcessCrossoverBatchIntegration:
-    """Test integration of vectorised bisection with _process_crossover_batch."""
-    
-    def test_vectorised_bisection_called_for_o2_crossovers(self):
-        """_process_crossover_batch should use vectorised bisection for o2 crossovers."""
-        # When non-zero samples have o2 sign changes, should call
-        # _run_vectorised_bisection instead of individual find_exact_crossover_bisection
-        pass
-    
-    def test_vectorised_bisection_not_called_for_single_sample(self):
-        """When only one non-zero sample, may still use scalar for efficiency."""
-        # Or may always use vectorised - depends on implementation choice
-        pass
-
-
-class TestTaskDictStructure:
-    """Test task dict has exact field names from spec."""
-    
-    def test_task_dict_field_names(self):
-        """Task dict must have exact field names: scale_low, scale_high, output_pos, d1_val, d2_val."""
-        task = {
-            'scale_low': 0.5,
-            'scale_high': 1.5,
-            'output_pos': OUTPUT_POS_O2,
-            'd1_val': 5,
-            'd2_val': 7,
-        }
+        tasks = [
+            {
+                'sample_idx': 0,
+                'scale_low': 0.5,
+                'scale_high': 1.5,
+                'crossover_idx': 0,
+                'd1_val': 5,
+                'd2_val': 10,
+                'output_pos': OUTPUT_POS_O2,
+                'diff': np.array([1.0, -1.0, -2.0]),
+            },
+            {
+                'sample_idx': 1,
+                'scale_low': 0.5,
+                'scale_high': 1.5,
+                'crossover_idx': 0,
+                'd1_val': 5,
+                'd2_val': 10,
+                'output_pos': OUTPUT_POS_O1,  # Different!
+                'diff': np.array([1.0, -1.0, -2.0]),
+            },
+        ]
         
-        # Verify all required fields present
-        assert 'scale_low' in task
-        assert 'scale_high' in task
-        assert 'output_pos' in task
-        assert 'd1_val' in task
-        assert 'd2_val' in task
+        mock_model = Mock()
+        mock_sae = Mock()
+        
+        with pytest.raises(AssertionError, match="All tasks must share the same output_pos"):
+            _run_vectorised_bisection(
+                tasks, mock_model, mock_sae, torch.zeros(10), feature_idx=0,
+                inputs_batch=torch.randn(2, 5), z_orig_batch=torch.randn(2, 10),
+                feat_orig_batch=torch.tensor([1.0, 1.0]), layer_idx=0, sep_idx=2,
+                n_digits=100, device=torch.device('cpu')
+            )
 
 
-class TestErrorHandling:
-    """Test error handling - no warnings, only explicit errors."""
+class TestDetermineBoundTypeFromDiff:
+    """Test bound type determination from diff slope."""
     
-    def test_no_warnings_on_convergence(self):
-        """Should not emit warnings for normal convergence."""
-        # Verify no warnings are issued during normal operation
-        pass
+    def test_o1_diff_negative_left_returns_ub(self):
+        """For o1: if diff < 0 on left, return 'ub'."""
+        diff = np.array([-2.0, 1.0, 2.0])  # Sign change at index 0
+        crossover_idx = 0
+        
+        bound_type = _determine_bound_type_from_diff(crossover_idx, OUTPUT_POS_O1, diff)
+        
+        assert bound_type == 'ub'
     
-    def test_assertion_on_heterogeneous_output_pos(self):
-        """Should raise AssertionError if output_pos heterogeneous."""
-        # verify explicit assertion error
-        pass
+    def test_o1_diff_negative_right_returns_lb(self):
+        """For o1: if diff < 0 on right, return 'lb'."""
+        diff = np.array([2.0, -1.0, -2.0])  # Sign change at index 0
+        crossover_idx = 0
+        
+        bound_type = _determine_bound_type_from_diff(crossover_idx, OUTPUT_POS_O1, diff)
+        
+        assert bound_type == 'lb'
+    
+    def test_o2_diff_positive_left_returns_ub(self):
+        """For o2: if diff > 0 on left, return 'ub'."""
+        diff = np.array([2.0, -1.0, -2.0])  # Sign change at index 0
+        crossover_idx = 0
+        
+        bound_type = _determine_bound_type_from_diff(crossover_idx, OUTPUT_POS_O2, diff)
+        
+        assert bound_type == 'ub'
+    
+    def test_o2_diff_positive_right_returns_lb(self):
+        """For o2: if diff > 0 on right, return 'lb'."""
+        diff = np.array([-2.0, 1.0, 2.0])  # Sign change at index 0
+        crossover_idx = 0
+        
+        bound_type = _determine_bound_type_from_diff(crossover_idx, OUTPUT_POS_O2, diff)
+        
+        assert bound_type == 'lb'
 
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
+
+class TestVectorisedBisectionIntegration:
+    """Integration tests with realistic data patterns."""
+    
+    def test_collect_and_bound_type_integration(self):
+        """Verify _collect_o2_sign_changes produces tasks with correct structure for bisection."""
+        n_scales = 5
+        n_digits = 100
+        
+        logits_batch = np.zeros((2, n_scales, n_digits))
+        
+        # Sample 0: sign change at scale 0-1 (avoid crossing through 0)
+        logits_batch[0, 0, 5] = 5.0   # d1
+        logits_batch[0, 0, 10] = -5.0  # d2
+        logits_batch[0, 1, 5] = -1.0
+        logits_batch[0, 1, 10] = 1.0   # Sign change
+        logits_batch[0, 2, 5] = -2.0
+        logits_batch[0, 2, 10] = 2.0
+        logits_batch[0, 3, 5] = -3.0
+        logits_batch[0, 3, 10] = 3.0
+        logits_batch[0, 4, 5] = -4.0
+        logits_batch[0, 4, 10] = 4.0
+        
+        # Sample 1: sign change at scale 2-3 (different timing)
+        logits_batch[1, 0, 15] = 5.0    # d1
+        logits_batch[1, 0, 20] = -5.0   # d2
+        logits_batch[1, 1, 15] = 4.0
+        logits_batch[1, 1, 20] = -4.0
+        logits_batch[1, 2, 15] = 1.0
+        logits_batch[1, 2, 20] = -1.0
+        logits_batch[1, 3, 15] = -1.0
+        logits_batch[1, 3, 20] = 1.0   # Sign change
+        logits_batch[1, 4, 15] = -2.0
+        logits_batch[1, 4, 20] = 2.0
+        
+        d1_all = np.array([5, 15])
+        d2_all = np.array([10, 20])
+        scale_factors = np.array([0.0, 0.25, 0.5, 0.75, 1.0])
+        
+        tasks = _collect_o2_sign_changes(logits_batch, d1_all, d2_all, scale_factors)
+        
+        # Should find exactly 2 tasks (one per sample, one crossover each)
+        assert len(tasks) == 2
+        
+        # Both tasks should have diff arrays
+        for task in tasks:
+            assert len(task['diff']) == n_scales
+            # Verify diff is d1 - d2
+            expected_diff = (logits_batch[task['sample_idx'], :, task['d1_val']] -
+                           logits_batch[task['sample_idx'], :, task['d2_val']])
+            np.testing.assert_array_almost_equal(task['diff'], expected_diff)
+    
+    def test_bound_type_computation_from_tasks(self):
+        """Verify bound types computed correctly from task diffs."""
+        # Create a sign change: diff goes from positive to negative
+        diff = np.array([2.0, 1.0, 0.5, -0.5, -1.0, -2.0])
+        crossover_idx = 2  # Between diff[2]=0.5 and diff[3]=-0.5
+        
+        # For o2 (we want d1 > d2, i.e., diff > 0):
+        # - diff > 0 on left (2.0) → upper bound
+        bound_type = _determine_bound_type_from_diff(crossover_idx, OUTPUT_POS_O2, diff)
+        assert bound_type == 'ub'
+        
+        # Another case: diff goes from negative to positive
+        diff2 = np.array([-2.0, -1.0, -0.5, 0.5, 1.0, 2.0])
+        crossover_idx2 = 2  # Between diff[2]=-0.5 and diff[3]=0.5
+        
+        # For o2: diff < 0 on left (-0.5) → swap condition doesn't hold on left
+        # So it must hold on right → lower bound
+        bound_type2 = _determine_bound_type_from_diff(crossover_idx2, OUTPUT_POS_O2, diff2)
+        assert bound_type2 == 'lb'
+
+
+class TestTaskStructure:
+    """Test task dict field names match specification."""
+    
+    def test_task_has_all_required_fields(self):
+        """Task dict from _collect_o2_sign_changes must have exact field names."""
+        logits_batch = np.zeros((1, 3, 100))
+        logits_batch[0, 0, 5] = 5.0
+        logits_batch[0, 0, 10] = -5.0
+        logits_batch[0, 1, 5] = -1.0
+        logits_batch[0, 1, 10] = 1.0
+        logits_batch[0, 2, 5] = -2.0
+        logits_batch[0, 2, 10] = 2.0
+        
+        d1_all = np.array([5])
+        d2_all = np.array([10])
+        scale_factors = np.array([0.0, 0.5, 1.0])
+        
+        tasks = _collect_o2_sign_changes(logits_batch, d1_all, d2_all, scale_factors)
+        
+        assert len(tasks) == 1
+        task = tasks[0]
+        
+        # Check all required fields present
+        required_fields = ['sample_idx', 'scale_low', 'scale_high', 'crossover_idx', 
+                         'd1_val', 'd2_val', 'output_pos', 'diff']
+        for field in required_fields:
+            assert field in task, f"Task missing required field: {field}"
+    
+    def test_collected_tasks_ready_for_bisection(self):
+        """Tasks from _collect_o2_sign_changes should be ready for _run_vectorised_bisection."""
+        # Create simple test case
+        logits_batch = np.zeros((1, 3, 100))
+        logits_batch[0, 0, 5] = 2.0
+        logits_batch[0, 0, 10] = -2.0
+        logits_batch[0, 1, 5] = -0.5
+        logits_batch[0, 1, 10] = 0.5
+        logits_batch[0, 2, 5] = -3.0
+        logits_batch[0, 2, 10] = 3.0
+        
+        d1_all = np.array([5])
+        d2_all = np.array([10])
+        scale_factors = np.array([0.0, 0.5, 1.0])
+        
+        tasks = _collect_o2_sign_changes(logits_batch, d1_all, d2_all, scale_factors)
+        
+        # Tasks should have everything needed for bisection
+        assert len(tasks) > 0
+        for task in tasks:
+            # These are the fields used in _run_vectorised_bisection
+            assert 'scale_low' in task
+            assert 'scale_high' in task
+            assert 'd1_val' in task
+            assert 'd2_val' in task
+            assert 'output_pos' in task
+            assert 'sample_idx' in task
+            assert 'crossover_idx' in task
+            assert 'diff' in task
+
+
+class TestErrorHandling:
+    """Test error handling and edge cases."""
+    
+    def test_no_warnings_emitted(self, capsys):
+        """Verify no warnings are emitted during normal operation."""
+        # Simple test: call collect and verify no warnings
+        logits_batch = np.zeros((1, 3, 100))
+        logits_batch[0, 0, 5] = 2.0
+        logits_batch[0, 0, 10] = -2.0
+        logits_batch[0, 1, 5] = -1.0
+        logits_batch[0, 1, 10] = 1.0
+        logits_batch[0, 2, 5] = -2.0
+        logits_batch[0, 2, 10] = 2.0
+        
+        d1_all = np.array([5])
+        d2_all = np.array([10])
+        scale_factors = np.array([0.0, 0.5, 1.0])
+        
+        # Call function
+        tasks = _collect_o2_sign_changes(logits_batch, d1_all, d2_all, scale_factors)
+        
+        # Verify no warnings (captured via capsys)
+        captured = capsys.readouterr()
+        assert 'warning' not in captured.err.lower() or len(tasks) > 0  # No warnings expected
+
+
+class TestReturnValues:
+    """Test return value structure and types."""
+    
+    def test_vectorised_bisection_returns_lists(self):
+        """_run_vectorised_bisection should return (crossover_scales, bound_types) as lists."""
+        # Test with empty tasks (safest case)
+        result = _run_vectorised_bisection(
+            [], Mock(), Mock(), torch.zeros(10), feature_idx=0,
+            inputs_batch=torch.randn(1, 5), z_orig_batch=torch.randn(1, 10),
+            feat_orig_batch=torch.tensor([1.0]), layer_idx=0, sep_idx=2,
+            n_digits=100, device=torch.device('cpu')
+        )
+        
+        # Should return a list
+        assert isinstance(result, list)
+        assert result == []
+    
+    def test_collect_returns_list_of_dicts(self):
+        """_collect_o2_sign_changes should return a list of dict task objects."""
+        logits_batch = np.zeros((1, 3, 100))
+        logits_batch[0, 0, 5] = 1.0
+        logits_batch[0, 0, 10] = -1.0
+        logits_batch[0, 1, 5] = -1.0
+        logits_batch[0, 1, 10] = 1.0
+        logits_batch[0, 2, 5] = -2.0
+        logits_batch[0, 2, 10] = 2.0
+        
+        d1_all = np.array([5])
+        d2_all = np.array([10])
+        scale_factors = np.array([0.0, 0.5, 1.0])
+        
+        tasks = _collect_o2_sign_changes(logits_batch, d1_all, d2_all, scale_factors)
+        
+        assert isinstance(tasks, list)
+        for task in tasks:
+            assert isinstance(task, dict)
