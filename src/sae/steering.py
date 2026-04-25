@@ -953,6 +953,214 @@ def _find_o1_crossover_linear(logits_o1, d1_val, d2_val, scale_factors):
     return [xover_scale], [bound_type], None
 
 
+def _collect_o2_sign_changes(logits_batch, d1_all, d2_all, scale_factors):
+    """
+    Collect sign change crossovers across multiple samples (vectorised).
+    
+    For each sample, identifies where d1_logits - d2_logits changes sign across the scale grid.
+    Returns tuples of (scale_low, scale_high, crossover_idx) for each sign change found,
+    along with diff data needed for bound type computation.
+    
+    Args:
+        logits_batch: Array [n_samples, n_scales, n_digits] of o2 logits
+        d1_all: Array [n_samples] of d1 digit indices
+        d2_all: Array [n_samples] of d2 digit indices
+        scale_factors: Array [n_scales] of scale values used in grid
+    
+    Returns:
+        tasks: List of task dicts, each with keys:
+            - 'sample_idx': Index in the original batch
+            - 'scale_low': Lower scale bound for bisection
+            - 'scale_high': Upper scale bound for bisection
+            - 'crossover_idx': Index in scale grid where sign change occurs
+            - 'd1_val': d1 digit index
+            - 'd2_val': d2 digit index
+            - 'output_pos': OUTPUT_POS_O2 (homogeneous)
+            - 'diff': [n_scales] array of d1_logits - d2_logits (for bound type computation)
+    """
+    tasks = []
+    n_samples = logits_batch.shape[0]
+    
+    for sample_idx in range(n_samples):
+        logits = logits_batch[sample_idx]  # [n_scales, n_digits]
+        d1_val = d1_all[sample_idx]
+        d2_val = d2_all[sample_idx]
+        
+        d1_logits = logits[:, d1_val]
+        d2_logits = logits[:, d2_val]
+        diff = d1_logits - d2_logits  # [n_scales]
+        
+        # Find sign changes
+        sign_changes = np.where(np.diff(np.sign(diff)))[0]
+        
+        for crossover_idx in sign_changes:
+            task = {
+                'sample_idx': sample_idx,
+                'scale_low': scale_factors[crossover_idx],
+                'scale_high': scale_factors[crossover_idx + 1],
+                'crossover_idx': crossover_idx,
+                'd1_val': d1_val,
+                'd2_val': d2_val,
+                'output_pos': OUTPUT_POS_O2,
+                'diff': diff,  # Full diff array for bound type computation
+            }
+            tasks.append(task)
+    
+    return tasks
+
+
+def _run_vectorised_bisection(tasks, model, sae, act_mean, feature_idx, inputs_batch, z_orig_batch, 
+                              feat_orig_batch, layer_idx, sep_idx, n_digits, device):
+    """
+    Run bisection in parallel across multiple tasks with active indices tracking.
+    
+    Maintains a single active_indices list to track which tasks are still converging.
+    When a task converges (high - low < tol), it becomes inactive and results are stored.
+    Returns results in original task order via active_indices mapping.
+    
+    Args:
+        tasks: List of task dicts with keys: scale_low, scale_high, d1_val, d2_val, output_pos, sample_idx, crossover_idx, diff
+        model: Transformer model
+        sae: Trained SAE
+        act_mean: Activation mean
+        feature_idx: Index of feature being steered
+        inputs_batch: Tensor [n_samples, seq_len] of input tokens
+        z_orig_batch: Tensor [n_samples, d_sae] of original SAE activations
+        feat_orig_batch: Tensor [n_samples] of original feature activations
+        layer_idx: Layer to patch
+        sep_idx: SEP token position
+        n_digits: Number of possible digits
+        device: Device to use
+    
+    Returns:
+        results: List of crossover scales in original task order
+        bound_types: List of bound types ('lb' or 'ub') in original task order
+    """
+    if len(tasks) == 0:
+        return []
+    
+    # Verify all tasks share same output_pos
+    output_pos = tasks[0]['output_pos']
+    assert all(task['output_pos'] == output_pos for task in tasks), (
+        "All tasks must share the same output_pos. "
+        "Heterogeneous output positions require per-task indexing."
+    )
+    
+    hook_name_resid = f"blocks.{layer_idx}.hook_resid_post"
+    
+    # Initialize active tracking: maintain mapping from active index to task index
+    active_indices = list(range(len(tasks)))  # Initially all tasks active
+    lows = np.array([task['scale_low'] for task in tasks], dtype=float)
+    highs = np.array([task['scale_high'] for task in tasks], dtype=float)
+    
+    # Results storage: indexed by original task order
+    crossover_scales = [None] * len(tasks)
+    bound_types_result = [None] * len(tasks)
+    
+    for iteration in range(DEFAULT_BISECTION_MAX_ITER):
+        if len(active_indices) == 0:
+            break
+        
+        # Get indices of still-active tasks
+        active_lows = lows[active_indices]
+        active_highs = highs[active_indices]
+        
+        # Check convergence for active tasks
+        converged = (active_highs - active_lows) < DEFAULT_BISECTION_TOL
+        if converged.all():
+            break
+        
+        # Compute midpoints for all active tasks
+        mids = (active_lows + active_highs) / 2
+        
+        # Get sample indices and feature activations for active tasks
+        active_sample_indices = [tasks[j]['sample_idx'] for j in active_indices]
+        active_inputs = inputs_batch[active_sample_indices]
+        active_z_orig = z_orig_batch[active_sample_indices]
+        active_feat_orig = feat_orig_batch[active_sample_indices]
+        
+        # Get d1, d2 for logit extraction
+        active_d1 = np.array([tasks[j]['d1_val'] for j in active_indices])
+        active_d2 = np.array([tasks[j]['d2_val'] for j in active_indices])
+        
+        # Run model at midpoints for all active tasks
+        batch_z_scaled = active_z_orig.clone()
+        for batch_i, feat_val in enumerate(active_feat_orig):
+            batch_z_scaled[batch_i, feature_idx] = feat_val * mids[batch_i]
+        
+        batch_recon = sae.decode(batch_z_scaled)
+        
+        with torch.no_grad():
+            batch_patched_logits = model.run_with_hooks(
+                active_inputs,
+                fwd_hooks=[(hook_name_resid, make_batched_sae_patch_hook(batch_recon, act_mean, sep_idx))]
+            )
+        
+        logits = batch_patched_logits[:, output_pos, :n_digits].cpu().numpy()
+        
+        # Get logit diffs at midpoints
+        diff_mids = logits[np.arange(len(active_indices)), active_d1] - logits[np.arange(len(active_indices)), active_d2]
+        
+        # Get logit diffs at lower bounds (for root bracketing)
+        batch_z_scaled_low = active_z_orig.clone()
+        for batch_i, feat_val in enumerate(active_feat_orig):
+            batch_z_scaled_low[batch_i, feature_idx] = feat_val * active_lows[batch_i]
+        
+        batch_recon_low = sae.decode(batch_z_scaled_low)
+        
+        with torch.no_grad():
+            batch_patched_logits_low = model.run_with_hooks(
+                active_inputs,
+                fwd_hooks=[(hook_name_resid, make_batched_sae_patch_hook(batch_recon_low, act_mean, sep_idx))]
+            )
+        
+        logits_low = batch_patched_logits_low[:, output_pos, :n_digits].cpu().numpy()
+        diff_lows = logits_low[np.arange(len(active_indices)), active_d1] - logits_low[np.arange(len(active_indices)), active_d2]
+        
+        # Update bounds: if signs same, root is in upper half; otherwise lower half
+        same_sign = (diff_mids * diff_lows) > 0
+        
+        # Update using active_indices for in-place modification
+        for active_i, same in enumerate(same_sign):
+            orig_task_i = active_indices[active_i]
+            if same:
+                lows[orig_task_i] = mids[active_i]
+            else:
+                highs[orig_task_i] = mids[active_i]
+        
+        # Remove converged tasks from active list
+        still_active = []
+        for active_i, j in enumerate(active_indices):
+            if highs[j] - lows[j] >= DEFAULT_BISECTION_TOL:
+                still_active.append(j)
+            else:
+                # Task converged: store result
+                crossover_scale = (lows[j] + highs[j]) / 2
+                crossover_scales[j] = round(float(crossover_scale), 3)
+                
+                # Compute bound type from stored diff array
+                task = tasks[j]
+                crossover_idx = task['crossover_idx']
+                diff = task['diff']
+                bound_type = _determine_bound_type_from_diff(crossover_idx, output_pos, diff)
+                bound_types_result[j] = bound_type
+        
+        active_indices = still_active
+    
+    # Handle remaining active tasks (converged in final iteration or max_iter reached)
+    for orig_task_i in active_indices:
+        crossover_scale = (lows[orig_task_i] + highs[orig_task_i]) / 2
+        crossover_scales[orig_task_i] = round(float(crossover_scale), 3)
+        
+        task = tasks[orig_task_i]
+        crossover_idx = task['crossover_idx']
+        diff = task['diff']
+        bound_type = _determine_bound_type_from_diff(crossover_idx, output_pos, diff)
+        bound_types_result[orig_task_i] = bound_type
+    
+    return crossover_scales, bound_types_result
+
+
 def _find_crossovers_for_position(
     logits, d1_val, d2_val, scale_factors, argmax,
     model, sae, act_mean, feature_idx, inputs_i, z_orig, feat_orig,
@@ -1363,24 +1571,11 @@ def _verify_single_swap(
     
     # Try to use cached orig_o1/orig_o2 from xovers_df (via swap_bounds_df)
     # If not present or None, compute from scratch
-    if 'orig_o1' in row and pd.notna(row['orig_o1']):
-        orig_o1 = int(row['orig_o1'])
-    else:
-        # Find this input in the dataset using O(1) dict lookup
-        idx = idx_lookup[(d1_val, d2_val)]
-        
-        inputs_i = dataset[idx][0].unsqueeze(0).to(device)
-        z_orig = sae_acts_all[idx].clone().to(device)
-        feat_orig = z_orig[feature_idx].item()
-        
-        # Get original output (scale = 1.0)
-        orig_logits = _run_model_with_scaled_feature(
-            model, sae, act_mean, inputs_i, z_orig, feature_idx,
-            feat_orig, 1.0, layer_idx, sep_idx, hook_name_resid
-        )
-        orig_o1 = orig_logits[0, OUTPUT_POS_O1, :n_digits].argmax().item()
+    has_cached_orig = ('orig_o1' in row and pd.notna(row['orig_o1']) and 
+                       'orig_o2' in row and pd.notna(row['orig_o2']))
     
-    if 'orig_o2' in row and pd.notna(row['orig_o2']):
+    if has_cached_orig:
+        orig_o1 = int(row['orig_o1'])
         orig_o2 = int(row['orig_o2'])
     else:
         # Find this input in the dataset using O(1) dict lookup
@@ -1395,9 +1590,10 @@ def _verify_single_swap(
             model, sae, act_mean, inputs_i, z_orig, feature_idx,
             feat_orig, 1.0, layer_idx, sep_idx, hook_name_resid
         )
+        orig_o1 = orig_logits[0, OUTPUT_POS_O1, :n_digits].argmax().item()
         orig_o2 = orig_logits[0, OUTPUT_POS_O2, :n_digits].argmax().item()
     
-    # Find this input in the dataset using O(1) dict lookup
+    # Find this input in the dataset using O(1) dict lookup (for patched output)
     idx = idx_lookup[(d1_val, d2_val)]
     
     inputs_i = dataset[idx][0].unsqueeze(0).to(device)
