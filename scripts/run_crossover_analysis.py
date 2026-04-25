@@ -216,6 +216,18 @@ def run_pipeline(args):
             batch_size=args.batch_size, device=device,
         )
 
+        # Reclassify feat_zero as dead_latent if feature never fires
+        is_dead_latent = (sae_acts_all[:, feature_idx] > 0).sum() == 0
+        if is_dead_latent:
+            xovers_df = xovers_df.copy()
+            xovers_df.loc[
+                xovers_df['o1_failure_reason'] == 'feat_zero', 'o1_failure_reason'
+            ] = 'dead_latent'
+            xovers_df.loc[
+                xovers_df['o2_failure_reason'] == 'feat_zero', 'o2_failure_reason'
+            ] = 'dead_latent'
+            print(f"Feature {feature_idx} is a dead latent (never activates); reclassified feat_zero entries upstream.")
+
         xovers_path = feat_results_dir / f"xovers_feat{feature_idx}.csv"
         xovers_df.to_csv(xovers_path, index=False)
         print(f"Saved crossovers to {xovers_path}")
@@ -291,12 +303,6 @@ def run_report(args, context):
     )
 
     from src.sae.reporting import FAILURE_ORDER, SUMMARY_ONLY
-
-    # Reclassify feat_zero as dead_latent if the feature never fires on any input.
-    if (merged["feat_orig"].fillna(0) > 0).sum() == 0:
-        merged = merged.copy()
-        merged.loc[merged["failure_reason"] == "feat_zero", "failure_reason"] = "dead_latent"
-        print(f"Feature {feature_idx} is a dead latent (never activates); reclassified all feat_zero rows.")
 
     present_reasons = merged["failure_reason"].value_counts().index.tolist()
     ordered = [r for r in FAILURE_ORDER if r in present_reasons]
