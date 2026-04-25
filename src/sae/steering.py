@@ -741,11 +741,13 @@ def _process_crossover_batch(
     # Run steering grid only on non-zero samples
     if len(non_zero_indices) > 0:
         # Extract subset of data for non-zero samples
+        # Move GPU indices to CPU for CPU tensor indexing
+        non_zero_indices_cpu = non_zero_indices.cpu() if hasattr(non_zero_indices, 'cpu') else non_zero_indices
         subset_z_orig = batch_z_orig[non_zero_indices]
         subset_feat_orig = batch_feat_orig[non_zero_indices]
         subset_inputs = batch_inputs[non_zero_indices]
-        subset_d1 = batch_d1[non_zero_indices]
-        subset_d2 = batch_d2[non_zero_indices]
+        subset_d1 = batch_d1[non_zero_indices_cpu]
+        subset_d2 = batch_d2[non_zero_indices_cpu]
         subset_indices = [batch_indices[i] for i in non_zero_indices]
         subset_size = len(non_zero_indices)
         

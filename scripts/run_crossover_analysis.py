@@ -223,9 +223,6 @@ def run_pipeline(args):
             xovers_df.loc[
                 xovers_df['o1_failure_reason'] == 'feat_zero', 'o1_failure_reason'
             ] = 'dead_latent'
-            xovers_df.loc[
-                xovers_df['o2_failure_reason'] == 'feat_zero', 'o2_failure_reason'
-            ] = 'dead_latent'
             print(f"Feature {feature_idx} is a dead latent (never activates); reclassified feat_zero entries upstream.")
 
         xovers_path = feat_results_dir / f"xovers_feat{feature_idx}.csv"
