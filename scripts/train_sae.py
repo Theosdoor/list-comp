@@ -302,6 +302,7 @@ def _train(cfg, use_wandb: bool, save_folder: str, model_path: str = None):
         t_start = datetime.now()
         best_loss = float('inf')
         best_step = 0
+        best_state_dict = None
 
         for step in pbar:
             batch_acts = next(iter_dl)
@@ -321,10 +322,11 @@ def _train(cfg, use_wandb: bool, save_folder: str, model_path: str = None):
                 
                 pct_complete = 100 * (step+1) / cfg.n_steps
                 
-                # Track best metrics
+                # Track best metrics and checkpoint
                 if loss < best_loss:
                     best_loss = loss
                     best_step = step
+                    best_state_dict = {k: v.cpu().clone() for k, v in trainer.ae.state_dict().items()}
                 
                 if use_wandb:
                     # Get actual LR from optimizer (accounts for warmup schedule)
@@ -369,9 +371,9 @@ def _train(cfg, use_wandb: bool, save_folder: str, model_path: str = None):
             _wandb.summary["final/step"] = cfg.n_steps
             _log_wandb_eval_metrics(model, trainer.ae.to(DEVICE), act_mean, cfg.d_sae)
 
-        # Save checkpoint
+        # Save checkpoints to disk
         os.makedirs(save_folder, exist_ok=True)
-        save_path = os.path.join(save_folder, f"{run_name}_{MODEL_NAME}.pt")
+        final_save_path = os.path.join(save_folder, f"{run_name}_{MODEL_NAME}.pt")
         torch.save({
             "state_dict": trainer.ae.state_dict(),
             "cfg": {
@@ -384,25 +386,61 @@ def _train(cfg, use_wandb: bool, save_folder: str, model_path: str = None):
             "act_mean": act_mean.cpu(),
             "final_loss": loss,
             "final_l0": final_l0,
-        }, save_path)
-        print(f"\n✓ SAE saved to {save_path}")
+        }, final_save_path)
+        print(f"\n✓ Final SAE saved to {final_save_path}")
+        
+        best_save_path = None
+        if best_state_dict is not None and best_step < cfg.n_steps - 1:
+            best_save_path = os.path.join(save_folder, f"{run_name}_best_{MODEL_NAME}.pt")
+            torch.save({
+                "state_dict": best_state_dict,
+                "cfg": {
+                    "activation_dim": D_MODEL, "dict_size": cfg.d_sae,
+                    "d_model": D_MODEL, "d_sae": cfg.d_sae,
+                    "lr": cfg.lr, "seed": cfg.seed,
+                    "model_path": MODEL_PATH,
+                    **extra_cfg,
+                },
+                "act_mean": act_mean.cpu(),
+                "best_loss": best_loss,
+                "best_step": best_step,
+                "final_l0": final_l0,
+            }, best_save_path)
+            print(f"✓ Best SAE (step {best_step}, loss={best_loss:.4f}) saved to {best_save_path}")
 
         if use_wandb:
-            artifact = _wandb.Artifact(
+            # Upload final checkpoint
+            artifact_final = _wandb.Artifact(
                 name=run_name.replace("_", "-"), type="model",
                 metadata={
                     "sae_type": sae_type, "d_sae": cfg.d_sae,
                     "lr": cfg.lr, "seed": cfg.seed,
                     "final_loss": loss, "final_l0": final_l0,
+                    "checkpoint_type": "final",
                     **extra_cfg,
                 },
             )
-            artifact.add_file(save_path)
-            _wandb.log_artifact(artifact)
+            artifact_final.add_file(final_save_path)
+            _wandb.log_artifact(artifact_final)
+            
+            # Upload best checkpoint if different from final
+            if best_save_path is not None:
+                artifact_best = _wandb.Artifact(
+                    name=f"{run_name.replace('_', '-')}-best", type="model",
+                    metadata={
+                        "sae_type": sae_type, "d_sae": cfg.d_sae,
+                        "lr": cfg.lr, "seed": cfg.seed,
+                        "best_loss": best_loss, "best_step": best_step,
+                        "checkpoint_type": "best",
+                        **extra_cfg,
+                    },
+                )
+                artifact_best.add_file(best_save_path)
+                _wandb.log_artifact(artifact_best)
     finally:
         # Clean up GPU memory and close wandb run (must be in finally to guarantee execution)
         # Delete all references to GPU-held tensors to ensure memory is freed
-        del model, trainer, act_mean, all_acts_centered, sae_dl, iter_dl
+        del model, trainer, act_mean, all_acts_centered, sae_dl, iter_dl, best_state_dict
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.synchronize()
