@@ -19,9 +19,17 @@ python3 -c "import torch; print(f'[slurm] CUDA Available: {torch.cuda.is_availab
 echo "------------------------------------------------------"
 
 
+# python3 scripts/run_crossover_analysis.py \
+#    --model 2layer_100dig_64d \
+#    --sae results/sae_models/sweep_runs_v2/sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt \
+#    --feature auto \
+#    --threshold 0.3 \
+#    --report
+
+# features 195, 175, 211
 python3 scripts/run_crossover_analysis.py \
    --model 2layer_100dig_64d \
-   --sae results/sae_models/sweep_runs_v2/sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt \
+   --sae results/sae_models/sweep_xliz4f19/jumprelu_sae_d256_tl05_sp5_lr7e-05_seed1_2layer_100dig_64d.pt \
    --feature auto \
    --threshold 0.3 \
    --report

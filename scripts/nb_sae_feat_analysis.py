@@ -48,7 +48,7 @@ SAE_NAME   = "sweep_runs_v2/sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt"
 # SAE_NAME   = "sweep_runs_v2/sae_d128_k5_lr0.0001_seed2_2layer_100dig_64d.pt"
 # SAE_NAME   = "sweep_runs_v2/sae_d128_k4_lr0.0001_seed1_2layer_100dig_64d.pt"
 
-# SAE_NAME   = "jumprelu_sae_d128_tl03.0_2layer_100dig_64d.pt"
+# SAE_NAME   = "sweep_xliz4f19/jumprelu_sae_d256_tl05_sp5_lr7e-05_seed1_2layer_100dig_64d.pt"
 # SAE_NAME   = "matryoshka_sae_d128_k3_ng4_2layer_100dig_64d.pt"
 
 # TODO - could infer model name from sae config or name
@@ -164,117 +164,138 @@ for idx in top_3_indices:
     print(f"{idx:<10} {fire_pct:<15.2f} {n_active:<10}")
 
 # %% [markdown]
-# ## Cell 1b — Feature typology: symbol count vs |Δα| and marginal entropy vs firing rate
+# ## Cell 1c — Latent Type Classification via Greedy Symbol Peeling
 
 # %%
-# ── Per-feature quantities ─────────────────────────────────────────────────
-n_active   = (sae_acts_all > 0).sum(dim=0).numpy()        # [D_SAE] int counts
-abs_corr   = np.abs(special_info["all_correlations"])      # [D_SAE]
-est_sym_ct = n_active / (2 * N_DIGITS - 1)                # ≈ integer for symbol detectors
+from collections import defaultdict
 
-def marginal_entropy_bits(feat_idx):
-    """Shannon entropy (bits) of digit-value distribution across activating inputs.
-    Uses both d1 and d2 positions — high for uniform, low for concentrated."""
-    mask = sae_acts_all[:, feat_idx] > 0
-    if mask.sum() == 0:
-        return 0.0
-    d1_active = d1_all[mask].numpy()
-    d2_active = d2_all[mask].numpy()
-    counts    = np.bincount(np.concatenate([d1_active, d2_active]),
-                            minlength=N_DIGITS).astype(float)
-    p = counts / counts.sum()
-    p = p[p > 0]
-    return float(-np.sum(p * np.log2(p)))
+# ── Hyperparameters ────────────────────────────────────────────────────────
+ACTIVATION_THRESHOLD    = 1e-6   # minimum activation to count as "active"
+MAGNITUDE_STD_THRESHOLD = 3    # drop activations below (mean - N*std) before peeling
+MIN_ACTIVATIONS         = 10     # fewer than this → "near-dead" rather than symbol detector
+MIN_CASES_FOR_DETECTION = 10    # (5% of 199) need at least this many activating examples with a symbol to be considered a detector for that symbol. prevents eg. 8-symb detector because it activates on 8 different bigrams but only 1 example per symbol.
 
-entropies = np.array([marginal_entropy_bits(fi) for fi in range(D_SAE)])
+# ── Precompute ─────────────────────────────────────────────────────────────
+n_inputs_total      = len(sae_acts_all)
+special_latent_set  = {f["feature_idx"] for f in special_info["special_features"]}
+dead_latent_set     = set(
+    int(i) for i in (sae_acts_all.sum(dim=0) == 0)
+    .nonzero(as_tuple=False).squeeze(-1).tolist()
+)
+d1_np, d2_np = d1_all.numpy(), d2_all.numpy()
 
-# ── Colour / size scheme ───────────────────────────────────────────────────
-_special_feats   = {f["feature_idx"]: f for f in special_info["special_features"]}
-COLOUR_DEFAULT   = "#a8b8c8"
-COLOUR_SPECIALS  = {fi: c for fi, c in zip(
-    sorted(_special_feats.keys()), ["#e05c3a", "#7b52ab"]
-)}
-all_idx  = np.arange(D_SAE)
-colours  = [COLOUR_SPECIALS.get(i, COLOUR_DEFAULT) for i in all_idx]
-sizes    = [60 if i in _special_feats else 18 for i in all_idx]
-alphas   = [1.0 if i in _special_feats else 0.65 for i in all_idx]
+def peel_symbols(active_mask, act_vals_np, verbose=False):
+    """Filter by magnitude then greedily peel symbols. Returns (k, n_filtered, trace)."""
+    indices  = np.where(active_mask)[0]
+    mags     = act_vals_np[indices]
+    keep     = indices[mags >= mags.mean() - MAGNITUDE_STD_THRESHOLD * mags.std()]
 
-fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
+    filtered = np.zeros(len(act_vals_np), dtype=bool)
+    filtered[keep] = True
+    remaining = filtered.copy()
 
-# ── Panel A: estimated symbol count vs |Δα correlation| ───────────────────
-ax = axes[0]
+    k, trace = 0, []
+    while remaining.any():
+        counts  = np.bincount(
+            np.concatenate([d1_np[remaining], d2_np[remaining]]),
+            minlength=N_DIGITS,
+        )
+        sym       = int(counts.argmax())
+        sym_mask  = (d1_np == sym) | (d2_np == sym)
+        n_removed = int(sym_mask[remaining].sum())
+        if n_removed < MIN_CASES_FOR_DETECTION:
+            break  # stop peeling if no symbol has enough cases left
+        if verbose:
+            trace.append(f"s{sym}(-{n_removed})")
+        remaining &= ~sym_mask
+        k += 1
+        if k > N_DIGITS:
+            break
 
-# Non-special first (so special points render on top)
-mask_normal = [i not in _special_feats for i in all_idx]
-ax.scatter(est_sym_ct[mask_normal], abs_corr[mask_normal],
-           c=COLOUR_DEFAULT, s=18, alpha=0.65, linewidths=0, zorder=2)
-for fi, colour in COLOUR_SPECIALS.items():
-    ax.scatter(est_sym_ct[fi], abs_corr[fi],
-               c=colour, s=70, linewidths=0, zorder=4,
-               label=f"L{fi}  (r={_special_feats[fi]['correlation']:+.2f})")
-    ax.annotate(f"L{fi}",
-                xy=(est_sym_ct[fi], abs_corr[fi]),
-                xytext=(est_sym_ct[fi] + 0.25, abs_corr[fi] - 0.04),
-                fontsize=8.5, color=colour,
-                arrowprops=dict(arrowstyle="-", color=colour, lw=0.8))
+    return k, int(filtered.sum()), trace
 
-# Dashed lines at integer symbol counts
-for k in range(1, int(est_sym_ct.max()) + 2):
-    ax.axvline(k, color="#ddd", linewidth=0.7, linestyle="--", zorder=1)
+# ── Classify ───────────────────────────────────────────────────────────────
+latent_records = []
+for latent_idx in tqdm(range(D_SAE), desc="Classifying latents"):
+    act_vals    = sae_acts_all[:, latent_idx].numpy()
+    active_mask = act_vals > ACTIVATION_THRESHOLD
+    n_active    = int(active_mask.sum())
+    mean_mag    = float(act_vals[active_mask].mean()) if n_active > 0 else 0.0
+    firing_rate = n_active / n_inputs_total
 
-ax.axhline(SPECIAL_THRESH, color="#888", linestyle=":", linewidth=0.9,
-           label=f"|r| = {SPECIAL_THRESH} threshold")
+    if latent_idx in dead_latent_set:
+        latent_type, k, coverage = "Dead", 0, None
+    elif latent_idx in special_latent_set:
+        latent_type, k, coverage = "Special", None, None
+    elif n_active < MIN_ACTIVATIONS:
+        latent_type, k, coverage = "Near-dead", 0, None
+    else:
+        k, n_filtered, _ = peel_symbols(active_mask, act_vals)
+        expected    = k * (2 * N_DIGITS - 1) - k * (k - 1)
+        coverage    = n_filtered / expected if expected > 0 else None
+        latent_type = f"{k}-symbol"
 
-ax.set_xlabel(r"Estimated symbol count  $n_\mathrm{active}\,/\,(2N-1)$", fontsize=10)
-ax.set_ylabel(r"|Pearson $r$| with $\Delta\alpha$", fontsize=10)
-ax.set_title("A: Symbol count vs. $\\Delta\\alpha$ correlation", fontsize=10)
-ax.legend(fontsize=8)
-sns.despine(ax=ax)
+    latent_records.append({
+        "latent_idx": latent_idx, "type": latent_type,
+        "n_active": n_active, "firing_rate": firing_rate,
+        "mean_mag": mean_mag, "coverage": coverage,
+    })
 
-# ── Panel B: marginal entropy vs firing rate ───────────────────────────────
-ax = axes[1]
+# ── Aggregate and print table ──────────────────────────────────────────────
+def _type_sort_key(t):
+    if t == "Special":   return -1
+    if t == "Near-dead": return 9998
+    if t == "Dead":      return 9999
+    return int(t.split("-")[0])
 
-ax.scatter(firing_freq[mask_normal], entropies[mask_normal],
-           c=COLOUR_DEFAULT, s=18, alpha=0.65, linewidths=0, zorder=2,
-           label="Symbol detectors")
-for fi, colour in COLOUR_SPECIALS.items():
-    ax.scatter(firing_freq[fi], entropies[fi],
-               c=colour, s=70, linewidths=0, zorder=4, label=f"L{fi}")
-    ax.annotate(f"L{fi}",
-                xy=(firing_freq[fi], entropies[fi]),
-                xytext=(firing_freq[fi] * 1.4, entropies[fi] - 0.2),
-                fontsize=8.5, color=colour,
-                arrowprops=dict(arrowstyle="-", color=colour, lw=0.8))
+def _fmt(vals, scale=1.0, decimals=2, suffix=""):
+    if not vals: return "—"
+    mu, sd = np.mean(vals) * scale, np.std(vals) * scale
+    return f"{mu:.{decimals}f} ± {sd:.{decimals}f}{suffix}"
 
-uniform_entropy = np.log2(N_DIGITS)
-ax.axhline(uniform_entropy, color="#888", linestyle=":", linewidth=0.9,
-           label=f"Uniform = {uniform_entropy:.1f} bits")
+type_groups = defaultdict(list)
+for rec in latent_records:
+    type_groups[rec["type"]].append(rec)
 
-ax.set_xscale("log")
-ax.set_xlabel("Firing rate (log scale)", fontsize=10)
-ax.set_ylabel("Marginal entropy of digit distribution (bits)", fontsize=10)
-ax.set_title("B: Marginal entropy vs. firing rate", fontsize=10)
-ax.legend(fontsize=8)
-sns.despine(ax=ax)
+table_data = []
+for latent_type in sorted(type_groups.keys(), key=_type_sort_key):
+    recs = type_groups[latent_type]
+    coverages    = [r["coverage"]    for r in recs if r["coverage"] is not None]
+    mean_mags    = [r["mean_mag"]    for r in recs]
+    firing_rates = [r["firing_rate"] for r in recs]
+    table_data.append({
+        "Type":            latent_type,
+        "Count":           len(recs),
+        "% of SAE":        f"{100.0 * len(recs) / D_SAE:.1f}%",
+        "Coverage ± std":  _fmt(coverages,    scale=100, decimals=1, suffix="%"),
+        "Mean mag ± std":  _fmt(mean_mags,    decimals=3),
+        "Fire rate ± std": _fmt(firing_rates, scale=100, decimals=2, suffix="%"),
+    })
 
-plt.tight_layout()
-fig.savefig(f"{SAVE_DIR}/01b_feature_typology.pdf", dpi=150, bbox_inches="tight")
-plt.show()
+print("╔══════════════════════════════════════════════════════════════════════════════════════════╗")
+print("║                         SAE Latent Type Classification                                  ║")
+print("╚══════════════════════════════════════════════════════════════════════════════════════════╝")
+print(SAE_NAME)
+print(pd.DataFrame(table_data).to_string(index=False))
+print(f"\nTotal: {D_SAE}  |  Classified: {sum(len(v) for v in type_groups.values())}")
 
-# ── Quick sanity check ─────────────────────────────────────────────────────
-normal_mask_np = np.array(mask_normal)
-print(f"Max est. symbol count (non-special): {est_sym_ct[normal_mask_np].max():.2f}")
-print(f"Max entropy (non-special):           {entropies[normal_mask_np].max():.2f} bits")
-print(f"Uniform entropy ceiling:             {uniform_entropy:.2f} bits")
-for fi in sorted(_special_feats.keys()):
-    print(f"L{fi}  est_sym_ct={est_sym_ct[fi]:.1f}  entropy={entropies[fi]:.2f} bits  |r|={abs_corr[fi]:.3f}")
-
-# %% [markdown]
-# ## cell 1c
-
-# %%
-
-ks = [1,2,3,4,5] # check for k-symbol detectors
+# ── Up to 3 example latents per type ──────────────────────────────────────
+print("\n── Up to 3 example latents per type ─────────────────────────────────────")
+for latent_type in sorted(type_groups.keys(), key=_type_sort_key):
+    recs     = type_groups[latent_type]
+    examples = sorted(recs, key=lambda r: r["coverage"] if r["coverage"] is not None else -1)[:3]
+    print(f"\n  [{latent_type}]")
+    for r in examples:
+        cov_str = f"{r['coverage']*100:.1f}%" if r["coverage"] is not None else "—"
+        if r["type"] not in ("Dead", "Near-dead", "Special"):
+            act_vals_np = sae_acts_all[:, r["latent_idx"]].numpy()
+            active_mask = act_vals_np > ACTIVATION_THRESHOLD
+            _, _, trace = peel_symbols(active_mask, act_vals_np, verbose=True)
+            sym_str = " → ".join(trace)
+        else:
+            sym_str = "—"
+        print(f"    L{r['latent_idx']:3d} | n_active={r['n_active']:4d} | cov={cov_str:>7} | "
+              f"mag={r['mean_mag']:.3f} | fire={r['firing_rate']*100:.2f}% | peel: {sym_str}")
 
 # %% [markdown]
 # ## Cell 2 — Digit distribution for top features
@@ -317,7 +338,7 @@ plt.show()
 # %%
 fig = create_feature_heatmaps(d1_all, d2_all, sae_acts_all, 
                               n_digits=N_DIGITS, figsize=(25, 25), 
-                              shared_scale=True)
+                              shared_scale=False)
 fig.write_html(f"{SAVE_DIR}/03_full_feature_heatmap.html")
 fig.show()
 
