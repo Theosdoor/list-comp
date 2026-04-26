@@ -217,10 +217,13 @@ def _log_wandb_eval_metrics(model, sae, act_mean, d_sae):
             alpha_d1_all, alpha_d2_all = collect_attention_patterns(
                 model, analysis_dl, layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE,
             )
+            threshold = 0.5
+            print(f"    Identifying special features with threshold={threshold}")
             special_info = identify_special_features(
-                sae_acts_all, alpha_d1_all, alpha_d2_all, threshold=0.5
+                sae_acts_all, alpha_d1_all, alpha_d2_all, threshold=threshold
             )
             wandb.summary["n_special_features"] = special_info["n_special_features"]
+            wandb.summary["special_features_threshold"] = threshold
         except Exception as e:
             print(f"    ⚠ Special features failed: {e}")
             wandb.summary["n_special_features"] = None
