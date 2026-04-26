@@ -38,7 +38,7 @@ LINEAR_FIT_SLOPE_EPS = 1e-5
 # Soft upper cap for extrapolated intersections: 2× the default grid ceiling (10.0).
 # Beyond scale 20 the linear model is extrapolating into completely untested territory
 # (20× the original activation), so we flag these rather than accept them silently.
-LINEAR_FIT_SCALE_CAP = 20.0
+LINEAR_FIT_SCALE_CAP = float('inf')
 
 
 # ============================================================================
@@ -1006,6 +1006,9 @@ def _find_o1_crossover_linear(logits_o1, d1_val, d2_val, scale_factors):
     # Analytical intersection: slope_diff * scale + intercept_diff = 0
     xover_scale = -intercept_diff / slope_diff
 
+    if xover_scale < 0.0:
+        return [], [], 'o1_negative_scale'
+    
     if xover_scale > LINEAR_FIT_SCALE_CAP:
         return [], [], 'o1_extrapolated'
 

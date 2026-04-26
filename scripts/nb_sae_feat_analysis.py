@@ -163,6 +163,118 @@ for idx in top_3_indices:
     n_active = (sae_acts_all[:, idx] > 0).sum().item()
     print(f"{idx:<10} {fire_pct:<15.2f} {n_active:<10}")
 
+# %% [markdown]
+# ## Cell 1b — Feature typology: symbol count vs |Δα| and marginal entropy vs firing rate
+
+# %%
+# ── Per-feature quantities ─────────────────────────────────────────────────
+n_active   = (sae_acts_all > 0).sum(dim=0).numpy()        # [D_SAE] int counts
+abs_corr   = np.abs(special_info["all_correlations"])      # [D_SAE]
+est_sym_ct = n_active / (2 * N_DIGITS - 1)                # ≈ integer for symbol detectors
+
+def marginal_entropy_bits(feat_idx):
+    """Shannon entropy (bits) of digit-value distribution across activating inputs.
+    Uses both d1 and d2 positions — high for uniform, low for concentrated."""
+    mask = sae_acts_all[:, feat_idx] > 0
+    if mask.sum() == 0:
+        return 0.0
+    d1_active = d1_all[mask].numpy()
+    d2_active = d2_all[mask].numpy()
+    counts    = np.bincount(np.concatenate([d1_active, d2_active]),
+                            minlength=N_DIGITS).astype(float)
+    p = counts / counts.sum()
+    p = p[p > 0]
+    return float(-np.sum(p * np.log2(p)))
+
+entropies = np.array([marginal_entropy_bits(fi) for fi in range(D_SAE)])
+
+# ── Colour / size scheme ───────────────────────────────────────────────────
+_special_feats   = {f["feature_idx"]: f for f in special_info["special_features"]}
+COLOUR_DEFAULT   = "#a8b8c8"
+COLOUR_SPECIALS  = {fi: c for fi, c in zip(
+    sorted(_special_feats.keys()), ["#e05c3a", "#7b52ab"]
+)}
+all_idx  = np.arange(D_SAE)
+colours  = [COLOUR_SPECIALS.get(i, COLOUR_DEFAULT) for i in all_idx]
+sizes    = [60 if i in _special_feats else 18 for i in all_idx]
+alphas   = [1.0 if i in _special_feats else 0.65 for i in all_idx]
+
+fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
+
+# ── Panel A: estimated symbol count vs |Δα correlation| ───────────────────
+ax = axes[0]
+
+# Non-special first (so special points render on top)
+mask_normal = [i not in _special_feats for i in all_idx]
+ax.scatter(est_sym_ct[mask_normal], abs_corr[mask_normal],
+           c=COLOUR_DEFAULT, s=18, alpha=0.65, linewidths=0, zorder=2)
+for fi, colour in COLOUR_SPECIALS.items():
+    ax.scatter(est_sym_ct[fi], abs_corr[fi],
+               c=colour, s=70, linewidths=0, zorder=4,
+               label=f"L{fi}  (r={_special_feats[fi]['correlation']:+.2f})")
+    ax.annotate(f"L{fi}",
+                xy=(est_sym_ct[fi], abs_corr[fi]),
+                xytext=(est_sym_ct[fi] + 0.25, abs_corr[fi] - 0.04),
+                fontsize=8.5, color=colour,
+                arrowprops=dict(arrowstyle="-", color=colour, lw=0.8))
+
+# Dashed lines at integer symbol counts
+for k in range(1, int(est_sym_ct.max()) + 2):
+    ax.axvline(k, color="#ddd", linewidth=0.7, linestyle="--", zorder=1)
+
+ax.axhline(SPECIAL_THRESH, color="#888", linestyle=":", linewidth=0.9,
+           label=f"|r| = {SPECIAL_THRESH} threshold")
+
+ax.set_xlabel(r"Estimated symbol count  $n_\mathrm{active}\,/\,(2N-1)$", fontsize=10)
+ax.set_ylabel(r"|Pearson $r$| with $\Delta\alpha$", fontsize=10)
+ax.set_title("A: Symbol count vs. $\\Delta\\alpha$ correlation", fontsize=10)
+ax.legend(fontsize=8)
+sns.despine(ax=ax)
+
+# ── Panel B: marginal entropy vs firing rate ───────────────────────────────
+ax = axes[1]
+
+ax.scatter(firing_freq[mask_normal], entropies[mask_normal],
+           c=COLOUR_DEFAULT, s=18, alpha=0.65, linewidths=0, zorder=2,
+           label="Symbol detectors")
+for fi, colour in COLOUR_SPECIALS.items():
+    ax.scatter(firing_freq[fi], entropies[fi],
+               c=colour, s=70, linewidths=0, zorder=4, label=f"L{fi}")
+    ax.annotate(f"L{fi}",
+                xy=(firing_freq[fi], entropies[fi]),
+                xytext=(firing_freq[fi] * 1.4, entropies[fi] - 0.2),
+                fontsize=8.5, color=colour,
+                arrowprops=dict(arrowstyle="-", color=colour, lw=0.8))
+
+uniform_entropy = np.log2(N_DIGITS)
+ax.axhline(uniform_entropy, color="#888", linestyle=":", linewidth=0.9,
+           label=f"Uniform = {uniform_entropy:.1f} bits")
+
+ax.set_xscale("log")
+ax.set_xlabel("Firing rate (log scale)", fontsize=10)
+ax.set_ylabel("Marginal entropy of digit distribution (bits)", fontsize=10)
+ax.set_title("B: Marginal entropy vs. firing rate", fontsize=10)
+ax.legend(fontsize=8)
+sns.despine(ax=ax)
+
+plt.tight_layout()
+fig.savefig(f"{SAVE_DIR}/01b_feature_typology.pdf", dpi=150, bbox_inches="tight")
+plt.show()
+
+# ── Quick sanity check ─────────────────────────────────────────────────────
+normal_mask_np = np.array(mask_normal)
+print(f"Max est. symbol count (non-special): {est_sym_ct[normal_mask_np].max():.2f}")
+print(f"Max entropy (non-special):           {entropies[normal_mask_np].max():.2f} bits")
+print(f"Uniform entropy ceiling:             {uniform_entropy:.2f} bits")
+for fi in sorted(_special_feats.keys()):
+    print(f"L{fi}  est_sym_ct={est_sym_ct[fi]:.1f}  entropy={entropies[fi]:.2f} bits  |r|={abs_corr[fi]:.3f}")
+
+# %% [markdown]
+# ## cell 1c
+
+# %%
+
+ks = [1,2,3,4,5] # check for k-symbol detectors
 
 # %% [markdown]
 # ## Cell 2 — Digit distribution for top features
