@@ -23,6 +23,7 @@ from src.utils.runtime import configure_runtime
 from src.models.transformer import build_attention_mask
 from src.models.utils import load_model, accuracy, infer_model_config
 from src.data.datasets import get_dataset
+from src.interpretability.interp_utils import gen_attn_flow, find_critical_attention_edges
 
 # Configure plotly to use static rendering if widgets fail
 import plotly.io as pio
@@ -36,8 +37,8 @@ np.set_printoptions(formatter={'float_kind':float_formatter})
 
 # %%
 # ---------- parameters ----------
-# MODEL_NAME = '2layer_100dig_64d'
-MODEL_NAME = "2_layer_sweep/d64_h1_lnF_biasF_wvF_woF_mlpF_s3_acc0.9405"
+MODEL_NAME = '2layer_100dig_64d'
+# MODEL_NAME = "2_layer_sweep/d64_h1_lnF_biasF_wvF_woF_mlpF_s3_acc0.9405"
 # Construct path relative to project root (parent of model_scripts/)
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_PATH = os.path.join(_PROJECT_ROOT, "models", MODEL_NAME + ".pt")
@@ -106,6 +107,8 @@ train_batch_size = min(128, len(train_ds))
 val_batch_size = min(256, len(val_ds))
 train_dl = DataLoader(train_ds, train_batch_size, shuffle=True, drop_last=True)
 val_dl = DataLoader(val_ds, val_batch_size, drop_last=False)
+
+
 
 print("Input:", train_ds[0][0])
 print("Target:", train_ds[0][1])
@@ -256,9 +259,42 @@ print("Accuracy with avg-attn:", accuracy(model_with_avg_attn, val_dl))
 # ### Ablation of specific attn edges
 
 # %%
+# Run ablation to find critical edges
+renorm_rows = False # whether to renormalize rows after ablation
+ablation_results = find_critical_attention_edges(
+    model=model,
+    inputs=val_inputs,
+    targets=val_targets,
+    list_len=LIST_LEN,
+    accuracy_tolerance=0.01,
+    head_index=0,
+    verbose=True,
+    renorm=renorm_rows,
+)
+
+# %%
+#  ------ Fig 1 ------
+# Use a single validation example
+example = val_inputs[sample_idx].unsqueeze(0).to(DEV)
+
+# Generate attention flow diagram with critical edges and delta labels
+gen_attn_flow(
+    model=model,
+    example_input=example,
+    list_len=LIST_LEN,
+    ablation_results=ablation_results,
+    attention_threshold=0.04,
+    show_delta_labels=True,
+    figsize=(8, 5),
+    dpi=300,
+    show_plot=True,
+    return_fig=False,
+)
+
+
+# %%
 # ---- Ablation of Specific Attention Edges ----
 
-renorm_rows = False # whether to renormalize rows after ablation
 ablate_in_l0 = [
                 (4,3),
                 (0,0),
@@ -443,7 +479,7 @@ def analyze_o2_errors(preds, targets, inputs=None, top_k=10):
     print(f"P(o1 correct | o2 wrong): {o1_correct_given_o2_wrong:.2%}")
     if eq_d1 is not None:
         print(f"P(o2_pred == d1 | o2 wrong): {eq_d1/num_o2_wrong:.2%} ({eq_d1})")
-        print(f"P(o2_pred == d2 | o2 wrong): {eq_d2/num_o2_wrong:.2%} ({eq_d2})")
+        # print(f"P(o2_pred == d2 | o2 wrong): {eq_d2/num_o2_wrong:.2%} ({eq_d2})")
 
     print("\nTop o2 predictions when wrong:")
     for t in top_idx.tolist():
@@ -463,42 +499,47 @@ def analyze_o2_errors(preds, targets, inputs=None, top_k=10):
             left = f"-> ({int(o1_true[i])},{int(o2_true[i])})"
         print(f"  {left} | ({int(o1_pred[i])},{int(o2_pred[i])})")
 
-analyze_o2_errors(ablated_output_predictions, output_targets, inputs=val_inputs)
-
 # %%
-#  ------ Fig 1 ------
+# ---- Targeted Multi-Edge Ablation + O2 Error Analysis ----
 
-from src.interpretability.interp_utils import gen_attn_flow, find_critical_attention_edges
+edges_to_ablate = [
+    (1, 4, 3),
+]
+ablate_non_critical = True  # also ablate non-critical edges from ablation_results
 
-# Use a single validation example
-example = val_inputs[sample_idx].unsqueeze(0).to(DEV)
+# Merge manual edges with non-critical edges if flag is set
+all_edges = list(edges_to_ablate)
+if ablate_non_critical and ablation_results is not None:
+    non_critical = ablation_results['non_critical']
+    all_edges = list(set(all_edges) | set(non_critical))
+    print(f"Added {len(non_critical)} non-critical edges from ablation_results.")
 
-# Run ablation to find critical edges
-ablation_results = find_critical_attention_edges(
-    model=model,
-    inputs=val_inputs,
-    targets=val_targets,
-    list_len=LIST_LEN,
-    accuracy_tolerance=0.01,
-    head_index=0,
-    verbose=True,
-    renorm=renorm_rows,
-)
+# Build per-layer ablation dict from (layer, q, k) triples
+targeted_ablation_dict = {}
+for layer, q, k in all_edges:
+    targeted_ablation_dict.setdefault(layer, []).append((q, k))
 
-# Generate attention flow diagram with critical edges and delta labels
-gen_attn_flow(
-    model=model,
-    example_input=example,
-    list_len=LIST_LEN,
-    ablation_results=ablation_results,
-    attention_threshold=0.04,
-    show_delta_labels=True,
-    figsize=(8, 5),
-    dpi=300,
-    show_plot=True,
-    return_fig=False,
-)
+fwd_hooks = []
+for layer_idx, positions in targeted_ablation_dict.items():
+    mask = build_qk_mask(positions=positions, seq_len=SEQ_LEN)
+    hook_name = utils.get_act_name("pattern", layer_idx)
+    fwd_hooks.append((hook_name, make_pattern_hook(mask, head_index=None, set_to=0.0, renorm=renorm_rows)))
 
+with torch.no_grad():
+    targeted_logits = model.run_with_hooks(val_inputs, return_type="logits", fwd_hooks=fwd_hooks)
+
+targeted_output_preds = targeted_logits[:, LIST_LEN+1:].argmax(dim=-1)
+output_targets = val_targets[:, LIST_LEN+1:]
+
+targeted_loss = loss_fn(targeted_logits[:, LIST_LEN+1:].reshape(-1, VOCAB), output_targets.reshape(-1))
+targeted_acc = (targeted_output_preds == output_targets).float().mean()
+
+print(f"Manually specified edges: {edges_to_ablate}")
+print(f"Total edges ablated: {len(all_edges)}")
+print(f"Loss: {targeted_loss.item():.4f}  |  Acc: {targeted_acc.item():.4f}  (original: {original_accuracy.item():.4f})")
+print()
+
+analyze_o2_errors(targeted_output_preds, output_targets, inputs=val_inputs)
 
 # %% [markdown]
 # ## Circuit Analysis
