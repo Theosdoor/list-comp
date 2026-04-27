@@ -157,14 +157,14 @@ for idx in top_3_indices:
     print(f"{idx:<10} {fire_pct:<15.2f} {n_active:<10}")
 
 # %% [markdown]
-# ## Cell 1c — Latent Type Classification via Greedy Symbol Peeling
+# ## Cell 1b — Latent Type Classification via Greedy Symbol Peeling
 
 # %%
 from collections import defaultdict
 
 # ── Hyperparameters ────────────────────────────────────────────────────────
 ACTIVATION_THRESHOLD    = 1e-6   # minimum activation to count as "active"
-MAGNITUDE_STD_THRESHOLD = 3    # drop activations below (mean - N*std) before peeling
+MAGNITUDE_STD_THRESHOLD = 1    # drop activations below (mean - N*std) before peeling
 MIN_ACTIVATIONS         = 10     # fewer than this → "near-dead" rather than symbol detector
 MIN_CASES_FOR_DETECTION = 10    # (5% of 199) need at least this many activating examples with a symbol to be considered a detector for that symbol. prevents eg. 8-symb detector because it activates on 8 different bigrams but only 1 example per symbol.
 
@@ -499,7 +499,7 @@ else:
     plt.show()
 
 # %% [markdown]
-# ## Cell 6 — Test feature steering
+# ## Test feature steering
 
 # %%
 from src.sae import *  # Import all SAE analysis utilities
@@ -530,6 +530,9 @@ crossover_df = analyze_feature_crossovers(
     sep_idx=2,
     verbose=True,
 )
+
+# %% [markdown]
+# ## Co-activation analysis
 
 # %%
 # check how many inputs activate latent A, how many activate latent B, and how many are activated by both and by neither (+ any other relvant stats)
