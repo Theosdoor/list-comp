@@ -37,19 +37,12 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAVE_DIR = os.path.join(REPO_ROOT, "results/sae_feat_analysis")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
-# SAE_NAME   = "sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt"
-# SAE_NAME = "new_model/btk_sae_d128_k3_lr0.0003_seed0_d64_h1_lnF_biasF_wvF_woF_mlpF_s3_acc0.9405.pt"
-
-# SAE_NAME = "sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt"
 SAE_NAME   = "sweep_runs_v2/sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt" 
-# ^ this one is good because its the sparsest (low L0 - need to explain intuitively why this is good!)
-#   with ev > 0.99 and in top N for lowest CE increase
-#   also has lowest dead latent rate for k=3
-# SAE_NAME   = "sweep_runs_v2/sae_d128_k5_lr0.0001_seed2_2layer_100dig_64d.pt"
-# SAE_NAME   = "sweep_runs_v2/sae_d128_k4_lr0.0001_seed1_2layer_100dig_64d.pt"
+# SAE_NAME   = "sweep_k2bsjr0n/btk_sae_d128_k3_lr0.0003_seed3_2layer_100dig_64d.pt"
+# ^ better k=3,128 sae! with 2 special feats
 
 # SAE_NAME   = "sweep_xliz4f19/jumprelu_sae_d256_tl05_sp5_lr7e-05_seed1_2layer_100dig_64d.pt"
-# SAE_NAME   = "matryoshka_sae_d128_k3_ng4_2layer_100dig_64d.pt"
+# SAE_NAME   = "sweep_tbxyl1y7/matryoshka_sae_d128_k3_ng1_lr0.0003_seed12_2layer_100dig_64d.pt"
 
 # TODO - could infer model name from sae config or name
 MODEL_NAME = "2layer_100dig_64d"
@@ -350,13 +343,14 @@ fig.show()
 
 # %%
 # Edit this list to compare features of interest
-FEATURES_TO_PLOT = [0, 5, 11, 56]
+FEATURES_TO_PLOT = [0, 5, 11] # 56
+ncols = 3
 
 fig = create_feature_heatmaps_seaborn(
     d1_all, d2_all, sae_acts_all,
     feature_indices=FEATURES_TO_PLOT,
     n_digits=N_DIGITS,
-    ncols=2,
+    ncols=ncols,
     shared_scale=False,
 )
 fig.savefig(f"{SAVE_DIR}/04_selected_features_heatmaps_unscaled.pdf", dpi=150, bbox_inches="tight")
@@ -368,7 +362,7 @@ fig = create_feature_heatmaps_seaborn(
     d1_all, d2_all, sae_acts_all,
     feature_indices=FEATURES_TO_PLOT,
     n_digits=N_DIGITS,
-    ncols=2,
+    ncols=ncols,
     shared_scale=True,
 )
 fig.savefig(f"{SAVE_DIR}/05_selected_features_heatmaps_scaled.pdf", dpi=150, bbox_inches="tight")
