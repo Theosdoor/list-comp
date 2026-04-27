@@ -18,14 +18,12 @@ echo "------------------------------------------------------"
 python3 -c "import torch; print(f'[slurm] CUDA Available: {torch.cuda.is_available()}'); print(f'[slurm] Device: {torch.cuda.get_device_name(0)}')"
 echo "------------------------------------------------------"
 
-python3 scripts/special_latents_across_saes.py
-
-# python3 scripts/run_crossover_analysis.py \
-#    --model 2layer_100dig_64d \
-#    --sae results/sae_models/sweep_runs_v2/sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt \
-#    --feature auto \
-#    --threshold 0.3 \
-#    --report
+python3 scripts/run_crossover_analysis.py \
+   --model 2layer_100dig_64d \
+   --sae results/sae_models/sweep_runs_v2/sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt \
+   --feature auto \
+   --threshold 0.3 \
+   --report
 
 # python3 scripts/train_sae.py \
 #     --model_path models/2_layer_sweep/d64_h1_lnF_biasF_wvF_woF_mlpF_s3_acc0.9405.pt \
