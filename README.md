@@ -16,43 +16,54 @@ A custom attention mask enforces the causal structure: input tokens write to SEP
 
 ```
 list-comp-priv/
-├── scripts/                   # Runnable entry-points
-│   ├── train_model.py         # Train a transformer model
-│   ├── train_sae.py           # Train a sparse autoencoder (SAE) on SEP activations
-│   ├── interpret_model.py     # Mechanistic interpretability analysis
-│   ├── model_interp.py        # Alternative interpretability script
-│   ├── run_crossover_analysis.py  # Feature steering crossover analysis
-│   ├── sweep_sae.py           # WandB sweep for SAE hyperparameters
-│   ├── compare_sae.py         # Compare multiple SAE runs
-│   ├── analyze_failure_reasons.py # Diagnose model failure modes
-│   └── generate_report_tables.py  # Generate LaTeX/markdown result tables
+├── scripts/                       # Core paper reproducibility scripts
+│   ├── train_model.py             # Train baseline transformer
+│   ├── train_sae.py               # Train sparse autoencoder on SEP activations
+│   └── run_crossover_analysis.py  # Feature steering & crossover analysis
+├── visualization/                 # Figure & table generation scripts
+│   ├── make_2layer_table.py       # Reproduce architecture sweep table
+│   ├── nb_compare_sae.py          # Compare SAE checkpoints
+│   ├── plot_sae_sweep.py          # Plot SAE sweep results
+│   ├── nb_model_interp.py         # Attention flow analysis
+│   ├── nb_sae_feat_analysis.py    # SAE feature analysis & heatmaps
+│   └── special_latents_across_saes.py  # Special feature correlation analysis
 ├── src/
 │   ├── models/
-│   │   ├── transformer.py     # Model construction, masking, make_model()
-│   │   └── utils.py           # save/load model, accuracy helpers
+│   │   ├── transformer.py         # Model construction, masking, make_model()
+│   │   ├── utils.py               # save/load model, accuracy helpers
+│   │   └── train.py               # Training loop
 │   ├── data/
-│   │   └── datasets.py        # Dataset generation for the list-comparison task
+│   │   └── datasets.py            # Dataset generation for the list-comparison task
 │   ├── sae/
 │   │   ├── activation_collection.py  # Hook-based activation extraction
-│   │   ├── hooks.py           # TransformerLens hook utilities
-│   │   ├── loading.py         # Load SAE checkpoints
-│   │   ├── metrics.py         # SAE evaluation metrics (L0, MSE, etc.)
-│   │   ├── steering.py        # Feature steering experiments
-│   │   └── visualization.py   # Activation and feature visualisation
+│   │   ├── hooks.py               # TransformerLens hook utilities
+│   │   ├── loading.py             # Load SAE checkpoints
+│   │   ├── metrics.py             # SAE evaluation metrics (L0, MSE, etc.)
+│   │   ├── steering.py            # Feature steering experiments
+│   │   ├── reporting.py           # Failure-reason classification & reports
+│   │   └── visualization.py       # Activation and feature visualization
 │   ├── interpretability/
-│   │   └── interp_utils.py    # Attention pattern and residual-stream analysis
+│   │   └── interp_utils.py        # Attention pattern and residual-stream analysis
 │   └── utils/
-│       ├── runtime.py         # Global runtime config (list_len, device, etc.)
-│       └── nb_utils.py        # Notebook/display helpers
-├── models/                    # Saved model checkpoints (.pt)
-├── results/                   # SAE checkpoints and analysis results
-├── notebooks/                 # Exploratory Jupyter notebooks
-├── sweep_configs/             # WandB sweep YAML configs
-├── data/                      # Generated datasets (auto-created)
-├── EXPERIMENTS.md             # Log of individual experiment runs
+│       ├── runtime.py             # Global runtime config (list_len, device, etc.)
+│       └── nb_utils.py            # Notebook/display helpers
+├── models/                        # Saved model checkpoints (.pt)
+├── results/                       # SAE checkpoints and analysis results
+├── archive/                       # Exploration artifacts (see archive/README.md)
+│   ├── notebooks/                 # Rough exploration notebooks
+│   ├── exploratory_scripts/       # Superseded/experimental scripts
+│   └── sweeps/                    # WandB sweep configuration files
+├── EXPERIMENTS.md                 # Log of experimental runs
 ├── pyproject.toml
-└── submit_job.sh              # HPC job submission script
+└── README.md
 ```
+
+### Quick Navigation
+
+- **To reproduce paper figures:** See `visualization/README.md`
+- **To train models/SAEs:** See `scripts/`
+- **To understand exploration history:** See `archive/README.md`
+
 
 ## Installation
 

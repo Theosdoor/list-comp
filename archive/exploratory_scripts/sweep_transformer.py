@@ -6,6 +6,7 @@ Generalised from sweep_2layer.py. Reads list_len and n_layers from wandb.config
 """
 
 from pathlib import Path
+import sys
 import time
 import random
 
@@ -16,6 +17,8 @@ import torch
 from torch.utils.data import DataLoader
 import wandb
 from dotenv import load_dotenv
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.data.datasets import get_dataset
 from src.models.train import train
@@ -205,7 +208,7 @@ def sweep_transformer():
         wandb.summary["final/elapsed_min"] = elapsed_min
 
         if (not use_ln and not use_bias and not use_wv and not use_wo and not use_mlp and d_model == 64):
-            base_dir = Path(__file__).resolve().parents[1] / "models" / "2_layer_sweep"
+            base_dir = Path(__file__).resolve().parents[3] / "models" / "2_layer_sweep"
             model_path = base_dir / f"{run.name}_acc{best_acc:.4f}.pt"
             model_path.parent.mkdir(parents=True, exist_ok=True)
             save_model(model, str(model_path))

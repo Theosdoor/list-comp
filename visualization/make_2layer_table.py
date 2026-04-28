@@ -9,8 +9,8 @@ import wandb
 
 WANDB_ENTITY = "theo-farrell99-durham-university"
 WANDB_PROJECT = "order-by-scale"
-CACHE_PATH = Path(__file__).resolve().parent.parent / "results" / "2layer_sweep_cache.csv"
-OUTPUT_DIR = Path(__file__).resolve().parent.parent / "results" / "grid_search"
+CACHE_PATH = Path(__file__).resolve().parent.parent.parent / "results" / "2layer_sweep_cache.csv"
+OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent / "results" / "grid_search"
 
 CONFIG_KEYS = ["d_model", "n_heads", "use_ln", "use_bias", "use_wv", "use_wo", "use_mlp"]
 FLAG_KEYS = ["use_ln", "use_bias", "use_wv", "use_wo", "use_mlp"]

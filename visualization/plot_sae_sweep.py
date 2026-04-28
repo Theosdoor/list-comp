@@ -357,7 +357,7 @@ def plot_sweep(df: pd.DataFrame, path: Path):
 def main():
     args = parse_args()
 
-    root = Path(__file__).parent.parent
+    root = Path(__file__).parent.parent.parent
     report_path = args.report or find_latest_report(root)
     print(f"Reading: {report_path}")
 

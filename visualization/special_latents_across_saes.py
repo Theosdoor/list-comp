@@ -11,7 +11,7 @@ Also prints Spearman correlations between n_special_features and each metric.
 
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import numpy as np
 import pandas as pd
@@ -23,7 +23,7 @@ import wandb
 # ── Config ─────────────────────────────────────────────────────────────────────
 
 SWEEP    = "theo-farrell99-durham-university/orderbyscale_sae_sweep"
-SAVE_DIR = Path(__file__).parent.parent / "results" / "special_latent_analysis"
+SAVE_DIR = Path(__file__).parent.parent.parent / "results" / "special_latent_analysis"
 SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Fetch runs from W&B ────────────────────────────────────────────────────────
