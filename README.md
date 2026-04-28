@@ -1,16 +1,20 @@
-# [WIP] Further Experiments for Order by Scale
+# Mechanistic Interpretability of List-Comparison Transformers
 
-Further experiments based on the results from the paper:
+This repository implements and analyzes attention-only transformers trained on a list-comparison task, with sparse autoencoder (SAE) feature analysis and mechanistic interpretation.
 
-> Farrell, Theo, Patrick Leask, and Noura Al Moubayed. "Order by Scale: Relative‑Magnitude Relational Composition in Attention‑Only Transformers." Socially Responsible and Trustworthy Foundation Models at NeurIPS 2025. https://openreview.net/forum?id=vWRVzNtk7W
+**Paper:** Farrell, Theo, Patrick Leask, and Noura Al Moubayed. "Order by Scale: Relative‑Magnitude Relational Composition in Attention‑Only Transformers." *Socially Responsible and Trustworthy Foundation Models at NeurIPS 2025.* https://openreview.net/forum?id=vWRVzNtk7W
 
 ## Overview
 
-NOTE - this repo is a work in progress - there may be bugs!
-
-This repository implements and analyzes attention-only transformers trained on a list-comparison task. The model learns to compress list representations into a SEP token and then decompose them. The task structure `[d1, d2, SEP, o1, o2]` enables clean mechanistic analysis of information flow through attention layers.
+The model learns to compress list representations into a SEP token and then decompose them. The task structure `[d1, d2, SEP, o1, o2]` enables clean mechanistic analysis of information flow through attention layers.
 
 A custom attention mask enforces the causal structure: input tokens write to SEP, and output tokens read only from SEP and their causally prior output positions.
+
+This repository includes:
+- **Core training:** Model and SAE training scripts
+- **Mechanistic analysis:** Feature steering, crossover analysis, and attention pattern interpretation
+- **Figure generation:** Scripts to reproduce all paper results
+- **Exploration history:** Archived notebooks and experimental sweeps for reference
 
 ## Repository Structure
 
