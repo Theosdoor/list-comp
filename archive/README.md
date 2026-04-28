@@ -15,7 +15,6 @@ Rough Jupyter notebooks and their Python equivalents from exploratory phases (Ja
 
 ### `exploratory_scripts/`
 Python scripts used during development but not part of the core paper pipeline:
-- `nb_grid_search_heatmap.py` — Grid search visualization (LIST_LEN × N_LAYERS heatmap)
 - `sweep_transformer.py` — General W&B sweep script for hyperparameter sweeps (exploratory architecture search)
 
 **Status:** Exploratory/superseded. Reference only.

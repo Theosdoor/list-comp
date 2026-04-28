@@ -36,6 +36,16 @@ python3 plot_sae_sweep.py --output-dir report/figures
 
 **Output:** PNG plots and tables saved to `results/` or `report/`
 
+### `nb_grid_search_heatmap.py`
+Renders a seaborn heatmap of validation accuracy across (LIST_LEN, N_LAYERS) combinations from WandB sweeps.
+
+**Usage:**
+```bash
+python3 nb_grid_search_heatmap.py [--source wandb|csv]
+```
+
+**Output:** Heatmap plots saved to `results/grid_search/`
+
 ## Analysis & Mechanistic Interpretation
 
 ### `nb_model_interp.py`
