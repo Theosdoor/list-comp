@@ -6,6 +6,7 @@ results/*
 !results/grid_search
 .claude/*
 .worktrees/*
+slurm/*
 
 
 # Byte-compiled / optimized / DLL files
