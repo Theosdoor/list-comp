@@ -1,27 +1,5 @@
 \section{Methodology}\label{s:method}
 
-% \begin{figure*}[t]
-%     \centering
-%     \begin{minipage}[t]{0.48\linewidth}
-%         \centering
-%         \includegraphics[width=\linewidth]{figures/rq2_pipeline.pdf}
-%         \caption{
-%             TODO: Define things, explain what is shown, incl accuracy calc'd on outputs.
-%             $v$ denotes the residual stream, which has shape $(5,d_\text{model})$.
-%         }
-%         \label{fig:rq2_pipeline}
-%     \end{minipage}
-%     \hfill
-%     \begin{minipage}[t]{0.48\linewidth}
-%         \centering
-%         \includegraphics[width=\linewidth]{figures/sae_diagram.pdf}
-%         \caption{
-%             TODO: SAE diagram caption.
-%         }
-%         \label{fig:sae_diagram}
-%     \end{minipage}
-% \end{figure*}
-
 \begin{figure}[t]
     \centering
     \includegraphics[width=\linewidth]{figures/rq2_pipeline.pdf}
@@ -33,7 +11,7 @@
     \label{fig:rq2_pipeline}
 \end{figure}
 
-We hypothesise that relational composition occurs at the \texttt{SEP} position's residual stream activation vector after the first layer of the two-layer transformer model, as implied by Figure \ref{fig:attn-flow} and the task setup. We refer to this vector as $\boldsymbol r_{s}^{L_1}$.
+We hypothesise that relational composition occurs at the \texttt{SEP} position's residual stream activation vector after the first layer of the two-layer transformer model, as implied by \citet{farrell2025order}. We refer to this vector as $\boldsymbol r_{s}^{L_1}$.
 Therefore, we train SAEs on $\boldsymbol r_{s}^{L_1}$ to analyse how they respond to relational composition, as shown in Figure \ref{fig:rq2_pipeline}.
 
 There are many SAE variants in the literature, but we consider three: BatchTopK \cite{bussmann2024batchtopk}, JumpReLU \cite{rajamanoharan2024jumping} and Matryoshka \cite{bussmann2025learning}. A comparison is given in Table~\ref{tab:sae_types}.
@@ -178,7 +156,7 @@ Hardware & NVIDIA GeForce RTX 2080 Ti \\
 \end{tabular}
 \end{table}
 
-We therefore study a BatchTopK SAE with $k = 3$ and $d_\text{SAE} = 128$, as shown in Table \ref{tab:sae_config}. Among the trained checkpoints with this configuration, we select the one with the fewest dead latents ($3.1\%$), which is far below the $k=3, d_\text{SAE}=128$ group average of $10.9 \pm 5.3\%$, and achieves 0.9919 EV and 0.1796 PCE. This checkpoint selection introduces selection bias toward high-performing models. We address this by confirming across 1,630 diverse SAEs that special latents (identifiable by $\Delta\alpha$ correlation) emerge reliably regardless of configuration (Section~\ref{ss:sae_generalisation} and Figure \ref{fig:special_latents_vs_performance}), establishing that our findings are not specific to this checkpoint.
+We therefore study a BatchTopK SAE with $k = 3$ and $d_\text{SAE} = 128$, as shown in Table \ref{tab:sae_config}. Among the trained checkpoints with this configuration, we select the one with the fewest dead latents ($3.1\%$), which is far below the $k=3, d_\text{SAE}=128$ group average of $10.9 \pm 5.3\%$, and achieves 0.9919 EV and 0.1796 PCE. This checkpoint selection introduces selection bias toward high-performing models. We address this by confirming across 1,630 diverse SAEs that special latents (identifiable by $\Delta\alpha$ correlation) emerge reliably regardless of configuration, establishing that our findings are not specific to this checkpoint.
 
 \subsubsection{Analysis}
 
