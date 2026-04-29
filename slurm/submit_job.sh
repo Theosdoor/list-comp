@@ -18,6 +18,7 @@ echo "------------------------------------------------------"
 python3 -c "import torch; print(f'[slurm] CUDA Available: {torch.cuda.is_available()}'); print(f'[slurm] Device: {torch.cuda.get_device_name(0)}')"
 echo "------------------------------------------------------"
 
-python3 visualization/nb_compare_sae.py
+python visualization/compare_sae.py --sae_folders results/sae_models/sweep_k2bsjr0n results/sae_models/sweep_tbxyl1y7 results/sae_models/sweep_xliz4f19
+python visualization/plot_sae_sweep.py
 
 echo "[slurm] Finished at $(date)"

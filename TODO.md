@@ -1,5 +1,7 @@
 # TODO
 
+- add script to download sae / model checkpoints from wandb
+
 ## Extensions
 
 - speed up xover pipeline by skipping inputs that don't activate the special feature - eg. d1=d2

@@ -20,10 +20,10 @@ echo "------------------------------------------------------"
 
 
 # btk
-# wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/k2bsjr0n
+wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/k2bsjr0n
 
 # matryoshka
 # wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/tbxyl1y7
 
 # jumprelu
-wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/xliz4f19
+# wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/xliz4f19
