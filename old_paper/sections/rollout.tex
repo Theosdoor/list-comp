@@ -1,0 +1,80 @@
+\section{Output Derivation}\label{s:rollout}
+
+Let $\boldsymbol r_z^{L_i}$ be the residual at the position of token $z \in \{d_1, d_2, s, o_1, o_2\}$ after layer $i$.
+
+\subsubsection*{Layer 1}
+The residuals at \texttt{SEP}, $o_1$ and $o_2$ after layer 1 are derived as follows:
+
+\begin{equation}
+\begin{split}
+    \boldsymbol r_s^{L_1} &= \alpha_{s \to d_1}(\boldsymbol E_{d_1}+\boldsymbol P_{d_1}) + \alpha_{s \to d_2}(\boldsymbol E_{d_2}+\boldsymbol P_{d_2}) \\
+    &\quad + \boldsymbol E_s + \boldsymbol P_s
+\end{split}
+\end{equation}
+\begin{equation}
+     \boldsymbol r_{o_i}^{L_1} = \boldsymbol E_m + \boldsymbol P_{o_i}, \quad i \in \{1,2\}.
+\end{equation}
+Note that we use our custom mask (outlined in Section \ref{s:method}) to prevent positions $4$ and $5$ from attending to anything in layer 1.
+
+\subsubsection*{Layer 2}
+The residuals at \texttt{SEP}, $o_1$ and $o_2$ after layer 2 are derived as follows:
+
+\begin{equation}
+    \boldsymbol r_{o_1}^{L_2} = \boldsymbol r_{o_1}^{L_1} + \beta_{o_1 \to s}\,\boldsymbol r_s^{L_1}
+\end{equation}
+\begin{equation}
+    \boldsymbol r_{o_2}^{L_2} = \boldsymbol r_{o_2}^{L_1} + \beta_{o_2 \to s}\,\boldsymbol r_s^{L_1} + \beta_{o_2 \to o_1}\,\boldsymbol r_{o_1}^{L_1}
+\end{equation}
+
+\subsubsection*{Output logit at position 4 ($o_1$)}
+We then derive the output logit at position 4 ($o_1$):
+
+\begin{equation}
+    \boldsymbol \ell_{o_1} = \boldsymbol r_{o_1}^{L_2}U = \big[\boldsymbol r_{o_1}^{L_1} + \beta_{o_1 \to s}\boldsymbol r_s^{L_1}\big]\boldsymbol U
+\end{equation}
+
+\begin{equation}
+\label{eq:o1_logit_unsimp}
+\begin{split}
+    \boldsymbol \ell_{o_1} = 
+    &\bigl[\boldsymbol E_m + \boldsymbol P_{o_1} 
+    + \beta_{o_1 \to s} \bigl(
+    \alpha_{s \to d_1}(\boldsymbol E_{d_1} + \boldsymbol P_{d_1}) \\
+    &\qquad\quad
+    + \alpha_{s \to d_2}(\boldsymbol E_{d_2} + \boldsymbol P_{d_2})
+    + \boldsymbol E_s + \boldsymbol P_s
+    \bigr)
+    \bigr]\boldsymbol U
+\end{split}
+\end{equation}
+
+
+\subsubsection*{Output logit at position 5 ($o_2$)}
+Additionally, we derive the output logit at position 5 ($o_2$):
+
+\begin{equation}
+    \boldsymbol \ell_{o_2} = \boldsymbol r_{o_2}^{L_2}U = \big[\boldsymbol r_{o_2}^{L_1} + \beta_{o_2 \to s}\,\boldsymbol r_s^{L_1} + \beta_{o_2 \to o_1}\,\boldsymbol r_{o_1}^{L_1}\big]\boldsymbol U
+\end{equation}
+
+\begin{equation}
+\label{eq:o2_logit_unsimp}
+\begin{split}
+    \boldsymbol \ell_{o_2} = 
+    &\Bigl[\boldsymbol E_m + \boldsymbol P_{o_2} \\
+    &\quad + \beta_{o_2 \to s} \Bigl(
+        \alpha_{s \to d_1}(\boldsymbol E_{d_1} + \boldsymbol P_{d_1}) \\
+        &\qquad + \alpha_{s \to d_2}(\boldsymbol E_{d_2} + \boldsymbol P_{d_2}) 
+        + \boldsymbol E_s + \boldsymbol P_s
+    \Bigr) \\
+    &\quad + \beta_{o_2 \to o_1}(\boldsymbol E_m + \boldsymbol P_{o_1})
+    \Bigr]\boldsymbol U
+\end{split}
+\end{equation}
+
+\subsubsection*{Simplification}
+We can simplify these formulae.
+Let
+\(
+    \boldsymbol S = \boldsymbol E_s + \boldsymbol P_s
+\).
+Furthermore, since $o_1$ can only ever attend to $s$, we have $\beta_{o_1 \to s}=1$. Since $o_2$ can only attend to $s$ or $o_1$, we have $\beta_{o_2 \to s} + \beta_{o_2 \to o_1} = 1$. Therefore, we can simplify the equations \eqref{eq:o1_logit_unsimp} and \eqref{eq:o2_logit_unsimp} to get equations \eqref{eq:o1_logit_composition} and \eqref{eq:o2_logit_composition} in Section \ref{ss:results-circuits}.

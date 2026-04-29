@@ -1,0 +1,252 @@
+\section{Transformer Model Results}\label{s:res_rq1}
+
+\subsection{Attention Ablations}\label{ss:results-ablations}
+
+For the two- and three-layer models, we independently set each attention pattern probability to zero and observe the impact on performance. Figure~\ref{fig:attn-flow} shows the minimum set of attention pattern weights required for the model to achieve full accuracy; all other weights can be set to zero. Throughout this section we refer to attention pattern weights as edges, in reference to the graphs in Figure \ref{fig:attn-flow}.
+
+For the three-layer model, Figure \ref{fig:attn-flow} suggests there are three possible paths through the model that copy $d_i$ to the corresponding $o_i$ via \texttt{SEP}:
+\begin{itemize}
+    \item $d_1 \rightarrow d_1 \rightarrow \texttt{SEP} \rightarrow o_2$ from input to layer 3.
+    \item $d_2 \rightarrow \texttt{SEP} \rightarrow o_1 \rightarrow o_2$ from input to layer 3.
+    \item Additionally, three-layer models could follow the path $d_2 \rightarrow \texttt{SEP} \rightarrow o_2$ from input to layer 2, although this model did not implement that.
+\end{itemize}
+
+All six edges roughly halve test accuracy when ablated, because they cause the model to fail to predict one of the two output symbols.
+This supports our conjecture that they are copying each input from $d_i$ to the respective $o_i$ via \texttt{SEP}. 
+This three-layer model therefore does not display the composition in which we are interested, and instead implements a sequential copy algorithm.
+
+For the two-layer model, we find three types of edge that reduce accuracy when ablated, which we refer to as composition, decomposition and moderation edges:
+\begin{enumerate}
+    \item The composition edges are those in layer 1 between each $d_i$ and \texttt{SEP}. These copy the bigram to \texttt{SEP}.
+    \item  The decomposition edges are those in layer 2 between \texttt{SEP} and each $o_i$. These copy the information from \texttt{SEP} to each $o_i$. 
+    \item The additional moderation edge is between $o_1$ and $o_2$ in layer 2.
+\end{enumerate}
+
+We ablate the moderation edge and run the model on the test set to test its importance. This results in misclassification of $o_2$ in 62\% of predictions (up from 16\% without ablation). Of these errors, 54\% arise from the model predicting $d_1$ at both output positions; that is, $d_1 = o_1 = o_2$. Section~\ref{ss:results-circuits} provides a mechanistic account of this behaviour via the circuit derivation.
+
+% \subsection{Further Attention Ablations}\label{s:attn-ablation}
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\linewidth]{figures/attn-hist.png}
+  \caption{
+    Distribution of attention weights across all 10,000 input bigrams. Top row: attention weights from \texttt{SEP} to the input positions ($d_1$ and $d_2$) in layer 1. Bottom row: attention weights from $o_2$ to \texttt{SEP} in layer 2.
+    }
+  \label{fig:attn-histogram}
+\end{figure}
+
+We explore how the attention weights vary across different input bigrams.
+Figure~\ref{fig:attn-histogram} shows the distribution of attention weights over all inputs from \texttt{SEP} to $d_i$ in layer 1, and from $o_2$ to \texttt{SEP} in layer 2. We see that, despite the syntax of the input being fixed, the attention pattern varies significantly with the inputs. In particular, fixing the attention pattern to the mean attention pattern over the test set reduces accuracy to 45\%. This suggests that the variation in attention weights is critical for performance, rather than just noise. We hypothesise the model uses varying attention weights to identify different input bigrams.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\linewidth]{figures/confusion-band.png}
+  \caption{
+    This plot shows attention weights from \texttt{SEP} to $d_1$ and $d_2$ in layer 1 versus test accuracy. The model fails when $\texttt{SEP}$ attends to both $d_1$ and $d_2$ with nearly equal probability (near the diagonal). This suggests that the model relies on the difference $\Delta \alpha = \alpha_{s \to d_1} - \alpha_{s \to d_2}$ to discriminate the two input symbols, and performance degrades when this difference approaches zero.
+}
+  \label{fig:confusion-band}
+\end{figure}
+
+Figure \ref{fig:confusion-band} plots the attention scores for \texttt{SEP} to $d_i$ in layer 1, and we find that similar attention patterns results in misclassification. This corroborates the finding that using the mean attention pattern harms performance, as the mean pattern lies within this error zone.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.8\linewidth]{figures/errors-by-d_i.png}
+    \caption{
+        This scatter plot shows the input bigrams $(d_1, d_2)$ that the model fails on.
+    }
+    \label{fig:errors-by-d_i}
+\end{figure}
+
+To further investigate what causes the model to fail on some inputs, we plot the misclassifications in Figure \ref{fig:errors-by-d_i}. Whilst there is a clear relationship between the attention scores of the $d_i$ positions and misclassifications in Figure \ref{fig:confusion-band}, this is not due to the input tokens.
+
+\subsection{Circuit Analysis}\label{ss:results-circuits}
+
+We annotate our five input tokens as $[d_1, d_2, s, o_1, o_2]$. 
+In our input, the $d_i$ tokens vary as described in Section \ref{s:method}, the $s$ token is always \texttt{SEP}, and the $o_i$ tokens are always \texttt{MASK}. 
+$\boldsymbol E$ is our token embedding matrix, $\boldsymbol P$ is our positional embedding matrix, and $\boldsymbol U$ is our unembedding matrix.
+Define $\alpha_{x \to y}$ as the attention weight at query $x$ and key $y$ in the first layer's attention pattern. Define $\beta_{x \to y}$ similarly for the second layer.
+Define $\boldsymbol{\ell}_{t} \in \mathbb{R}^{V}$ as the logit vector predicted at the position of token $t$, where $V$ is the vocabulary size. We write $\boldsymbol E_{t}$ as the token embedding of $t \in \{d_1, d_2, s, m\}$, where $\boldsymbol E_{m}$ is the embedding of the $o_i$ tokens, and $\boldsymbol P_{z}$ as the positional embedding of token $z \in \{d_1, d_2, s, o_1, o_2\}$. 
+Let $\boldsymbol r_z^{L_i}$ be the residual at the position of token $z \in \{d_1, d_2, s, o_1, o_2\}$ after layer $i$.
+Figure \ref{fig:rq2_pipeline} may be a useful visual reference for this section.
+
+We derive the following expressions for the logits at positions 4 and 5, called $\boldsymbol \ell_{o_1}$ and $\boldsymbol \ell_{o_2}$ respectively, leaving details for the appendices in the code submission.
+% leaving details for Appendix \ref{s:rollout}.
+Let 
+\(
+    \boldsymbol S = \boldsymbol E_s + \boldsymbol P_s
+\), then:
+
+\begin{equation}
+\label{eq:o1_logit_composition}
+\begin{split}
+    \boldsymbol \ell_{o_1} = 
+    \big[\boldsymbol E_m +\boldsymbol P_{o_1}
+    &+ \alpha_{s \to d_1}(\boldsymbol E_{d_1} +\boldsymbol P_{d_1}) \\
+    &\quad + \ \alpha_{s \to d_2}(\boldsymbol E_{d_2} +\boldsymbol P_{d_2}) +\boldsymbol S\big]\boldsymbol U
+\end{split}
+\end{equation}
+
+\begin{equation}
+\label{eq:o2_logit_composition}
+\begin{split}
+    \boldsymbol \ell_{o_2} =
+    &\big[(1+\beta_{o_2 \to o_1})\boldsymbol E_m 
+    + \beta_{o_2 \to o_1}\boldsymbol P_{o_1} +\boldsymbol P_{o_2} \\
+    &+ \beta_{o_2 \to s}\big(\alpha_{s \to d_1}(\boldsymbol E_{d_1} +\boldsymbol P_{d_1}) \\
+    &\quad
+    + \alpha_{s \to d_2}(\boldsymbol E_{d_2} +\boldsymbol P_{d_2}) +\boldsymbol S\big)\big]\boldsymbol U
+\end{split}
+\end{equation}
+
+\subsubsection{Scaling to reverse output.}
+Suppose that the model is given $d_1 = a$ and $d_2 = b$ as input, where $a,b \in [0, 99]$ as outlined in Section \ref{s:method}. Substituting these into equation \eqref{eq:o1_logit_composition} gives us $\boldsymbol \ell_{o_1}(a,b)$: that is, the final logit vector at position 4 on inputs $a,b$.
+\begin{equation}
+\label{eq:o1_ab}
+\begin{split}
+    \boldsymbol \ell_{o_1}(a,b) = 
+    &\big[\boldsymbol E_m +\boldsymbol P_{o_1}
+    + \alpha_{s \to a}(\boldsymbol E_a +\boldsymbol P_{d_1}) \\
+    &\quad + \ \alpha_{s \to b}(\boldsymbol E_b +\boldsymbol P_{d_2}) +\boldsymbol S\big]\boldsymbol U
+\end{split}
+\end{equation}
+
+Moreover, consider when the inputs are swapped. 
+Let $\alpha' \not= \alpha$ be the new attention pattern for this input.
+Therefore:
+\begin{equation}
+\label{eq:o1_ba}
+\begin{split}
+    \boldsymbol \ell_{o_1}(b,a) = 
+    &\big[\boldsymbol E_m +\boldsymbol P_{o_1}
+    + \alpha'_{s \to b}(\boldsymbol E_b +\boldsymbol P_{d_1}) \\
+    &\quad + \ \alpha'_{s \to a}(\boldsymbol E_a +\boldsymbol P_{d_2}) +\boldsymbol S\big]\boldsymbol U
+\end{split}
+\end{equation}
+
+Now let us find the difference between these:
+\begin{equation}
+\label{eq:o1_logit_diff}
+\begin{split}
+    &\boldsymbol \ell_{o_1}(b,a) -\boldsymbol \ell_{o_1}(a,b) \\
+    &\quad = \big[
+    \alpha'_{s \to b}(\boldsymbol E_b +\boldsymbol P_{d_1})
+    + \alpha'_{s \to a}(\boldsymbol E_a +\boldsymbol P_{d_2})
+    \\ &\qquad 
+    - \ \alpha_{s \to a}(\boldsymbol E_a +\boldsymbol P_{d_1}) 
+    - \alpha_{s \to b}(\boldsymbol E_b +\boldsymbol P_{d_2})\big]\boldsymbol U
+    \\
+    &\quad = \big[
+    (\alpha'_{s \to a} - \alpha_{s \to a})\boldsymbol E_a
+    +(\alpha'_{s \to b} - \alpha_{s \to b})\boldsymbol E_b  
+    \\ &\qquad 
+    + (\alpha'_{s \to b} - \alpha_{s \to a})\boldsymbol P_{d_1}
+    + (\alpha'_{s \to a} - \alpha_{s \to b})\boldsymbol P_{d_2}
+    \big]\boldsymbol U
+\end{split}
+\end{equation}
+
+Similarly for $\boldsymbol \ell_{o_2}$,
+\begin{equation}
+\label{eq:o2_logit_diff}
+\begin{split}
+    &\boldsymbol \ell_{o_2}(b,a) -\boldsymbol \ell_{o_2}(a,b) \\
+    &\quad = \big[
+    (\beta'_{o_2 \to o_1} - \beta_{o_2 \to o_1})(\boldsymbol E_m + \boldsymbol P_{o_1})
+    \\ &\qquad 
+    + (\beta'_{o_2 \to s}\alpha'_{s \to d_2}-\beta_{o_2 \to s}\alpha_{s \to d_1})\boldsymbol E_a
+    \\ &\qquad
+    + (\beta'_{o_2 \to s}\alpha'_{s \to d_1}-\beta_{o_2 \to s}\alpha_{s \to d_2})\boldsymbol E_b
+    \\ &\qquad 
+    + (\beta'_{o_2 \to s}\alpha'_{s \to d_1}-\beta_{o_2 \to s}\alpha_{s \to d_1})\boldsymbol P_{d_1}
+    \\ &\qquad 
+    + (\beta'_{o_2 \to s}\alpha'_{s \to d_2}-\beta_{o_2 \to s}\alpha_{s \to d_2})\boldsymbol P_{d_2}
+    \\ &\qquad 
+    + (\beta'_{o_2 \to s} - \beta_{o_2 \to s})\boldsymbol S
+    \big]\boldsymbol U
+\end{split}
+\end{equation}
+
+% Since $\boldsymbol S$, $\boldsymbol E_m$ and $\boldsymbol P_{o_1}$ are identical for all inputs, 
+In this way, the difference between the output logits for input bigrams $(a,b)$ and $(b,a)$ is simply a linear combination of the token and position embeddings of the inputs, where the coefficients are defined by linear combinations of the first layer attention pattern weights.
+This means that the order of the model's output logits can be reversed by linearly scaling the input token and positional embeddings via the first layer's attention pattern. 
+% This suggests that the model composes the bigram using the relative magnitudes of the input token and/or positional embeddings, rather than by modifying their directions. 
+This suggests that the model composes the bigram at $\boldsymbol r_{s}^{L_1}$ by scaling the same underlying directions (the input token and positional embeddings) with different coefficients, rather than projecting onto role-specific directions as in additive matrix binding \cite{wattenberg2024relational}. 
+While the resulting residual vectors do point in different directions for different inputs, the mechanism decomposes into weighted sums of a fixed set of basis vectors ($\boldsymbol P_{d_1}, \boldsymbol P_{d_2}, \boldsymbol E_a, \boldsymbol E_b$), with the weights (attention scores) encoding the order information.
+This contrasts to existing research on relational composition mechanisms \cite{csordas-etal-2024-recurrent, wattenberg2024relational} which use different activation directions.
+
+\subsubsection{Difference between $o_2$ and $o_1$ logits.}
+
+\begin{figure*}[!t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/logit-diff.png}
+  \caption{
+    These bars show the \textit{individual} contribution for each element in $\Delta\ell$ towards $\ell_{o_2}$ in $\ell_{o_1}+ \Delta\ell= \ell_{o_2}$. The dotted line shows \textit{cumulative} contribution for each element when added to those preceding it in equation \eqref{eq:o1o2_logit_diff}. Negative contributions increase the $d_1$ logit relative to $d_2$, and positive contributions increase the $d_2$ logit relative to $d_1$. Note that the plotted bars account for the -/+ preceding some y-axis elements.
+    }
+  \label{fig:logit-diff}
+\end{figure*}
+
+Let
+\(\boldsymbol D_i =\boldsymbol E_{d_i} +\boldsymbol P_{d_i}\) for $i \in \{1,2\}$.
+Taking the difference between $\boldsymbol\ell_{o_2}$ and $\boldsymbol\ell_{o_1}$, we get the change in $\boldsymbol\ell_{o_1}$ required to get $\boldsymbol\ell_{o_2}$:
+\begin{equation}
+\label{eq:o1o2_logit_diff}
+\begin{split}
+    \Delta\boldsymbol\ell &= \boldsymbol\ell_{o_2} -\boldsymbol\ell_{o_1}
+    \\ 
+    &= [\beta_{o_2 \to o_1}\boldsymbol E_m + (\beta_{o_2 \to o_1}-1)\boldsymbol P_{o_1} +\boldsymbol P_{o_2} 
+    \\ &\qquad 
+    + (\beta_{o_2 \to s}-1)(\alpha_{s \to d_1}\boldsymbol D_1 
+    \\ &\qquad
+    + \alpha_{s \to d_2}\boldsymbol D_2 +\boldsymbol S)]\boldsymbol U 
+    \\ \\
+    &= [\beta_{o_2 \to o_1}\boldsymbol E_m +\boldsymbol P_{o_2}
+    -\beta_{o_2 \to s}\boldsymbol P_{o_1} 
+    \\ &\qquad
+    -\beta_{o_2 \to o_1}(\alpha_{s \to d_1}\boldsymbol D_1 
+    + \alpha_{s \to d_2}\boldsymbol D_2 +\boldsymbol S)]\boldsymbol U 
+    \\ \\
+    &= [\boldsymbol P_{o_2} - \beta_{o_2 \to s}\boldsymbol P_{o_1} 
+    -\beta_{o_2 \to o_1}(\alpha_{s \to d_1}\boldsymbol D_1 
+    \\ &\qquad
+    + \alpha_{s \to d_2}\boldsymbol D_2 +\boldsymbol S -\boldsymbol E_m)]\boldsymbol U
+\end{split}
+\end{equation}
+
+% \begin{equation}
+% \begin{split}
+%     \Delta\ell = \ell_{o_2} -\ell_{o_1} &= 
+%     [P_5 - \beta_{o_2 \to s}P_4 
+%     -\beta_{o_2 \to o_1}(\alpha_{s \to d_1}D_1 
+%     \\ &\qquad
+%     + \alpha_{s \to d_2}D_2 + S - E_m)]U
+% \end{split}
+% \end{equation}
+% where:
+% \begin{equation*}
+%     D_i = E_{d_i}+P_i, \quad i \in \{1,2\}.
+% \end{equation*}
+
+We reconstruct $\hat{\boldsymbol\ell_{o_2}} = \boldsymbol\ell_{o_1} + \Delta\boldsymbol\ell$ and compare to the original $\boldsymbol\ell_{o_2}$ by ablating each component of $\Delta\boldsymbol\ell$. The individual and cumulative empirical contributions of each component is shown in Figure \ref{fig:logit-diff}.
+We find that using $\hat{\boldsymbol\ell_{o_2}}$ for predictions in place of $\boldsymbol\ell_{o_2}$ provided the same results, which verifies our derivation.
+
+Moreover, we find that setting $\alpha_{s \to d_1} = 0$ and $\alpha_{s \to d_2} = 1$ in $\Delta\boldsymbol\ell$ and using $\hat{\boldsymbol\ell_{o_2}}$ to predict $o_2$ causes the model's $o_2$ accuracy to jump to 99\% from 84\%. However, in practice these changes to $\alpha$ also impact $\boldsymbol\ell_{o_1}$ and significantly reduce the model's ${o_1}$ accuracy. We hypothesise that the model learns to balance a reduction in ${o_2}$ accuracy for a relatively larger increase in ${o_1}$ accuracy through $\alpha_{s \to d_i}$.
+
+This derivation also explains the role of the moderation edge identified in Section~\ref{ss:results-ablations}. Equation~\eqref{eq:o1o2_logit_diff} shows that $\beta_{o_2 \to o_1}$ scales the entire compressed bigram representation $(\alpha_{s \to d_1}\boldsymbol{D}_1 + \alpha_{s \to d_2}\boldsymbol{D}_2 + \boldsymbol{S} - \boldsymbol{E}_m)$ and subtracts it from $\boldsymbol{\ell}_{o_1}$ to produce the correction $\Delta\boldsymbol{\ell}$ that differentiates $\boldsymbol{\ell}_{o_2}$ from $\boldsymbol{\ell}_{o_1}$. When this edge is ablated ($\beta_{o_2 \to o_1} = 0$), that correction vanishes and $\boldsymbol{\ell}_{o_2}$ loses access to the representation that distinguishes $d_2$ from $d_1$. The output at $o_2$ then defaults to the same prediction as $o_1$, consistent with the 54\% of ablation errors in which $d_1 = o_1 = o_2$ is observed.
+
+
+\subsection{Linearly Separable Output Projections}\label{ss:results-linsep}
+
+% \begin{figure}
+%   \centering
+%   \includegraphics[width=\linewidth]{figures/lin-sep.png}
+%   \caption{
+%   This graph shows a UMAP visualisation \cite{mcinnes2018umap-software} of the $o_1$ and $o_2$ projections onto $\boldsymbol P$. It shows two distinct clusters, suggesting that they might be linearly separable.
+% }
+%   \label{fig:lin-sep}
+% \end{figure}
+
+We hypothesise that the model uses the unembedding matrix $\boldsymbol U$ to linearly separate the position embeddings of $o_1$ and $o_2$ before prediction. 
+To confirm this, we project the final activation vectors for $o_1$ and $o_2$ onto the positional embedding matrix $\boldsymbol P$ to isolate the positional component of the activations. Taking these as new $o_1$ and $o_2$ activations (i.e. removing their token embedding component), we test our hypothesis by fitting a linear support vector classifier (SVC) \citep{cortes1995support} to separate the $o_1$ and $o_2$ activations, which achieves over 99\% classification performance. This is strong evidence that these two groups are linearly seperable.
+% Figure \ref{fig:lin-sep} shows a UMAP visualization \cite{mcinnes2018umap-software} of these separable groups. 
+This demonstrates that the model uses the positional embeddings to store each $o_i$ in a different, distinct subspace, which \citet{wattenberg2024relational} describe as “writing to slots” in superposition. However, this is achieved through linear scaling via attention, as shown in Section \ref{ss:results-circuits}, which is distinct from additive matrix binding which is the example from \citet{wattenberg2024relational}.

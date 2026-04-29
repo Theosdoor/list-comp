@@ -1,0 +1,38 @@
+\section{Discussion}\label{s:disc}
+
+Our toy transformer solves ordered list copying by writing both inputs into the \texttt{SEP} position and then decoding order by the relative magnitudes of the contributions (the token and positional embeddings of the inputs), rather than projecting information into role-specific directions as is the case in additive matrix binding \citep{wattenberg2024relational}. Equations \eqref{eq:o1_logit_diff} and \eqref{eq:o2_logit_diff} show that the logits at $o_1$ and $o_2$ for some input $(a,b)$ can be written as combinations of $(\boldsymbol E_{a} + \boldsymbol P_{d_1})$ and $(\boldsymbol E_{b} + \boldsymbol P_{d_2})$ with input-dependent coefficients $\alpha_{s \to d_1},\alpha_{s \to d_2}$, where $\boldsymbol E_{a}, \boldsymbol P_{d_1}$ are the token and positional embedding for the symbol $a$ at position $d_1$ respectively (and similarly for symbol $b$ at position $d_2$).
+
+Consider training an $L_1$-regularised SAE on the residual at \texttt{SEP} after layer 1,
+
+\begin{equation*}
+    \boldsymbol r^{L_1}_s = \alpha_{s\to d_1} (\boldsymbol E_{a} + \boldsymbol P_{d_1}) + \alpha_{s \to d_2}(\boldsymbol E_{b} + \boldsymbol P_{d_2}) + \boldsymbol E_s + \boldsymbol P_s
+\end{equation*}
+This is the transformer model's internal single fixed-length vector representation of input bigram $(a,b)$, which is relational composition as intended from the task in Section \ref{s:method_rq1}.
+Here, we have a subspace spanned by $\boldsymbol D_a = \boldsymbol E_{a} + \boldsymbol P_{d_1}$ and $\boldsymbol D_b = \boldsymbol E_{b} + \boldsymbol P_{d_2}$ which is specific to two input bigrams, $(a,b)$ and $(b,a)$, as $\boldsymbol E_s + \boldsymbol P_s$ is constant for all inputs.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{figures/sae_solutions.pdf}
+    \caption{
+        An $L_1$-regularised SAE trained on the residual at \texttt{SEP} after layer 1 could in theory learn one of these two solutions for inputs $(a,b)$ and $(b,a)$.
+        \textbf{Top row}: The SAE learns latent $F_1$ for input $(a,b)$ and $F_2$ for input $(b,a)$.
+        \textbf{Bottom row}: The SAE learns latents corresponding to $D_a$ and $D_b$. This is always sparser than the above solution because they can be reused for other inputs containing symbols $a$ or $b$.
+    }
+    \label{fig:sae_solutions}
+\end{figure} 
+
+In theory, the SAE could learn a latent for each bigram, which activates when that bigram appears in the model's input. 
+Alternatively, the SAE could learn latents corresponding to $\boldsymbol D_a$ and $\boldsymbol D_b$ with activations equal to the attention probabilities $\alpha$.
+Figure \ref{fig:sae_solutions} visualises these.
+Since the latter latents can be reused for other bigrams containing $a$ or $b$, the latter solution always results in a lower average $L_1$ (sparsity) penalty than the former. In fact, this is the ideal solution since each input bigram can activate two latents corresponding to the symbols, with activation magnitudes corresponding the the bigram order. A sparser solution would require maximum one latent on average to activate for each input bigram, which necessarily results in a noisier reconstruction because that single latent would activate for all bigrams containing either $a$ or $b$, hence it is not ideal.
+
+This results in graded latent activations, as shown in Figure \ref{fig:sae_solutions}, because the same two latents represent two opposite bigrams.
+
+
+We support this prediction with a case study of a BatchTopK SAE in Section~\ref{s:res_rq2}. We identify $k$-symbol detectors, which activate if one of $k$ specific symbols appears anywhere in the input bigram. These are related to, but distinct from, the hypothesised $\boldsymbol{D}_a$ and $\boldsymbol{D}_b$ latents. The predicted $\boldsymbol{D}_a = \boldsymbol{E}_a + \boldsymbol{P}_{d_1}$ latent would be position-specific: it encodes symbol $a$ at input position $d_1$, and would activate differently depending on whether $a$ appears as $d_1$ or $d_2$. By contrast, $k$-symbol detectors activate whenever symbol $a$ appears at either position and do not necessarily recover positional information. They therefore align with the binary view~\citep{quirke2025binary, paulo2024automatically}, activating if a symbol is present and not otherwise, and do not fully correspond to the theoretically predicted latents. We instead find that the SAEs learn latents corresponding to the difference in attention weights, $\Delta\alpha = \alpha_{s \to d_1} - \alpha_{s \to d_2}$, which exhibit graded activations for a significant number of inputs.
+
+% Overall
+
+As such, the binary perspective of SAE latents \citep{quirke2025binary, paulo2024automatically}, which claims that each latent activates if a feature is present and does not otherwise, is insufficient to explain the computation of this model, and the activation values of the SAE latents must be incorporated into our understanding. This creates separate problems to the echo-features caused by additive matrix binding \citep{wattenberg2024relational}, which are different directions in the activation space to the base features; and the ID features in ID binding \citep{feng2023language} which are also different directions but have an abstract interpretation. A feature that identifies the order of the bigram is necessarily not linear, due to the relative interactions between the input features. These contradict the linear representation hypothesis, which states that networks can be described in terms of independent and linear features \citep{elhage2022toy}. Similarly to the results of \citet{csordas-etal-2024-recurrent} on RNNs, we provide evidence that transformer interpretability should not be confined by the linear representation hypothesis.
+
+Recent work \citep{leask2025inference, chanin2024absorption} has highlighted the practical challenges with training SAEs that are useful for mechanistic interpretability. Our results in this paper potentially cut across this debate: even if SAEs can recover the correct dictionary, without tools to understand the effect of the relative magnitudes of latent activations, our interpretation of the model will be incomplete.

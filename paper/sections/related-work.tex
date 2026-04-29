@@ -1,0 +1,121 @@
+\section{Related Work}\label{s:related-work}
+
+\subsection*{Mechanistic Interpretability}
+Mechanistic interpretability is the study of reverse-engineering neural networks 
+into human-interpretable algorithms \citep{olah2020zoom, 
+ferrando2024primer, nanda2023progress}. This is usually achieved by identifying ``circuits'' in the model: paths of computation through a model that are responsible for specific behaviours, represented as model subgraphs.
+Some example behaviours that have been successfully reverse-engineered in this way are indirect object identification \citep{wang2022interpretability}, in-context learning via induction heads \citep{olsson2022context}, and modular arithmetic via Fourier representations \citep{nanda2023progress}. 
+Many of these studies use toy models as a controlled environment for identifying mechanisms that might generalise to larger models, which supports our use of toy models in this paper. For example, \citet{baeumel2025modular} found the modular arithmetic results on toy models subsequently generalised to pretrained LLMs.
+
+Moreover, recent work has found ``steering'' vectors in the residual stream which can be steered via linear scaling and patched back into the residual vector to predictably change model behaviour. For example,
+\citet{arditi2024refusal} use the difference-in-means vector between residual streams on harmful and harmless instructions to identify a single ``refusal direction'' in the residual stream of safety-tuned LMs, and use it to to suppress or amplify refusal behaviour via linear scaling.
+% adding negative multiples of a direction correlated with a given output sentiment ($\boldsymbol u$) to the residual stream ($\boldsymbol r{L\_i}' \leftarrow \boldsymbol r{L\_i} - \alpha \boldsymbol u$) can cause the model to generate output with the opposite sentiment \cite{tigges2024language}
+This provides evidence that a given direction in the residual stream is causally relevant for a given behaviour, which provides insights into what feature that direction represents \cite{ferrando2024primer}.
+We use the same principle in our latent steering experiments, in which we steer SAE latents rather than raw residual stream directions and patch the SAE-reconstructed activations into the residual stream.
+
+\subsection*{Relational composition and binding}
+
+\begin{table*}[t]
+\centering
+\caption{Comparison of relational composition mechanisms and their implications for interpretability.}
+\label{tab:composition_mechanisms}
+\begin{tabular}{p{3.5cm}p{4cm}p{4cm}p{4cm}}
+\toprule
+\textbf{Composition} & \textbf{Description} & \textbf{Example} & \textbf{Implications} \\
+\midrule
+Direction-based &
+Features are vectors; sequence position defined by different directions.
+& Matrix binding \cite{wattenberg2024relational} - features projected to distinct linear subspaces: $r = Ax + By$. &
+Feature multiplicity: SAEs may learn echo features ($Ax$, $Ay$, $Bx$, $By$) representing the same underlying concept. \\
+\addlinespace
+Fixed magnitude-based &
+Multiple features have same direction; sequence position defined by different magnitudes.
+&
+Onion-like representations \cite{csordas-etal-2024-recurrent} - ``unpeel'' via autoregression to retrieve sequence positions.
+&
+Counter-example to the widely held assumption that representations are linear.
+\\
+\addlinespace
+Relative magnitude-based &
+Sequence position defined by magnitude relative to other positions in sequence.
+& This work - sequence order defined by a weighted sum of input token and positional embeddings. &
+Counter-example to the widely held assumptions that representations are linear and SAE latents are binary.
+\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+Classic work in distributed representations show how single vectors can encode structured data. Tensor Product Representations (TRPs) and Vector Symbolic Architectures (VSAs) bind and additively superpose vectors, enabling ordered structures in fixed width vectors \citep{smolensky1990tpr, plate1995hrr, kanerva2009hdc}.
+
+\citet{wattenberg2024relational} highlight additive matrix binding, where vectors are written to slots using role-specific linear maps so that bigrams $(x, y),(y,x)$ remain separable, as a candidate mechanism for relational composition in transformers. That is, given an ordered bigram $(d_1, d_2)$ and two $n \times n$ matrices $A$ and $B$, define the representation of $(x, y)$ by
+\(
+r = Ax + By
+\).
+In this way, $(x, y)$ and $(y, x)$ have different representations.
+\citet{wattenberg2024relational} claim that this causes \textit{feature multiplicity}: a kind of false positive where multiple ``echo features'' are created that represent the same concept in different contexts. Given two features $x$ and $y$, matrix binding results in $Ax$, $Ay$, $Bx$, and $By$ features that represent the same concept as $x$ and $y$. 
+
+Empirically, \citet{feng2023language, prakash2023fine} identify binding ID vectors that bind entities to their attributes in-context in language models. For example, a ``green car'' is represented by a vector representing ``green'', a vector for ``car'', and a binding ID vector to join the two. A binding ID vector $k$ is attached to an entity and its attribute by addition in their respective activation spaces. To answer a query for a given entity, the attribute with a matching binding ID is retrieved from the context activation space. \citet{feng2023language} also show that these mechanisms are position-independent with respect to the attribute and entity, and that the activations can be factorised.
+
+\citet{brinkmann2024mechanistic} reverse-engineer an attention-only tree-search transformer that stores precomputed subpaths in special token positions and merges them later. This occurs when the tree depth, $N$, is greater than $L-1$, where $L$ is the number of transformer layers. This constraint is also necessary in our work, where $N$ is the size of the input $N$-gram. However, the authors do not investigate the structure of these activations.
+
+\citet{csordas-etal-2024-recurrent} demonstrate ``onion representations'' in small gated recurrent neural networks (RNNs), where these slots are defined by different orders of magnitude rather than distinct linear subspaces.
+The model represents ordered sequences by closing the gates gradually and synchronously over the input phase, which exponentially decays the scaling factor of subsequent sequence positions.
+This produces layered onion representations where earlier sequence positions dominate the magnitude space.
+This contrasts larger models which indicate sequence position by sharply closing their gates, which creates position-dependent subspaces for each input.
+The onion representation allows autoregressive decoding to sequentially ``peel'' off tokens by subtracting the current dominating token embedding.
+Multiple tokens can occupy the same directional subspace at different magnitude scales; any linear direction will cross-cut multiple layers of the onion. 
+While the authors find that sequence order is represented by fixed magnitude scales, we find an alternative mechanism where it is instead represented by relative magnitude between positions, which is input-dependent and not fixed.
+
+Our toy model provides evidence for magnitude-based composition in attention-only transformers, but with \textit{relative} magnitudes rather than fixed ones as observed in \citet{csordas-etal-2024-recurrent}. 
+% Rather than each position being assigned a predetermined magnitude scale $\gamma^t$, the compositional information is encoded in the relative scaling between feature components that can adapt to the specific features being combined. Additionally, unlike GRUs which require autoregressive unpeeling to decode onion representations, transformers can potentially access multiple positions in parallel through attention mechanisms.
+See Table \ref{tab:composition_mechanisms} for an overview of these composition methods.
+
+\subsection*{Sparse Autoencoders} 
+Models can store more sparse features than the dimension of their activations naively allows through superposition, creating challenges for interpreting these models \citep{elhage2022toy}. Sparse Autoencoders (SAEs) \citep{bricken2023monosemanticity, leesaes} and their variants \citep{gao2024scaling, bussmann2024batchtopk, rajamanoharan2024jumping, leask2025inference, costa2025evaluating, bussmann2025learning} have been proposed as a tool for recovering these sparse features from dense activations. 
+An SAE is typically implemented as an autoencoder with a single hidden layer, trained to reconstruct model activations while keeping the hidden representation sparse using a penalty (such as an $L_1$ regularization term) \citep{huben2024sparse,bricken2023monosemanticity}. 
+The encoder maps dense activation to a high-dimensional sparse latent space, and the decoder reconstructs the original activations using a learned dictionary of monosemantic latents, which ideally corresponds to interpretable features.
+% The motivation is that if polysemantic activations arise from superposition, an SAE should decompose them into monosemantic latents, each corresponding to one feature.
+% The encoder projects the dense activations into a high-dimensional sparse latent space, and the decoder reconstructs the original activations using a dictionary of feature vectors. 
+% An SAE is an autoencoder with a single hidden layer that is trained to reconstruct its input while enforcing sparsity in the activations of the neurons in this hidden layer \cite{huben2024sparse,towardsmonosemanticity}.
+
+
+\begin{table*}[t]
+\centering
+\caption{Comparison of some sparse autoencoder (SAE) variants.}
+\label{tab:sae_types}
+\begin{tabular}{p{2.5cm}p{12.5cm}}
+\toprule
+\textbf{Type} & \textbf{Description} \\
+\midrule
+Standard ReLU \cite{bricken2023monosemanticity}
+  & Applies an $L_1$ penalty to hidden activations using a standard ReLU activation function to encourage sparsity. \\
+\addlinespace
+Gated \cite{rajamanoharan2024improving}
+  & Decouples feature detection from magnitude estimation using a gated mechanism to prevent the shrinkage issues caused by standard $L_1$ penalties. \\
+\addlinespace
+JumpReLU \cite{rajamanoharan2024jumping}
+  & Uses a discontinuous step function at a learned per-feature threshold, approximating an $L_0$ penalty through straight-through estimation. Notably used in \cite{lieberum2024gemma}. \\
+\addlinespace
+BatchTopK \cite{bussmann2024batchtopk}
+  & Retains top $n \times k$ activations over a batch of $n$ inputs and sets the rest to zero, where $k$ is a tuned hyperparameter. This forces an average of $k$ latent activations per input, so the actual $L_0$ sparsity is approximately $k$. Notably used in \cite{Brixi2026, karvonen2025saebench}. \\
+\addlinespace
+Matryoshka \cite{bussmann2025learning}
+  & Trains nested sub-dictionaries of increasing size that share a single encoder/decoder, producing multiple resolutions of feature granularity in one run. Notably used in \cite{mcdougall2025gemmascope2}. \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+Several architectural variants address limitations in the standard ReLU-based SAE (Table \ref{tab:sae_types}). For example, standard $L_1$ penalties often cause "shrinkage," where the reconstructed feature magnitudes are systematically underestimated \cite{ferrando2024primer}. Gated SAEs \cite{rajamanoharan2024improving} address this by decoupling feature detection from magnitude estimation using a gated mechanism. JumpReLU SAEs \citep{rajamanoharan2024jumping} replace the standard ReLU with a discontinuous step function at a learned threshold, optimizing an $L_0$ penalty to achieve the same decoupling.
+TopK SAEs \citep{gao2024scaling} replace the sparsity penalty by explicitly retaining only the $k$ highest pre-activations per token. BatchTopK SAEs \citep{bussmann2024batchtopk} extend this by enforcing the TopK constraint across an entire batch, allowing natural variation in the number of active latents per token while maintaining the target sparsity in expectation. Matryoshka SAEs \citep{bussmann2025learning} train nested sub-dictionaries of increasing size under a shared encoder and decoder, producing representations at multiple levels of granularity from a single training run. We use Matryoshka, BatchTopK and JumpReLU variants in this paper.
+
+% explain SAEs - https://arxiv.org/pdf/2412.06410
+
+SAE performance is typically evaluated as the pareto frontier of two metrics: $L_0$ norm of the SAE latent activations vector, which measures sparsity, and reconstruction quality (explained variance, cross-entropy increase when patching reconstructions into the model) \citep{karvonen2025saebench,ferrando2024primer,towardsmonosemanticity}.
+
+SAEs have been successfully used on exploratory interpretability tasks like model auditing \citep{marks2025auditing} and hypothesis generation \citep{movva2025sparse}, but it is unclear whether they can be used to recover the true features of models \citep{leask2025sparse, chanin2024absorption}.
+For example, \citet{leask2025sparse} show that SAEs can achieve high reconstruction quality while learning latents that do not correspond to any interpretable unit of computation.
+Therefore, reconstruction metrics are necessary but not sufficient evidence that an SAE has recovered the model's true representational structure.
+
+\citet{wattenberg2024relational} argue that matrix binding will result in echo features in SAEs, where the SAE learns latents corresponding to projections of the same feature into different binding subspaces. The effects of ID vectors and onion representations on SAEs have so far not been studied. 
+
+SAE latents are generally treated as binary features in the literature \citep{paulo2024automatically, quirke2025binary}, where they are 'on' if the feature is active and 'off' otherwise. In contrast, our results demonstrate graded latent activations in which relative activation magnitude encodes relational information, such as sequence order. If these results generalise to LLMs, then they could undermine this binary perspective. Additionally, graded latent activations may be ignored or misinterpreted by any downstream interpretability tool that assumes all features are independently interpretable and linear.
