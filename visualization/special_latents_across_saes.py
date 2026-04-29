@@ -24,7 +24,7 @@ import argparse
 # ── Config ─────────────────────────────────────────────────────────────────────
 
 SWEEP    = "theo-farrell99-durham-university/orderbyscale_sae_sweep"
-SAVE_DIR = Path(__file__).parent.parent.parent / "results" / "special_latent_analysis"
+SAVE_DIR = Path(__file__).parent.parent / "results" / "special_latent_analysis"
 SAVE_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Parse Command-Line Arguments ───────────────────────────────────────────────

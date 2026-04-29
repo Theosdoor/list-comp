@@ -19,8 +19,8 @@ WANDB_ENTITY = "theo-farrell99-durham-university"
 WANDB_PROJECT = "order-by-scale"
 DEFAULT_SWEEP_ID = "2nu3lkwf"
 
-CSV_PATH = Path(__file__).resolve().parent.parent.parent.parent / "results" / "grid_search" / "results.csv"
-OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent.parent / "results" / "grid_search"
+CSV_PATH = Path(__file__).resolve().parent.parent / "results" / "grid_search" / "results.csv"
+OUTPUT_DIR = Path(__file__).resolve().parent.parent / "results" / "grid_search"
 
 FILL_IN_BLANKS_WITH_CSV = True  # Set to True to fill in missing (LIST_LEN, N_LAYERS) combos with averages from the csv instead of leaving blank. Prints which combos are missing from wandb
 

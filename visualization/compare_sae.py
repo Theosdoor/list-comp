@@ -30,7 +30,8 @@ from src.sae.metrics import compute_sae_downstream_metrics
 # --- Configuration ---
 DEFAULT_MODEL_PATH = 'models/2layer_100dig_64d.pt'
 SAE_FOLDER = 'results/sae_models/'
-OUTPUT_FILE = f'sae_comparison_{datetime.now().strftime("%Y%m%d_%H%M%S")}.md'
+OUTPUT_FOLDER = 'report/'
+OUTPUT_FILE = f'{OUTPUT_FOLDER}sae_comparison_{datetime.now().strftime("%Y%m%d_%H%M%S")}.md'
 COMPUTE_RECON_ACC = True
 
 DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
