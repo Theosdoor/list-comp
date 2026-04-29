@@ -1,0 +1,24 @@
+{
+  "[latex]": {
+    "editor.wordWrap": "on",
+    "editor.wordWrapColumn": 80
+  },
+  "latex-workshop.latex.outDir": "%DIR%/build",
+  "latex-workshop.latex.recipes": [
+    {
+      "name": "make",
+      "tools": ["make"]
+    }
+  ],
+  "latex-workshop.latex.tools": [
+    {
+      "name": "make",
+      "command": "make",
+      "args": ["-C", "%DIR%"],
+      "env": {}
+    }
+  ],
+  "chat.tools.terminal.autoApprove": {
+    "make": true
+  }
+}
