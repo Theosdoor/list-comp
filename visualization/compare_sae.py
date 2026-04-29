@@ -419,15 +419,106 @@ def main():
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Compare SAE checkpoints")
-    parser.add_argument("--sae_folder", type=str, default=SAE_FOLDER,
-                        help="Folder to search for SAE checkpoints")
+    parser.add_argument("--sae_folders", type=str, nargs="+", default=None,
+                        help="One or more folders to search for SAE checkpoints. If not provided, uses default SAE_FOLDER")
     parser.add_argument("--model_path", type=str, default=None,
                         help="Override base model for all SAEs (useful for SAEs trained before model_path was saved in cfg)")
     args = parser.parse_args()
 
-    if args.sae_folder != SAE_FOLDER:
-        SAE_FOLDER = args.sae_folder
+    # Determine which folders to search
+    sae_folders = args.sae_folders if args.sae_folders else [SAE_FOLDER]
+    
+    # Collect SAE paths from all specified folders
+    all_sae_paths = []
+    for folder in sae_folders:
+        sae_paths = sorted(glob.glob(os.path.join(folder, "**/*.pt"), recursive=True))
+        all_sae_paths.extend(sae_paths)
+        print(f"Found {len(sae_paths)} SAEs in {folder}")
+    
+    print(f"Total {len(all_sae_paths)} SAE checkpoints across {len(sae_folders)} folder(s)")
+
+    # Group by base model
+    groups = defaultdict(list)
+    for sae_path in all_sae_paths:
+        try:
+            ck = torch.load(sae_path, map_location='cpu', weights_only=False)
+            base = ck.get("cfg", {}).get("model_path", DEFAULT_MODEL_PATH)
+        except Exception:
+            base = DEFAULT_MODEL_PATH
+        groups[base].append(sae_path)
+
+    print(f"SAEs span {len(groups)} base model(s):")
+    for mp, paths in groups.items():
+        print(f"  {mp}  ({len(paths)} SAE(s))")
+
     if args.model_path:
         DEFAULT_MODEL_PATH = args.model_path
 
-    main()
+    # Reimplement main loop with our collected paths
+    print(f"\nUsing device: {DEVICE}")
+    results = []
+
+    for model_path, group_sae_paths in groups.items():
+        print(f"\n{'='*60}")
+        print(f"Base model: {model_path}")
+        print(f"{'='*60}")
+
+        if not os.path.exists(model_path):
+            print(f"  ✗ Model file not found, skipping {len(group_sae_paths)} SAE(s)")
+            continue
+
+        model, model_cfg = _load_base_model(model_path)
+        print(f"✓ Loaded model")
+
+        n_digits = model_cfg['d_vocab'] - 2
+        list_len = model_cfg['list_len']
+        sep_idx = list_len
+
+        configure_runtime(
+            list_len=list_len,
+            seq_len=list_len * 2 + 1,
+            vocab=model_cfg['d_vocab'],
+            device=DEVICE,
+        )
+
+        train_ds, val_ds = get_dataset(list_len=list_len, n_digits=n_digits)
+        full_dl = DataLoader(ConcatDataset([train_ds, val_ds]), batch_size=2048, shuffle=False)
+
+        print("Collecting activations and attention weights...")
+        sep_acts, d1_all, d2_all, alpha_d1_all, alpha_d2_all = collect_activations(
+            model, full_dl, sep_idx
+        )
+        n_samples = len(sep_acts)
+        print(f"✓ Collected {n_samples} samples")
+
+        for sae_path in tqdm(group_sae_paths, desc="Evaluating SAEs"):
+            name = os.path.basename(sae_path).replace('.pt', '')
+            print(f"\nEvaluating: {name}")
+            try:
+                sae, act_mean, _ = load_sae(sae_path)
+                metrics = evaluate_sae(
+                    sae, act_mean, sep_acts, d1_all, d2_all, n_digits,
+                    alpha_d1_all=alpha_d1_all, alpha_d2_all=alpha_d2_all,
+                    model=model, val_dl=full_dl, sep_idx=sep_idx,
+                )
+                metrics['name'] = name
+                metrics['n_samples'] = n_samples
+                metrics['base_model'] = os.path.basename(model_path)
+                results.append(metrics)
+
+                status = f"  L0: {metrics['l0']:.2f}, Dead: {metrics['n_dead']}/{metrics['d_sae']} ({metrics['dead_pct']:.1f}%)"
+                if 'patched_task_acc' in metrics:
+                    status += f", Patched Task Acc: {metrics['patched_task_acc']:.4f}"
+                print(status)
+            except Exception as e:
+                print(f"  ✗ Error: {e}")
+
+    # Generate report
+    if results:
+        report = generate_markdown_report(results, OUTPUT_FILE)
+        print(f"\n{'='*60}")
+        print(f"✓ Report saved to {OUTPUT_FILE}")
+        print(f"{'='*60}\n")
+        print(report)
+    else:
+        print("\nNo SAE models found to compare.")
