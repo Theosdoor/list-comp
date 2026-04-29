@@ -3,7 +3,7 @@
 In this paper we identified a previously undescribed mechanism for relational composition in transformers, which we call relative magnitude-based composition: the model encodes bigram order through the relative sizes of scalar attention weights rather than through distinct directions in the activation space. 
 We characterised this mechanism mathematically via circuit  analysis, showed that SAEs trained on this model reliably learn graded special latents whose activation magnitudes correlate with $\Delta\alpha$, and demonstrated that steering these latents reverses the model's predicted output for over 50\% of inputs. 
 These results indicate that the activation values of SAE latents, and not only their active/inactive status, carry information that is necessary for understanding model behaviour in this setting, which is a different perspective on transformer features than is currently prevalent in the mechanistic interpretability literature.
-We release our trained transformers and SAEs to support future work and reproducibility of our results here: \url{https://wandb.ai/theo-farrell99-durham-university/order-by-scale}, \url{https://wandb.ai/theo-farrell99-durham-university/orderbyscale_sae_sweep}.
+We release our trained SAEs and wandb training runs to support future work and reproducibility of our results.
 
 
 \subsection*{Limitations}

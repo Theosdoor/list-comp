@@ -14,16 +14,6 @@
     \label{fig:sae-heatmap}
 \end{figure*} 
 
-\begin{figure*}[htbp]
-    \centering
-    \includegraphics[width=0.8\linewidth]{figures/firing_rate_histogram.pdf}
-    \caption{
-        This histogram shows the distribution of firing rates for the SAE checkpoint's latents. The y-axis uses a symmetric logarithmic scale with a linear scale between $[-1, 1]$.
-        A given latent's firing rate is the proportion of inputs which cause that latent to activate.
-        The special latents are the only ones with a firing rate greater than one standard deviation from the mean (mean: 0.0236, standard deviation: 0.0559): latent 11 has rate 0.6400, latent 56 has rate 0.0991.
-        }
-    \label{fig:firing_rate_histogram}
-\end{figure*} 
 
 For the selected BatchTopK SAE checkpoint (Table \ref{tab:sae_config}) trained on the residual at \texttt{SEP}, $\boldsymbol r_{s}^{L_1}$, we inspect the learned latents and their activations for different input bigrams. 
 We plot a heatmap for each latent to provide a visual overview of the bigrams that activate it, as shown in Figure \ref{fig:sae-heatmap}.
