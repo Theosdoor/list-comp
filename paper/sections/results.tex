@@ -123,6 +123,7 @@ In limited experiments with inputs that fail for the first three causes, it is s
 \label{tab:latent_swap_metrics}
 \vspace{0.5em}
 \setlength{\tabcolsep}{3pt}
+\resizebox{\linewidth}{!}{%
 \begin{tabular}{@{}cccc@{}}
 \toprule
 \textbf{Latent} & \textbf{Swapped} & \textbf{No Activation} & \textbf{Active \& No Swap} \\
@@ -137,6 +138,7 @@ In limited experiments with inputs that fail for the first three causes, it is s
 117 & 37 (0.4\%)  & 9782 (97.8\%) & 181 (1.8\%)  \\
 \bottomrule
 \end{tabular}
+}
 \end{table}
 
 We additionally steer latent 56 and successfully swap 2.0\% of outputs, which is part of the 36\% of inputs that do not activate latent 11 since the two special latents never coactivate. 

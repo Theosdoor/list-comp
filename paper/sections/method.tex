@@ -26,6 +26,7 @@ Fixed parameters across all runs: 50{,}000 training steps, 1{,}000 warmup steps,
 Total run counts are the product of all swept values and seeds. Note that $n_\text{groups}=1$ in a Matryoshka SAE reduces it to a standard BatchTopK SAE, so this serves as an internal consistency check.
 }
 \label{tab:sae_sweep_configs}
+\resizebox{\linewidth}{!}{%
 \begin{tabular}{ll}
 \toprule
 \textbf{Shared Parameters} & \textbf{Swept Values} \\
@@ -50,6 +51,7 @@ JumpReLU & 5 seeds / 640 runs \\
 Matryoshka & 15 seeds / 540 runs \\
 \bottomrule
 \end{tabular}
+}
 \end{table}
 % NOTE maybe each SAE should have equal number of runs to avoid bias in aggregate stats?
 
@@ -62,6 +64,7 @@ It is not feasible to analyse every SAE under every reasonable hyperparameter co
 \textbf{Bold}: best within each $L_0$ block; \underline{\textbf{underlined}}: best overall.}
 \label{tab:sae_sweep}
 
+\resizebox{\linewidth}{!}{%
 \begin{tabular}{ccrrrr}
 \toprule
 $L_0$ & $d_\text{SAE}$ & EV ($\uparrow$) & PCE ($\downarrow$) & Dead \% ($\downarrow$) \\
@@ -102,6 +105,7 @@ $L_0$ & $d_\text{SAE}$ & EV ($\uparrow$) & PCE ($\downarrow$) & Dead \% ($\downa
   5 & 384 & $0.9894 \pm 0.0015$ & $0.2275 \pm 0.0187$ & 15.9 $\pm$ 13.5 \\
 \bottomrule
 \end{tabular}
+}
 
 \end{table}
 % TODO update with new sweep
@@ -119,15 +123,15 @@ We compute the metrics over the combined training and test dataset consisting of
 Our grid-search shows that BatchTopK SAEs with $k = 1$ and $k=2$ perform much worse than other SAEs for both PCE and EV. BatchTopK SAEs with $k \in [3,5]$ are joint-best for EV up to 3 s.f. and PCE up to 2 s.f. We take $k=3$ because performance difference is negligible and lower sparsity typically improves interpretability and analysis: with at most 3 latents active per token, we can more easily exhaustively analyse each latent's role in any given computation.
 
 SAEs with $d_\text{sae} \in [128,320]$ perform best for EV and PCE. 
-$d_\text{sae} = 64$ performs poorly because the baseline transformer has 64 dimensions which are likely polysemantic, in which case it is not tractable to expand each model dimension into monosemantic SAE latents. Although predictable, we show this result to demonstrate the importance of SAE dimensionality choice.
+$d_\text{sae} = 64$ performs poorly because the transformer has 64 dimensions which are likely polysemantic, making it difficult to expand each model dimension into monosemantic SAE latents. We show this result to demonstrate the importance of SAE dimension choice.
 Conversely, when $d_\text{sae}$ is too large, dead latents increase sharply (Table~\ref{tab:sae_sweep}), indicating that the dictionary size exceeds what the model's representations actually need to be represented monosemantically.
 
 \begin{table}[htbp]
-\caption{Selected SAE checkpoint architecture and training configuration used for in-depth analysis. The learning rate, optimiser, betas, schedule and auxiliary loss are the defaults from \cite{bussmann2024batchtopk,marks2024dictionary_learning}, and were constant for all trained BatchTopK SAEs.
-}
+\caption{Selected SAE configuration. The learning rate, optimiser, betas, schedule and auxiliary loss are defaults from \cite{bussmann2024batchtopk,marks2024dictionary_learning} and were constant for all BatchTopK runs.}
 \label{tab:sae_config}
 \centering
-\begin{tabular}{lp{3.8cm}}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{ll}
 \toprule
 \textbf{Parameter} & \textbf{Value} \\
 \midrule
@@ -154,6 +158,7 @@ Seed & 1 \\
 Hardware & NVIDIA GeForce RTX 2080 Ti \\
 \bottomrule
 \end{tabular}
+}
 \end{table}
 
 We therefore study a BatchTopK SAE with $k = 3$ and $d_\text{SAE} = 128$, as shown in Table \ref{tab:sae_config}. Among the trained checkpoints with this configuration, we select the one with the fewest dead latents ($3.1\%$), which is far below the $k=3, d_\text{SAE}=128$ group average of $10.9 \pm 5.3\%$, and achieves 0.9919 EV and 0.1796 PCE. This checkpoint selection introduces selection bias toward high-performing models. We address this by confirming across 1,630 diverse SAEs that special latents (identifiable by $\Delta\alpha$ correlation) emerge reliably regardless of configuration, establishing that our findings are not specific to this checkpoint.
