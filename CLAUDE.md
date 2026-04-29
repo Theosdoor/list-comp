@@ -24,13 +24,13 @@ Key - don't forget to use the .venv for python execution. Also ensure all subage
 
 ## Canonical Workflows
 - Environment: `uv sync` then `source .venv/bin/activate`.
-- Train model: `python3 scripts/nb_train_model.py ...` (supports retries until `--min-acc`; saves to `models/`).
-- Train SAE: `python3 scripts/nb_train_sae.py --d_sae ... --top_k ... --n_steps ...`.
+- Train model: `python3 scripts/train_model.py ...` (supports retries until `--min-acc`; saves to `models/`).
+- Train SAE: `python3 scripts/train_sae.py --d_sae ... --top_k ... --n_steps ...`.
 - Run crossover pipeline: `python3 scripts/run_crossover_analysis.py [--feature auto] [--threshold 0.5] [--max-features 2] [--report]`
   - Auto mode (default): detects special features via attention-correlation, runs pipeline for up to `--max-features` features.
   - Override mode: `--feature 30` skips detection and runs only that index.
   - Results layout: `results/xover/<sae_name>/special_features.md` (auto mode) and `results/xover/<sae_name>/<feat_idx>/` per feature.
-- SAE sweep comparison: `python3 scripts/nb_compare_sae.py` (evaluates all checkpoints in `results/sae_models/`, writes a markdown comparison table).
+- SAE sweep comparison: `python3 visualisation/compare_sae.py` (evaluates all checkpoints in `results/sae_models/`, writes a markdown comparison table).
 - WandB sweeps: `wandb sweep sweeps/<config>.yaml` then `wandb agent <sweep_id>` (or `sbatch slurm/submit_2layer_sweep.sh <sweep_id>`).
 - Cluster/GPU workflow is captured in `slurm/submit_job.sh` (sync env, activate `.venv`, run analysis scripts).
 

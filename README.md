@@ -123,13 +123,13 @@ The SAE is trained on SEP-token activations extracted from a pre-trained model. 
 
 ```bash
 # Full mechanistic interpretability analysis
-python3 scripts/interpret_model.py
+python3 scripts/nb_model_interp.py
 
 # Feature steering crossover analysis
 python3 scripts/run_crossover_analysis.py
 
 # Compare SAE reconstructions (specify folders instead of scanning all)
-python3 visualization/compare_sae.py \
+python3 visualisation/compare_sae.py \
   --sae_folders sweep_k2bsjr0n results/sae_models/sweep_tbxyl1y7 sweep_xliz4f19
 ```
 
