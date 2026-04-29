@@ -20,9 +20,9 @@ parameters:
   d_sae:
     values: [128, 192, 256, 320]
   top_k:
-    values: [3, 4, 5]
+    values: [1,2,3, 4, 5]
   n_groups:
-    values: [1, 2, 4] # 1 group is equivalent to BTK, 2 and 4 groups are the new matryoshka settings
+    values: [2, 3, 4] # 1 group is equivalent to BTK
   lr:
     value: 3e-4
   n_steps:

@@ -19,6 +19,26 @@ python3 -c "import torch; print(f'[slurm] CUDA Available: {torch.cuda.is_availab
 echo "------------------------------------------------------"
 
 # python visualization/compare_sae.py --sae_folders results/sae_models/sweep_k2bsjr0n results/sae_models/sweep_tbxyl1y7 results/sae_models/sweep_xliz4f19
-python scripts/plot_sae_sweep.py --exclude-d-sae 100 448 512 --exclude-runs-col --exclude-special-col
+# python scripts/plot_sae_sweep.py --exclude-d-sae 100 448 512 --exclude-runs-col --exclude-special-col
+
+python3 scripts/compute_sae_metrics.py \
+   --sae-folder results/sae_models \
+   --thresholds 0.1 0.3 0.5 0.8
+
+python3 visualisation/special_latents_across_saes.py \
+   --local-folder results/sae_models/sweep_tbxyl1y7 \
+   --threshold 0.3
+
+python3 visualisation/special_latents_across_saes.py \
+   --local-folder results/sae_models/sweep_xliz4f19 \
+   --threshold 0.3
+
+python3 visualisation/special_latents_across_saes.py \
+   --local-folder results/sae_models/sweep_k2bsjr0n \
+   --threshold 0.3
+
+python3 visualisation/special_latents_across_saes.py \
+   --local-folder results/sae_models/sweep_k2bsjr0n results/sae_models/sweep_xliz4f19 results/sae_models/sweep_tbxyl1y7\
+   --threshold 0.3
 
 echo "[slurm] Finished at $(date)"

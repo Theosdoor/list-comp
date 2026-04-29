@@ -11,7 +11,7 @@ parameters:
   sae_type:
     value: btk
   d_sae:
-    values: [64, 128, 192, 256, 320, 384] # include all these for grid search (but focus on 128-320 for analysis)
+    values: [128, 192, 256, 320, 384] # include all these for grid search (but focus on 128-320 for analysis)
   top_k:
     values: [1, 2, 3, 4, 5]               # k=1,2 are clearly insufficient (see v1 findings above), but keep them for grid search in paper
   lr:

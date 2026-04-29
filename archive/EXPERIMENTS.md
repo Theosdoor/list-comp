@@ -1,5 +1,14 @@
 # Experiments
 
+## viz of ev/pce corr with n special latents (2026-04-29)
+
+```bash
+python3 visualisation/special_latents_across_saes.py \
+   --local-folder results/sae_models/sweep_tbxyl1y7 \
+   --threshold 0.3
+  #  --wandb-project user/project \
+```
+
 ## BTK SAE Sweep (2026-04-24)
 
 Run slurm/submit_sae_sweep.sh and uncomment relevant parts
@@ -75,3 +84,4 @@ Latex table goes in rq2 method
 ```bash
 python scripts/plot_sae_sweep.py --exclude-d-sae 100 448 512 --exclude-runs-col --exclude-special-col
 ```
+
