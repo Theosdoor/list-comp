@@ -1,12 +1,10 @@
-models/2_layer_sweep
-
 *.err
 wandb/
 results/*
-!results/grid_search
 .claude/*
 .worktrees/*
 slurm/*
+sae_checkpoints/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

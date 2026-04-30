@@ -20,5 +20,20 @@
   ],
   "chat.tools.terminal.autoApprove": {
     "make": true
-  }
+  },
+  "files.watcherExclude": {
+    "**/.worktrees/**": true,
+    "**/.venv/**": true,
+    "**/results/**": true,
+    "**/wandb/**": true,
+    "**/models/**": true,
+    "**/.rtk/**": true,
+    "**/data/**": true
+  },
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true,
+    "**/.venv": true,
+    "uv.lock": true
+  },
 }

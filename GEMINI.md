@@ -1,6 +1,6 @@
-# AGENTS.md
+# Gemini.md
 
-This file provides guidance to LLM coding agents when working with code in this repository.
+This file provides guidance to Gemini when working with code in this repository.
 
 Key - don't forget to use the .venv for python execution. Also ensure all subagents also use rtk
 
