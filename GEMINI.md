@@ -17,7 +17,7 @@ Key - don't forget to use the .venv for python execution. Also ensure all subage
 - `src/models/utils.py::accuracy()` is per-token accuracy (each output token contributes independently).
 
 ## SAE Conventions
-- SAE checkpoints in `results/sae_models/` include `state_dict`, `cfg`, and `act_mean`.
+- SAE checkpoints in `sae_checkpoints/` include `state_dict`, `cfg`, and `act_mean`.
 - Always load and pass `act_mean` when collecting/patching activations (see `scripts/run_crossover_analysis.py`).
 - For feature steering/crossover work, main entry points are in `src/sae/steering.py`: `get_xovers_df`, `get_output_swap_bounds`, `swap_outputs`.
 - "Special" features are identified via `identify_special_features` in `src/sae/activation_collection.py`: features whose activation correlates strongly (|r| > threshold) with the SEP attention difference `alpha_d1 − alpha_d2`. Requires `collect_attention_patterns` to obtain `alpha_d1_all`/`alpha_d2_all` first.
@@ -30,7 +30,7 @@ Key - don't forget to use the .venv for python execution. Also ensure all subage
   - Auto mode (default): detects special features via attention-correlation, runs pipeline for up to `--max-features` features.
   - Override mode: `--feature 30` skips detection and runs only that index.
   - Results layout: `results/xover/<sae_name>/special_features.md` (auto mode) and `results/xover/<sae_name>/<feat_idx>/` per feature.
-- SAE sweep comparison: `python3 visualisation/compare_sae.py` (evaluates all checkpoints in `results/sae_models/`, writes a markdown comparison table).
+- SAE sweep comparison: `python3 visualisation/compare_sae.py` (evaluates all checkpoints in `sae_checkpoints/`, writes a markdown comparison table).
 - WandB sweeps: `wandb sweep sweeps/<config>.yaml` then `wandb agent <sweep_id>` (or `sbatch slurm/submit_2layer_sweep.sh <sweep_id>`).
 - Cluster/GPU workflow is captured in `slurm/submit_job.sh` (sync env, activate `.venv`, run analysis scripts).
 
@@ -42,7 +42,7 @@ Key - don't forget to use the .venv for python execution. Also ensure all subage
 
 ## Current Baselines and Files
 - Common base model: `models/2layer_100dig_64d.pt`.
-- Common SAE: `results/sae_models/sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt` (feature-30 was the manually-identified special feature; auto-detection now finds this automatically).
+- Common SAE: `sae_checkpoints/sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt` (feature-30 was the manually-identified special feature; auto-detection now finds this automatically).
 - Key reference files: `src/data/datasets.py`, `src/models/transformer.py`, `src/models/utils.py`, `src/utils/nb_utils.py`, `src/sae/steering.py`, `src/sae/reporting.py` (failure-reason classification and markdown report generation).
 
 ## Reproducibility Requirement

@@ -4,7 +4,7 @@ Inspect what's stored in local SAE checkpoint files.
 
 Usage:
     python scripts/inspect_saes.py path/to/sae_models/
-    python scripts/inspect_saes.py results/sae_models/ results/sae_models/sweep_runs/
+    python scripts/inspect_saes.py sae_checkpoints/ sae_checkpoints/sweep_runs/
     python scripts/inspect_saes.py path/to/single_checkpoint.pt
 """
 

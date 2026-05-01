@@ -147,7 +147,7 @@ def load_sae(
         sae_name: Name of the SAE file (e.g., 'sae_d100_k4_50ksteps_2layer_100dig_64d.pt')
         d_model: Dimension of model activations
         device: Device to load SAE on (auto-detected if None)
-        sae_dir: Directory containing SAE checkpoints (defaults to project root/results/sae_models)
+        sae_dir: Directory containing SAE checkpoints (defaults to project root/sae_checkpoints)
     
     Returns:
         tuple: (sae, sae_config) where sae_config contains:

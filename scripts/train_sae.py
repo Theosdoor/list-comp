@@ -462,7 +462,7 @@ def train_sae_sweep():
     run = wandb.init()
     cfg = wandb.config
     sweep_id = run.sweep_id or "standalone"
-    _train(cfg, use_wandb=True, save_folder=f"results/sae_models/sweep_{sweep_id}")
+    _train(cfg, use_wandb=True, save_folder=f"sae_checkpoints/sweep_{sweep_id}")
 
 
 def main():
@@ -480,7 +480,7 @@ def main():
     parser.add_argument("--warmup_steps", type=int, default=1000)
     parser.add_argument("--batch_size", type=int, default=4096)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--save_folder", type=str, default="results/sae_models")
+    parser.add_argument("--save_folder", type=str, default="sae_checkpoints")
     parser.add_argument("--model_path", type=str, default=None,
                         help="Path to transformer checkpoint (default: models/2layer_100dig_64d.pt)")
     args = parser.parse_args()

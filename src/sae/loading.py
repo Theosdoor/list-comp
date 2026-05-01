@@ -59,7 +59,7 @@ def instantiate_sae_from_cfg(cfg: dict, d_model: int, device: str):
         )
 
 
-def load_sae_from_local(sae_name, d_model, device="cuda", sae_dir="../results/sae_models"):
+def load_sae_from_local(sae_name, d_model, device="cuda", sae_dir="../sae_checkpoints"):
     """
     Load a Sparse Autoencoder (SAE) from local checkpoint.
 
@@ -175,7 +175,7 @@ def load_sae_from_wandb_run(run_id, project="theo-farrell99-durham-university/li
         model_name = run_config.get('model_name', '2layer_100dig_64d')
         lr = run_config.get('lr')
         sae_filename = f"{sae_type}_sae_d{d_sae}_k{top_k}_lr{lr}_seed{seed}_{model_name}.pt"
-        sae_path = os.path.join('../results/sae_models/sweep_runs', sae_filename)
+        sae_path = os.path.join('../sae_checkpoints/sweep_runs', sae_filename)
         
         if not os.path.exists(sae_path):
             raise FileNotFoundError(f"SAE not found at: {sae_path}")

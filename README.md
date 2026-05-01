@@ -117,7 +117,7 @@ python3 scripts/train_sae.py \
   --d_sae 150 --top_k 4 --n_steps 50000
 ```
 
-The SAE is trained on SEP-token activations extracted from a pre-trained model. Checkpoints are saved to `results/sae_models/`.
+The SAE is trained on SEP-token activations extracted from a pre-trained model. Checkpoints are saved to `sae_checkpoints/`.
 
 ### Interpretability & Analysis
 
@@ -130,14 +130,14 @@ python3 scripts/run_crossover_analysis.py
 
 # Compare SAE reconstructions (specify folders instead of scanning all)
 python3 visualisation/compare_sae.py \
-  --sae_folders sweep_k2bsjr0n results/sae_models/sweep_tbxyl1y7 sweep_xliz4f19
+  --sae_folders sweep_k2bsjr0n sae_checkpoints/sweep_tbxyl1y7 sweep_xliz4f19
 ```
 
 **SAE Comparison Flags:**
 
 | Flag | Description |
 |---|---|
-| `--sae_folders` | One or more folders to search for SAE checkpoints (space-separated). If not provided, defaults to `results/sae_models/` |
+| `--sae_folders` | One or more folders to search for SAE checkpoints (space-separated). If not provided, defaults to `sae_checkpoints/` |
 | `--model_path` | Override base model for all SAEs |
 
 ### Download Checkpoints from WandB
@@ -152,7 +152,7 @@ python3 scripts/download_wandb_checkpoints.py \
   --entity theo-farrell99-durham-university \
   --project orderbyscale_sae_sweep \
   --artifact_type sae_model \
-  --output_dir results/sae_models/wandb/
+  --output_dir sae_checkpoints/wandb/
 
 # Download transformer models
 python3 scripts/download_wandb_checkpoints.py \
@@ -166,14 +166,14 @@ python3 scripts/download_wandb_checkpoints.py \
   --entity theo-farrell99-durham-university \
   --project orderbyscale_sae_sweep \
   --runs run1_id run2_id run3_id \
-  --output_dir results/sae_models/wandb/
+  --output_dir sae_checkpoints/wandb/
 
 # Filter by artifact name
 python3 scripts/download_wandb_checkpoints.py \
   --entity theo-farrell99-durham-university \
   --project orderbyscale_sae_sweep \
   --name_filter final \
-  --output_dir results/sae_models/wandb/
+  --output_dir sae_checkpoints/wandb/
 ```
 
 Make sure you're logged into WandB: `wandb login`

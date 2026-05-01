@@ -40,7 +40,7 @@ def parse_args():
     p.add_argument("--model_path", default=None,
                    help="Full path to model checkpoint (overrides --model; infers config from weights)")
     p.add_argument("--sae", default="sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt",
-                   help="SAE checkpoint filename (relative to results/sae_models/) or full path")
+                   help="SAE checkpoint filename (relative to sae_checkpoints/) or full path")
     p.add_argument("--feature", type=str, default="auto", dest="feature_idx",
                    help="SAE feature index to analyse ('auto' to detect, or an integer to override)")
     p.add_argument("--threshold", type=float, default=0.5,
@@ -128,9 +128,9 @@ def run_pipeline(args):
         list_len = model_cfg["list_len"]
         sep_idx = model_cfg["sep_token_index"]
 
-    # Resolve SAE path: treat as full path if it contains a separator, else relative to results/sae_models/
+    # Resolve SAE path: treat as full path if it contains a separator, else relative to sae_checkpoints/
     sae_path = args.sae if os.path.sep in args.sae or os.path.isabs(args.sae) \
-        else os.path.join("results/sae_models", args.sae)
+        else os.path.join("sae_checkpoints", args.sae)
 
     sae, sae_cfg = load_sae(os.path.basename(sae_path), d_model, device=device,
                              sae_dir=os.path.dirname(sae_path))
