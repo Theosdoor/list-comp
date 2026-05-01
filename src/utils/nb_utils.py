@@ -135,7 +135,7 @@ def load_transformer_model(
 
 
 def load_sae(
-    sae_name,
+    sae_path,
     d_model,
     device=None,
     sae_dir=None
@@ -144,10 +144,15 @@ def load_sae(
     Load a Sparse Autoencoder (SAE) from checkpoint.
     
     Args:
-        sae_name: Name of the SAE file (e.g., 'sae_d100_k4_50ksteps_2layer_100dig_64d.pt')
+        sae_path: Path to SAE checkpoint. Can be:
+            - A folder containing a .pt file (recommended)
+            - A .pt file directly (legacy, will warn)
+            - A relative path from sae_dir (if sae_dir is provided)
+            - A relative path from sae_checkpoints/ (if sae_dir is None)
         d_model: Dimension of model activations
         device: Device to load SAE on (auto-detected if None)
-        sae_dir: Directory containing SAE checkpoints (defaults to project root/sae_checkpoints)
+        sae_dir: Directory containing SAE checkpoints (defaults to project root/sae_checkpoints).
+                 Ignored if sae_path is absolute or if sae_path already exists.
     
     Returns:
         tuple: (sae, sae_config) where sae_config contains:
@@ -158,15 +163,47 @@ def load_sae(
     if device is None:
         device = get_device()
     
-    # Determine SAE directory
+    # Convert to Path object
+    sae_path = Path(sae_path)
+    
+    # Resolve project root
     if sae_dir is None:
         project_root = Path(__file__).parent.parent.parent  # src/utils/ -> project root
-        sae_dir = project_root / "results" / "sae_models"
+        sae_dir = project_root / "sae_checkpoints"
     else:
+        project_root = sae_dir.parent if isinstance(sae_dir, Path) else Path(sae_dir).parent
         sae_dir = Path(sae_dir)
     
+    # If not absolute, resolve relative to sae_dir or project_root
+    if not sae_path.is_absolute():
+        # Check if path already starts with sae_checkpoints (avoid double-prefixing)
+        sae_dir_name = sae_dir.name
+        if sae_path.parts and sae_path.parts[0] == sae_dir_name:
+            # Path already starts with 'sae_checkpoints', use it relative to project root
+            sae_path = project_root / sae_path
+        elif not sae_path.exists():
+            # Path doesn't exist and doesn't start with sae_checkpoints, so prepend sae_dir
+            sae_path = sae_dir / sae_path
+        # else: Path exists as-is (relative to cwd), keep it as-is
+    
+    # If it's a directory, find the .pt file inside
+    if sae_path.is_dir():
+        pt_files = list(sae_path.glob("*.pt"))
+        if len(pt_files) == 0:
+            raise ValueError(f"No .pt files found in SAE directory: {sae_path}")
+        if len(pt_files) > 1:
+            raise ValueError(f"Multiple .pt files found in SAE directory {sae_path}: {[f.name for f in pt_files]}. Please specify the exact file.")
+        sae_path = pt_files[0]
+    
+    # If it ends with .pt, thats fine!
+    if sae_path.suffix == ".pt":
+        # Check if there's a parent folder that might be the intended SAE folder
+        parent_dir = sae_path.parent
+        other_pt_files = [f for f in parent_dir.glob("*.pt") if f != sae_path]
+        # if len(other_pt_files) == 0:
+        #     print(f"⚠ Note: You passed a .pt file directly. In the future, pass the folder instead: {parent_dir}")
+    
     # Load checkpoint
-    sae_path = sae_dir / sae_name
     checkpoint = torch.load(str(sae_path), map_location=device, weights_only=False)
     
     # Extract config
