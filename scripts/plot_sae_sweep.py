@@ -29,7 +29,7 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--report", type=Path, default=None,
                    help="Path to sae_comparison_*.md (default: most recent in project root)")
-    p.add_argument("--output-dir", type=Path, default=Path("report/figures"),
+    p.add_argument("--output-dir", type=Path, default=Path("results/compare_sae/figures"),
                    help="Directory to write figure and table files")
     p.add_argument("--l0-values", type=int, nargs="+", default=[1, 2, 3, 4, 5],
                    help="L0 values to include (default: 1 2 3 4 5)")

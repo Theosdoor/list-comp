@@ -140,49 +140,6 @@ python3 visualisation/compare_sae.py \
 | `--sae_folders` | One or more folders to search for SAE checkpoints (space-separated). If not provided, defaults to `sae_checkpoints/` |
 | `--model_path` | Override base model for all SAEs |
 
-### Download Checkpoints from WandB
-
-Download artifacts (models or SAE checkpoints) from WandB projects. The following projects are public:
-- **SAE Sweep:** https://wandb.ai/theo-farrell99-durham-university/orderbyscale_sae_sweep/
-- **Transformer Models:** https://wandb.ai/theo-farrell99-durham-university/order-by-scale/
-
-```bash
-# Download all SAEs from the sweep project
-python3 scripts/download_wandb_checkpoints.py \
-  --entity theo-farrell99-durham-university \
-  --project orderbyscale_sae_sweep \
-  --artifact_type sae_model \
-  --output_dir sae_checkpoints/wandb/
-
-# Download transformer models
-python3 scripts/download_wandb_checkpoints.py \
-  --entity theo-farrell99-durham-university \
-  --project order-by-scale \
-  --artifact_type model \
-  --output_dir models/wandb/
-
-# Download from specific runs only
-python3 scripts/download_wandb_checkpoints.py \
-  --entity theo-farrell99-durham-university \
-  --project orderbyscale_sae_sweep \
-  --runs run1_id run2_id run3_id \
-  --output_dir sae_checkpoints/wandb/
-
-# Filter by artifact name
-python3 scripts/download_wandb_checkpoints.py \
-  --entity theo-farrell99-durham-university \
-  --project orderbyscale_sae_sweep \
-  --name_filter final \
-  --output_dir sae_checkpoints/wandb/
-```
-
-Make sure you're logged into WandB: `wandb login`
-
-### WandB Hyperparameter Sweeps
-
-```bash
-wandb sweep sweep_configs/<config>.yaml
-wandb agent <sweep_id>
 ```
 
 ## Model Architecture

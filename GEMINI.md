@@ -1,102 +1,61 @@
-# Gemini.md
+# GEMINI.md
 
-This file provides guidance to Gemini when working with code in this repository.
+This file provides foundational guidance for Gemini when working in this repository. 
 
-Key - don't forget to use the .venv for python execution. Also ensure all subagents also use rtk
+## Project Overview
+This repository focuses on the **mechanistic interpretability** of small, attention-only transformers trained on a **list-copy task**. The core research explores how these models compress list representations into a `SEP` token and subsequently decompose them to produce outputs.
 
-## Scope and Task Shape
-- This repo studies mechanistic behavior in small attention-only transformers on a list-copy task.
-- Canonical sequence format is `[d1, d2, SEP, o1, o2]` where outputs must copy inputs (not sort).
-- Token IDs are conventionally `MASK = n_digits` and `SEP = n_digits + 1`; output slice is `[:, list_len + 1:]`.
+### Task & Data Format
+- **Canonical Sequence:** `[d1, d2, SEP, o1, o2]`.
+- **Goal:** Copy inputs (not sort). `o1` should match `d1`, `o2` should match `d2`.
+- **Tokens:** `MASK = n_digits`, `SEP = n_digits + 1`.
+- **Output Slice:** `[:, list_len + 1:]`.
 
-## Core Architecture and Data Flow
-- `src/data/datasets.py::get_dataset()` builds all `n_digits^list_len` combinations and returns `(train_ds, val_ds)` with default `train_split=0.8`.
-- `src/models/transformer.py` defines custom attention masks (`build_attention_mask`, `attach_custom_mask`) implementing task-specific routing.
-- `src/utils/runtime.py::configure_runtime()` sets global `_RUNTIME` values used across model/util code; many helpers assert these are configured.
-- `src/utils/nb_utils.py::load_transformer_model()` configures runtime and returns `(model, model_cfg)`; use this as the default loader in analysis code.
-- `src/models/utils.py::accuracy()` is per-token accuracy (each output token contributes independently).
+## Core Architecture & Data Flow
+- **Attention-Only:** No MLPs by default.
+- **SEP Bottleneck:** Information must flow `inputs → SEP (Layer 0) → outputs (Layer 1+)`.
+- **Custom Attention Masks** (defined in `src/models/transformer.py`):
+    - **`mask_bias_l0` (Layer 0):** `SEP` reads input digits; output tokens (`o1`, `o2`) can only self-attend.
+    - **`mask_bias` (Layers 1+):** Output tokens read from `SEP` and causally prior outputs; input tokens are blocked from reading outputs.
+- **Runtime Configuration:** Managed via `src/utils/runtime.py`. Helpers like `configure_runtime` set global values (`list_len`, `device`, etc.) used across the codebase.
 
-## SAE Conventions
-- SAE checkpoints in `sae_checkpoints/` include `state_dict`, `cfg`, and `act_mean`.
-- Always load and pass `act_mean` when collecting/patching activations (see `scripts/run_crossover_analysis.py`).
-- For feature steering/crossover work, main entry points are in `src/sae/steering.py`: `get_xovers_df`, `get_output_swap_bounds`, `swap_outputs`.
-- "Special" features are identified via `identify_special_features` in `src/sae/activation_collection.py`: features whose activation correlates strongly (|r| > threshold) with the SEP attention difference `alpha_d1 − alpha_d2`. Requires `collect_attention_patterns` to obtain `alpha_d1_all`/`alpha_d2_all` first.
+## Sparse Autoencoders (SAEs)
+- **Class:** `dictionary_learning.trainers.batch_top_k.BatchTopKSAE`.
+- **Training Target:** Trained on `SEP` token activations from Layer 0.
+- **"Special" Features:** Identified in `src/sae/activation_collection.py` by correlating latent activations with the attention difference `alpha_d1 - alpha_d2` at the `SEP` token. A threshold (default 0.5) is used.
+- **Crossover Analysis:** Scaling special features to swap model outputs (e.g., forcing `(d1, d2) → (d2, d1)`).
+    - **`o1` Crossover:** Detected via **linear fit** (highly linear empirically).
+    - **`o2` Crossover:** Detected via **grid search + bisection** (nonlinear behavior).
 
-## Canonical Workflows
-- Environment: `uv sync` then `source .venv/bin/activate`.
-- Train model: `python3 scripts/train_model.py ...` (supports retries until `--min-acc`; saves to `models/`).
-- Train SAE: `python3 scripts/train_sae.py --d_sae ... --top_k ... --n_steps ...`.
-- Run crossover pipeline: `python3 scripts/run_crossover_analysis.py [--feature auto] [--threshold 0.5] [--max-features 2] [--report]`
-  - Auto mode (default): detects special features via attention-correlation, runs pipeline for up to `--max-features` features.
-  - Override mode: `--feature 30` skips detection and runs only that index.
-  - Results layout: `results/xover/<sae_name>/special_features.md` (auto mode) and `results/xover/<sae_name>/<feat_idx>/` per feature.
-- SAE sweep comparison: `python3 visualisation/compare_sae.py` (evaluates all checkpoints in `sae_checkpoints/`, writes a markdown comparison table).
-- WandB sweeps: `wandb sweep sweeps/<config>.yaml` then `wandb agent <sweep_id>` (or `sbatch slurm/submit_2layer_sweep.sh <sweep_id>`).
-- Cluster/GPU workflow is captured in `slurm/submit_job.sh` (sync env, activate `.venv`, run analysis scripts).
+## Canonical Workflows & Commands
+**Golden Rule:** Always prefix commands with `rtk` (Rust Token Killer) for token optimization.
 
-## Project-Specific Patterns
-- Prefer imports from `src.utils.nb_utils` and `src.sae` in notebooks/scripts to stay consistent with existing analysis flow.
-- Default analyses use full data via `ConcatDataset([train_ds, val_ds])` when exhaustively scanning input space.
-- Do not evaluate with `train_split=1.0`; this mixes train data into evaluation and inflates reported accuracy.
-- Existing saved-model naming appears in two styles (`2layer_100dig_64d.pt` and timestamped `L*_H*_D*_V*..._acc*.pt`); do not assume one format only.
-
-## Current Baselines and Files
-- Common base model: `models/2layer_100dig_64d.pt`.
-- Common SAE: `sae_checkpoints/sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt` (feature-30 was the manually-identified special feature; auto-detection now finds this automatically).
-- Key reference files: `src/data/datasets.py`, `src/models/transformer.py`, `src/models/utils.py`, `src/utils/nb_utils.py`, `src/sae/steering.py`, `src/sae/reporting.py` (failure-reason classification and markdown report generation).
-
-## Reproducibility Requirement
-- When running experiments, append a concise entry to `EXPERIMENTS.md` with command, output paths, and headline metrics.
-
-## Attention Mask Architecture
-Two masks are built in `build_attention_mask()` and applied via hooks in `attach_custom_mask()`:
-- **`mask_bias_l0`** (layer 0): output tokens (`o1`, `o2`) can only self-attend; SEP reads input digits; outputs are further zeroed via `_zero_o_rows` pattern hook.
-- **`mask_bias`** (layers 1+): output tokens read from SEP and causally prior outputs; input tokens are blocked from reading outputs.
-
-This enforces the SEP compression bottleneck: information must flow `inputs → SEP (layer 0) → outputs (layers 1+)`.
-
-## SAE Loading Details
-- SAE class: `dictionary_learning.trainers.batch_top_k.BatchTopKSAE(activation_dim, dict_size, k)`.
-- Use `load_sae(sae_name, d_model)` from `src/utils/nb_utils.py` — handles both legacy (`W_enc`/`b_enc`/`W_dec`/`b_dec`) and new state dict formats automatically.
-- Checkpoints contain `state_dict`, `cfg`, and `act_mean`; always retrieve and pass `act_mean` when patching activations.
-
-## Model Config Inference
-`src/models/utils.py::infer_model_config(path)` can auto-infer `d_model`, `n_layers`, `n_heads`, `list_len`, `use_wv`, `use_wo`, etc. directly from a checkpoint — useful when loading models whose names don't encode all parameters.
-
-## Development Environment
-- Run tests: `.venv/bin/pytest tests/` (pytest is available but coverage is minimal — only `tests/test_make_2layer_table.py` exists).
-- To verify changes to the analysis pipeline, run the crossover pipeline on the baseline model/SAE.
-- `src/interpretability/interp_utils.py` contains attention-edge ablation and residual-stream analysis helpers used by `scripts/nb_interpret_model.py` and `scripts/nb_model_interp.py`.
-- `itda` is a private git dependency (`git+https://github.com/Theosdoor/itda.git`); update with `uv lock --upgrade-package itda`.
-
-<!-- rtk-instructions v2 -->
-# RTK (Rust Token Killer) - Token-Optimized Commands
-
-## Golden Rule
-
-**Always prefix commands with `rtk`**. If RTK has a dedicated filter, it uses it. If not, it passes through unchanged. This means RTK is always safe to use.
-
-**Important**: Even in command chains with `&&`, use `rtk`:
+### Environment Setup
 ```bash
-# ❌ Wrong
-git add . && git commit -m "msg" && git push
-
-# ✅ Correct
-rtk git add . && rtk git commit -m "msg" && rtk git push
+rtk uv sync
+source .venv/bin/activate
 ```
 
-## Token Savings Overview
+### Training
+- **Model:** `rtk python3 scripts/train_model.py --n-layers 2 --n-heads 1 --d-model 64 --n-digits 100 --min-acc 0.9`
+- **SAE:** `rtk python3 scripts/train_sae.py --d_sae 150 --top_k 4 --n_steps 50000`
 
-| Category | Commands | Typical Savings |
-|----------|----------|-----------------|
-| Tests | vitest, playwright, cargo test | 90-99% |
-| Build | next, tsc, lint, prettier | 70-87% |
-| Git | status, log, diff, add, commit | 59-80% |
-| GitHub | gh pr, gh run, gh issue | 26-87% |
-| Package Managers | pnpm, npm, npx | 70-90% |
-| Files | ls, read, grep, find | 60-75% |
-| Infrastructure | docker, kubectl | 85% |
-| Network | curl, wget | 65-70% |
+### Analysis & Reproduction
+- **Crossover Pipeline:** `rtk python3 scripts/run_crossover_analysis.py [--feature auto] [--threshold 0.5] [--max-features 2] [--report]`
+- **Model Interpretation:** `rtk python3 scripts/nb_model_interp.py`
+- **SAE Comparison:** `rtk python3 visualisation/compare_sae.py`
+- **Tests:** `rtk .venv/bin/pytest tests/`
 
-Overall average: **60-90% token reduction** on common development operations.
-<!-- /rtk-instructions -->
+## Development Conventions
+- **SAE Loading:** Use `load_sae(sae_name, d_model)` from `src/utils/nb_utils.py`. It handles multiple state-dict formats.
+- **Activation Collection:** Always retrieve and pass `act_mean` when collecting/patching activations.
+- **Inference:** Use `src/models/utils.py::infer_model_config(path)` to auto-detect architecture from checkpoints.
+- **Reporting:** Crossover results are saved in `results/xover/<sae_name>/`. `src/sae/reporting.py` handles failure-reason classification.
+- **Reproducibility:** Append a concise entry to `EXPERIMENTS.md` after running experimental scripts.
+
+## RTK (Rust Token Killer) Instructions
+Always prefix commands with `rtk`. It provides significant token savings (60-90% on average).
+```bash
+# Correct usage in chains:
+rtk git add . && rtk git commit -m "update"
+```

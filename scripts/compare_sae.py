@@ -30,7 +30,7 @@ from src.sae.metrics import compute_sae_downstream_metrics
 # --- Configuration ---
 DEFAULT_MODEL_PATH = 'models/2layer_100dig_64d.pt'
 SAE_FOLDER = 'sae_checkpoints/'
-OUTPUT_FOLDER = 'report/'
+OUTPUT_FOLDER = 'results/compare_sae/'
 OUTPUT_FILE = f'{OUTPUT_FOLDER}sae_comparison_{datetime.now().strftime("%Y%m%d_%H%M%S")}.md'
 COMPUTE_RECON_ACC = True
 
@@ -100,7 +100,13 @@ def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all
     # Encode all activations
     sep_acts_centered = sep_acts.to(DEVICE) - act_mean
     with torch.no_grad():
-        sae_acts = sae.encode(sep_acts_centered, use_threshold=True).cpu()
+        # JumpRelu SAEs don't support use_threshold parameter
+        if hasattr(sae, 'k'):
+            # BatchTopKSAE has k attribute
+            sae_acts = sae.encode(sep_acts_centered, use_threshold=True).cpu()
+        else:
+            # JumpReluAutoEncoder and others
+            sae_acts = sae.encode(sep_acts_centered).cpu()
 
     d_sae = sae_acts.shape[1]
     
@@ -196,10 +202,13 @@ def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all
         }
         print(" Done.")
     
+    # Get k value (available for BatchTopKSAE but not JumpReluAutoEncoder)
+    k_val = sae.k.item() if hasattr(sae, 'k') else None
+    
     return {
         'l0': l0,
         'd_sae': d_sae,
-        'k': sae.k.item(),
+        'k': k_val,
         'n_dead': n_dead,
         'dead_pct': dead_pct,
         'n_alive': d_sae - n_dead,
@@ -239,8 +248,9 @@ def generate_markdown_report(results, output_path):
             if has_ce else " — | — | — |"
         )
         n_special = f" {r['n_special_features']} |" if has_special else " — |"
+        k_str = str(r['k']) if r['k'] is not None else "—"
         lines.append(
-            f"| {r['name']} | {r['d_sae']} | {r['k']} | {r['l0']:.2f} |"
+            f"| {r['name']} | {r['d_sae']} | {k_str} | {r['l0']:.2f} |"
             f" {r['dead_pct']:.1f}% | {r['explained_var']:.4f} |{ce_cols}{n_special}"
         )
 
