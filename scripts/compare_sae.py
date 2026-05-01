@@ -228,8 +228,8 @@ def generate_markdown_report(results, output_path):
     if not results:
         return "No results to report."
 
-    # Sort by k, then d_sae
-    results = sorted(results, key=lambda x: (x['k'], x['d_sae']))
+    # Sort by d_sae, then actual L0
+    results = sorted(results, key=lambda x: (x['d_sae'], x['l0']))
 
     has_ce = 'baseline_ce' in results[0]
     has_special = 'n_special_features' in results[0]
@@ -238,8 +238,8 @@ def generate_markdown_report(results, output_path):
         "# SAE Sweep Comparison Report\n",
         f"Compared {len(results)} SAE models on {results[0]['n_samples']} samples (full train+val dataset).\n",
         "## Summary Table\n",
-        "| Model | d_sae | k | L0 | Dead % | Exp Var | Baseline CE | Patched CE | CE Increase | N Special |",
-        "|-------|-------|---|----|--------|---------|-------------|------------|-------------|-----------|",
+        "| Model | d_sae | Actual L0 | Dead % | Exp Var | Baseline CE | Patched CE | CE Increase | N Special |",
+        "|-------|-------|-----------|--------|---------|-------------|------------|-------------|-----------|",
     ]
 
     for r in results:
@@ -248,9 +248,8 @@ def generate_markdown_report(results, output_path):
             if has_ce else " — | — | — |"
         )
         n_special = f" {r['n_special_features']} |" if has_special else " — |"
-        k_str = str(r['k']) if r['k'] is not None else "—"
         lines.append(
-            f"| {r['name']} | {r['d_sae']} | {k_str} | {r['l0']:.2f} |"
+            f"| {r['name']} | {r['d_sae']} | {r['l0']:.2f} |"
             f" {r['dead_pct']:.1f}% | {r['explained_var']:.4f} |{ce_cols}{n_special}"
         )
 
@@ -299,7 +298,7 @@ def generate_markdown_report(results, output_path):
     lines.extend([
         "",
         "## Notes\n",
-        "- **L0**: mean active features per token",
+        "- **Actual L0**: mean active features per token (measured on full dataset)",
         "- **Dead %**: features that never fire on the full dataset (lower = better)",
         "- **Exp Var**: fraction of SEP-activation variance explained by SAE reconstruction (higher = better)",
         "- **Baseline / Patched CE**: output-token cross-entropy with original vs SAE-reconstructed activations",
