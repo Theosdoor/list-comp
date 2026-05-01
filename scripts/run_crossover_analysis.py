@@ -84,7 +84,8 @@ def _build_special_features_table(found_sorted, firing_rates, max_features, thre
 def run_pipeline(args):
     """Run the crossover pipeline and return list of per-feature context dicts."""
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    sae_tag = Path(args.sae).stem
+    sae_name = Path(args.sae).name
+    sae_tag = sae_name[:-3] if sae_name.endswith('.pt') else sae_name
     sae_results_dir = Path(args.results_dir) / sae_tag
     sae_results_dir.mkdir(parents=True, exist_ok=True)
 
