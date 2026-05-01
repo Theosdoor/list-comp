@@ -40,7 +40,8 @@ def main():
                         help="Maximum number of concurrent downloads (default: 15)")
     
     args = parser.parse_args()
-    save_path = Path(args.save_dir)
+    save_folder_name = f"sweep_{args.sweep_id}"
+    save_path = Path(args.save_dir) / save_folder_name
 
     print(f"Fetching run metadata for sweep '{args.sweep_id}' from W&B server...")
     
