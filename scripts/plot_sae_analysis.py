@@ -10,7 +10,8 @@ Produces 15 files per run (suffix includes r threshold):
 
   Per-type box+strip (3):
     {type}_boxplot_r{thresh}.pdf
-      3 panels: one per metric, x = n_special_bin, box+strip overlay
+      3x2 grid: rows=metric, col0=x:L0(integer-binned) hue:n_special,
+                              col1=x:n_special_bin hue:n_special
 
   All-types scatters (3):
     all_{metric}_r{thresh}.pdf
@@ -263,22 +264,33 @@ def plot_per_type_scatter(df_type, sae_type, metric_key, thresh, output_dir):
 
 # ── Per-type box + strip ──────────────────────────────────────────────────────
 
+def _integer_l0_bins(df):
+    """Return a sorted list of integer L0 labels present in the data."""
+    return sorted(df["l0_bin"].dropna().unique())
+
+
 def plot_per_type_boxplot(df_type, sae_type, thresh, output_dir):
     n_cats  = len(CATEGORY_ORDER)
     palette = dict(zip(CATEGORY_ORDER, sns.color_palette("muted", n_colors=n_cats)))
     present = [c for c in CATEGORY_ORDER if c in df_type["n_special_bin"].values]
 
+    # Integer-bin L0 for the left column
+    df_type = df_type.copy()
+    df_type["l0_bin"] = df_type["actual_l0"].round().astype(int).astype(str)
+    l0_order = [str(v) for v in sorted(df_type["l0_bin"].astype(int).unique())]
+
     metric_keys = list(METRICS.keys())
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+    fig, axes = plt.subplots(3, 2, figsize=(12, 13))
     fig.suptitle(
-        f"{sae_type} SAE — metrics by special latent count  (|r| > {thresh})",
-        fontsize=12,
+        f"{sae_type} SAE — metrics by L0 and special latent count  (|r| > {thresh})",
+        fontsize=13, y=1.01,
     )
 
     BOX_KW = dict(
         hue="n_special_bin", hue_order=present,
         palette={c: palette[c] for c in present},
-        legend=False, width=0.45,
+        legend=False, width=0.55,
         boxprops=dict(alpha=0.35),
         whiskerprops=dict(alpha=0.45),
         capprops=dict(alpha=0.45),
@@ -288,11 +300,40 @@ def plot_per_type_boxplot(df_type, sae_type, thresh, output_dir):
     STRIP_KW = dict(
         hue="n_special_bin", hue_order=present,
         palette={c: palette[c] for c in present},
-        legend=False, size=3.5, alpha=0.5, jitter=True,
+        legend=False, size=3.0, alpha=0.5, jitter=True,
     )
 
-    for ax, metric_key in zip(axes, metric_keys):
+    for row, metric_key in enumerate(metric_keys):
         ylabel, direction = METRICS[metric_key]
+
+        # --- Col 0: x = L0 bin, hue = n_special_bin ---
+        ax = axes[row, 0]
+        sns.boxplot(data=df_type, x="l0_bin", y=metric_key,
+                    order=l0_order, ax=ax, **BOX_KW)
+        sns.stripplot(data=df_type, x="l0_bin", y=metric_key,
+                      order=l0_order, ax=ax, **STRIP_KW)
+        ax.set_xlabel("L0 (integer-binned)", labelpad=6)
+        ax.set_ylabel(ylabel)
+        ax.set_title(f"{ylabel}  ({direction})")
+        ymin = ax.get_ylim()[0]
+        for i, lb in enumerate(l0_order):
+            n = (df_type["l0_bin"] == lb).sum()
+            ax.text(i, ymin, f"n={n}", ha="center", va="bottom",
+                    fontsize=7.5, color="grey")
+
+        # legend on first row only
+        if row == 0:
+            handles = [
+                mlines.Line2D([], [], marker="o", color="w",
+                              markerfacecolor=palette[c], markersize=8, label=c)
+                for c in present
+            ]
+            ax.legend(handles=handles, title=f"Special latents\n(|r| > {thresh})",
+                      framealpha=0.9, fontsize=8)
+        sns.despine(ax=ax)
+
+        # --- Col 1: x = n_special_bin, hue = n_special_bin ---
+        ax = axes[row, 1]
         sns.boxplot(data=df_type, x="n_special_bin", y=metric_key,
                     order=present, ax=ax, **BOX_KW)
         sns.stripplot(data=df_type, x="n_special_bin", y=metric_key,
@@ -304,7 +345,7 @@ def plot_per_type_boxplot(df_type, sae_type, thresh, output_dir):
         for i, cat in enumerate(present):
             n = (df_type["n_special_bin"] == cat).sum()
             ax.text(i, ymin, f"n={n}", ha="center", va="bottom",
-                    fontsize=8, color="grey")
+                    fontsize=7.5, color="grey")
         sns.despine(ax=ax)
 
     plt.tight_layout()
