@@ -374,9 +374,10 @@ def _train(cfg, use_wandb: bool, save_folder: str, model_path: str = None):
             _wandb.summary["final/step"] = cfg.n_steps
             _log_wandb_eval_metrics(model, trainer.ae.to(DEVICE), act_mean, cfg.d_sae)
 
-        # Save checkpoints to disk
-        os.makedirs(save_folder, exist_ok=True)
-        final_save_path = os.path.join(save_folder, f"{run_name}_{MODEL_NAME}.pt")
+        # Save checkpoints to disk (in a subfolder named after the run)
+        run_folder = os.path.join(save_folder, run_name)
+        os.makedirs(run_folder, exist_ok=True)
+        final_save_path = os.path.join(run_folder, f"{run_name}_{MODEL_NAME}.pt")
         torch.save({
             "state_dict": trainer.ae.state_dict(),
             "cfg": {
@@ -394,7 +395,7 @@ def _train(cfg, use_wandb: bool, save_folder: str, model_path: str = None):
         
         best_save_path = None
         if best_state_dict is not None and best_step < cfg.n_steps - 1:
-            best_save_path = os.path.join(save_folder, f"{run_name}_best_{MODEL_NAME}.pt")
+            best_save_path = os.path.join(run_folder, f"{run_name}_best_{MODEL_NAME}.pt")
             torch.save({
                 "state_dict": best_state_dict,
                 "cfg": {

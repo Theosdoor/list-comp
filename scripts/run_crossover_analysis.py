@@ -128,15 +128,22 @@ def run_pipeline(args):
         list_len = model_cfg["list_len"]
         sep_idx = model_cfg["sep_token_index"]
 
-    # Resolve SAE path: treat as full path if it contains a separator, else relative to sae_checkpoints/
+    # Resolve SAE path (can be folder or .pt file)
     sae_path = args.sae if os.path.sep in args.sae or os.path.isabs(args.sae) \
         else os.path.join("sae_checkpoints", args.sae)
-
-    sae, sae_cfg = load_sae(os.path.basename(sae_path), d_model, device=device,
-                             sae_dir=os.path.dirname(sae_path))
-
-    sae_checkpoint = torch.load(sae_path, map_location=device, weights_only=False)
-    act_mean = sae_checkpoint["act_mean"].to(device)
+    
+    # load_sae now handles both folder and .pt file paths
+    sae, sae_cfg = load_sae(sae_path, d_model, device=device)
+    
+    # Extract act_mean from config (or load from checkpoint if needed)
+    act_mean = sae_cfg.get("act_mean")
+    if act_mean is None:
+        # Fallback: if act_mean wasn't returned, load directly from checkpoint
+        sae_checkpoint = torch.load(
+            str(Path(sae_path) if Path(sae_path).suffix == ".pt" else list(Path(sae_path).glob("*.pt"))[0]),
+            map_location=device, weights_only=False
+        )
+        act_mean = sae_checkpoint["act_mean"].to(device)
 
     # [2/7] Load dataset
     print("\n[2/7] Loading dataset...")

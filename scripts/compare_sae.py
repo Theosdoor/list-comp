@@ -1,9 +1,3 @@
-#%% [markdown]
-# # Compare SAE Models
-# 
-# Loads all SAE checkpoints from sae_models/ and compares key metrics.
-# Outputs a markdown table for easy comparison.
-
 #%%
 import sys
 from pathlib import Path
@@ -19,7 +13,7 @@ from tqdm.auto import tqdm
 from datetime import datetime
 
 from src.utils.runtime import configure_runtime
-from src.sae.loading import instantiate_sae_from_cfg
+from src.utils.nb_utils import load_sae as load_sae_from_nb_utils
 from src.models.utils import load_model, infer_model_config
 from src.models.transformer import parse_model_name_safe
 from src.data.datasets import get_dataset
@@ -38,15 +32,28 @@ DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is
 
 #%%
 def load_sae(sae_path):
-    """Load SAE checkpoint and return (sae, act_mean, base_model_path)."""
+    """Load SAE checkpoint and return (sae, act_mean, base_model_path).
+    
+    Uses centralized load_sae from nb_utils, which handles folders and .pt files.
+    """
+    sae_path = str(sae_path)
+    
+    # First, resolve to the actual .pt file if it's a folder
+    if os.path.isdir(sae_path):
+        pt_files = list(Path(sae_path).glob("*.pt"))
+        if len(pt_files) == 0:
+            raise ValueError(f"No .pt files found in SAE directory: {sae_path}")
+        sae_path = str(pt_files[0])
+    
+    # Load checkpoint directly to extract base_model_path
     checkpoint = torch.load(sae_path, map_location=DEVICE, weights_only=False)
     cfg = checkpoint.get("cfg", {})
     d_model = cfg.get("d_model", cfg.get("activation_dim"))
-
-    sae = instantiate_sae_from_cfg(cfg, d_model, DEVICE)
-    sae.load_state_dict(checkpoint["state_dict"])
-
-    act_mean = checkpoint["act_mean"].to(DEVICE)
+    
+    # Use centralized loader (this may warn if .pt was passed, which is fine here)
+    sae, sae_cfg = load_sae_from_nb_utils(sae_path, d_model, device=DEVICE)
+    
+    act_mean = sae_cfg.get("act_mean", checkpoint["act_mean"].to(DEVICE))
     base_model_path = cfg.get("model_path", DEFAULT_MODEL_PATH)
     return sae, act_mean, base_model_path
 
@@ -309,6 +316,7 @@ def generate_markdown_report(results, output_path):
 
     report = "\n".join(lines)
 
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, 'w') as f:
         f.write(report)
 
