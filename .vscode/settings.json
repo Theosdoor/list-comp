@@ -4,6 +4,8 @@
     "editor.wordWrapColumn": 80
   },
   "latex-workshop.latex.outDir": "%DIR%/build",
+  "latex-workshop.latex.autoBuild.run": "onFileChange",
+  "latex-workshop.latex.autoBuild.cleanAndRetry": true,
   "latex-workshop.latex.recipes": [
     {
       "name": "make",
