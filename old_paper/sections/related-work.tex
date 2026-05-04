@@ -111,12 +111,12 @@ Our toy model provides evidence for magnitude-based composition in attention-onl
 See Table \ref{tab:composition_mechanisms} for an overview of these composition methods.
 
 \subsection*{Sparse Autoencoders} 
-Models can store more sparse features than the dimension of their activations naively allows through superposition, creating challenges for interpreting these models \citep{elhage2022toy}. Sparse Autoencoders (SAEs) \citep{bricken2023monosemanticity, leesaes} and their variants \citep{gao2024scaling, bussmann2024batchtopk, rajamanoharan2024jumping, leask2025inference, costa2025evaluating, bussmann2025learning} have been proposed as a tool for recovering these sparse features from dense activations. 
+Models can store more sparse features than the dimension of their activations naively allows through superposition, creating challenges for interpreting these models \citep{elhage2022toy}. Sparse Autoencoders (SAEs) \citep{bricken2023monosemanticity, huben2024sparse} and their variants \citep{gao2024scaling, bussmann2024batchtopk, rajamanoharan2024jumping, leask2025inference, costa2025evaluating, bussmann2025learning} have been proposed as a tool for recovering these sparse features from dense activations. 
 An SAE is typically implemented as an autoencoder with a single hidden layer, trained to reconstruct model activations while keeping the hidden representation sparse using a penalty (such as an $L_1$ regularization term) \citep{huben2024sparse,bricken2023monosemanticity}. 
 The encoder maps dense activation to a high-dimensional sparse latent space, and the decoder reconstructs the original activations using a learned dictionary of monosemantic latents, which ideally corresponds to interpretable features.
 % The motivation is that if polysemantic activations arise from superposition, an SAE should decompose them into monosemantic latents, each corresponding to one feature.
 % The encoder projects the dense activations into a high-dimensional sparse latent space, and the decoder reconstructs the original activations using a dictionary of feature vectors. 
-% An SAE is an autoencoder with a single hidden layer that is trained to reconstruct its input while enforcing sparsity in the activations of the neurons in this hidden layer \cite{huben2024sparse,towardsmonosemanticity}.
+% An SAE is an autoencoder with a single hidden layer that is trained to reconstruct its input while enforcing sparsity in the activations of the neurons in this hidden layer \cite{huben2024sparse,bricken2023monosemanticity}.
 
 
 \begin{table*}[t]
@@ -150,7 +150,7 @@ TopK SAEs \citep{gao2024scaling} replace the sparsity penalty by explicitly reta
 
 % explain SAEs - https://arxiv.org/pdf/2412.06410
 
-SAE performance is typically evaluated as the pareto frontier of two metrics: $L_0$ norm of the SAE latent activations vector, which measures sparsity, and reconstruction quality (explained variance, cross-entropy increase when patching reconstructions into the model) \citep{karvonen2025saebench,ferrando2024primer,towardsmonosemanticity}.
+SAE performance is typically evaluated as the pareto frontier of two metrics: $L_0$ norm of the SAE latent activations vector, which measures sparsity, and reconstruction quality (explained variance, cross-entropy increase when patching reconstructions into the model) \citep{karvonen2025saebench,ferrando2024primer,bricken2023monosemanticity}.
 
 SAEs have been successfully used on exploratory interpretability tasks like model auditing \citep{marks2025auditing} and hypothesis generation \citep{movva2025sparse}, but it is unclear whether they can be used to recover the true features of models \citep{leask2025sparse, chanin2024absorption}.
 For example, \citet{leask2025sparse} show that SAEs can achieve high reconstruction quality while learning latents that do not correspond to any interpretable unit of computation.

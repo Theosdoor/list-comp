@@ -2,6 +2,7 @@
 
 This file provides guidance to LLM coding agents when working with code in this repository.
 
+Key: **must** follow paper formatting instructions at `paper/formatting_instructions.tex`.
 
 ## Companion Code Repositories
 
@@ -88,11 +89,6 @@ Notes:
 
 - **No `\emph{...}`** in generated prose — the author decides when to introduce emphasis for new terms; do not add it in completions.
 - **No em-dashes** (`---` or `—`) — use commas, parentheses, or split sentences.
-- **No math in the abstract** and no `\cite` in the abstract.
-- Keywords in `\begin{IEEEkeywords}` should be from the IEEE taxonomy.
-- Use `\boldsymbol{}` for bold math symbols (vectors).
-- Prefer `\begin{table}[H]` and `\begin{figure}[H]` for fixed float placement.
-- Use `\toprule`, `\midrule`, `\bottomrule` (from `booktabs`) for table rules.
 
 ---
 

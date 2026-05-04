@@ -1,9 +1,5 @@
 # todo
 
-**general paper**
-- remove appdx from uplodaed pdf but keep in pdf in code repo
-
-
 **intro**
 - add stuff on binary view (gets repeated a lot in later sections)
 
