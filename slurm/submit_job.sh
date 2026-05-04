@@ -31,15 +31,8 @@ echo "------------------------------------------------------"
 #     --output_dir results/sae_plots \
 #     --exclude_l0 1 2
 
-python3 scripts/train_sae.py --model_path 
-models/d64_L2_N2_h2_lnF_biasF_wvF_woF_mlpF_s21.pt 
---d_sae 128 --top_k 3 --n_steps 50000 && \
-python3 scripts/train_sae.py --model_path 
-models/d64_L3_N2_h1_lnF_biasF_wvF_woF_mlpF_s14.pt 
---d_sae 128 --top_k 3 --n_steps 50000
-
 # python scripts/compare_sae.py --sae_folders sae_checkpoints/
-# python scripts/plot_sae_sweep.py --exclude-d-sae 100 448 512 --exclude-runs-col --exclude-special-col
+python scripts/plot_sae_sweep.py --exclude-d-sae 64 100 384 448 512 --exclude-runs-col --exclude-special-col
 
 # python3 visualisation/special_latents_across_saes.py \
 #    --local-folder sae_checkpoints/sweep_tbxyl1y7 \

@@ -50,9 +50,10 @@ def parse_args():
 # ── Parsing ───────────────────────────────────────────────────────────────────
 
 def find_latest_report(root: Path) -> Path:
-    candidates = sorted(root.glob("sae_comparison_*.md"), reverse=True)
+    report_dir = root / "results" / "compare_sae"
+    candidates = sorted(report_dir.glob("sae_comparison_*.md"), reverse=True)
     if not candidates:
-        raise FileNotFoundError(f"No sae_comparison_*.md found in {root}")
+        raise FileNotFoundError(f"No sae_comparison_*.md found in {report_dir}")
     return candidates[0]
 
 

@@ -19,11 +19,8 @@ python3 -c "import torch; print(f'[slurm] CUDA Available: {torch.cuda.is_availab
 echo "------------------------------------------------------"
 
 
-# btk
-wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/k2bsjr0n
+# jumprelu 2
+# wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/fn9syo6t
 
-# matryoshka
-# wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/tbxyl1y7
-
-# jumprelu
-# wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/xliz4f19
+# matry 2
+wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/l9sd28fg

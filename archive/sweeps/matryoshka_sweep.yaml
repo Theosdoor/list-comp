@@ -20,7 +20,7 @@ parameters:
   d_sae:
     values: [128, 192, 256, 320]
   top_k:
-    values: [1,2,3, 4, 5]
+    values: [1,2,3,4,5]
   n_groups:
     values: [2, 3, 4] # 1 group is equivalent to BTK
   lr:
