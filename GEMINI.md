@@ -53,9 +53,3 @@ source .venv/bin/activate
 - **Reporting:** Crossover results are saved in `results/xover/<sae_name>/`. `src/sae/reporting.py` handles failure-reason classification.
 - **Reproducibility:** Append a concise entry to `EXPERIMENTS.md` after running experimental scripts.
 
-## RTK (Rust Token Killer) Instructions
-Always prefix commands with `rtk`. It provides significant token savings (60-90% on average).
-```bash
-# Correct usage in chains:
-rtk git add . && rtk git commit -m "update"
-```
