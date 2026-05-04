@@ -442,6 +442,15 @@ def main():
                         help="Directory for output PDFs and metrics CSV (default: results/sae_plots).")
     parser.add_argument("--batch_size", type=int, default=512,
                         help="Batch size for forward passes (default: 512).")
+    parser.add_argument("--exclude_l0", type=int, nargs="+", default=None,
+                        metavar="L0",
+                        help="Integer L0 values to exclude from plots (e.g. --exclude_l0 1 2).")
+    parser.add_argument("--exclude_d_sae", type=int, nargs="+", default=None,
+                        metavar="D_SAE",
+                        help="Dictionary sizes to exclude (e.g. --exclude_d_sae 64 128).")
+    parser.add_argument("--exclude_type", type=str, nargs="+", default=None,
+                        metavar="TYPE",
+                        help="SAE types to exclude (e.g. --exclude_type jumprelu).")
     args = parser.parse_args()
 
     thresh = args.alpha_diff_thresh
@@ -529,18 +538,38 @@ def main():
         categories=CATEGORY_ORDER, ordered=True,
     )
 
+    # --- Apply exclusions to plot data (evaluation always runs on all checkpoints) ---
+    df_plot = df.copy()
+    n_before = len(df_plot)
+    if args.exclude_l0:
+        l0_int = df_plot["actual_l0"].round().astype(int)
+        df_plot = df_plot[~l0_int.isin(args.exclude_l0)]
+        print(f"  Excluded L0 {args.exclude_l0}: {n_before} → {len(df_plot)} SAEs")
+        n_before = len(df_plot)
+    if args.exclude_d_sae:
+        df_plot = df_plot[~df_plot["d_sae"].isin(args.exclude_d_sae)]
+        print(f"  Excluded d_sae {args.exclude_d_sae}: {n_before} → {len(df_plot)} SAEs")
+        n_before = len(df_plot)
+    if args.exclude_type:
+        df_plot = df_plot[~df_plot["sae_type"].isin(args.exclude_type)]
+        print(f"  Excluded types {args.exclude_type}: {n_before} → {len(df_plot)} SAEs")
+    if df_plot.empty:
+        print("\nAll SAEs filtered out by exclusion flags. Exiting.")
+        sys.exit(1)
+
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Save full (unfiltered) CSV so exclusions don't lose data
     csv_path = output_dir / f"sae_metrics_r{thresh}.csv"
     df.to_csv(csv_path, index=False)
-    print(f"\n✓ Metrics saved to {csv_path}")
+    print(f"\n✓ Full metrics saved to {csv_path}")
 
-    # --- Generate plots ---
+    # --- Generate plots (using filtered df_plot) ---
     print("\nGenerating plots...")
     sns.set_theme(style="whitegrid", font_scale=1.1)
 
-    for sae_type, df_type in df.groupby("sae_type"):
+    for sae_type, df_type in df_plot.groupby("sae_type"):
         df_type = df_type.copy()
         n = len(df_type)
         if n < 2:
@@ -555,7 +584,7 @@ def main():
 
     print("\n  All-types:")
     for metric_key in METRICS:
-        plot_all_types_scatter(df, metric_key, thresh, output_dir)
+        plot_all_types_scatter(df_plot, metric_key, thresh, output_dir)
 
     print("\nDone.")
 
