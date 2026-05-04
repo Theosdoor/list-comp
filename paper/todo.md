@@ -1,7 +1,6 @@
 # todo
 
-**intro**
-- add stuff on binary view (gets repeated a lot in later sections)
+
 
 **res_rq2**
 - o1 logit empirically linear in p --> why? should add note beneath steering diagram or something
@@ -43,35 +42,3 @@ Table 4 caption still has the TODO about consistent run numbers. Beyond being un
 - should check for generalisation of symbol detectors too!
   - & proportions that are 1-symb detectors
 - stick to just independence or binary view as sae issue we're contributing to
-
-
-
-
-CLAUDE msg: (link src/sae stuff and special latents script)
-I'd like to replace this comparison script with one that creates 3 plots, one for each sae type (jumprelu, batchtopk, matryoshka). each plot has:
-
-
-
-* y-axis is patched cross entropy loss
-
-* x-axis is L0 (actual! not just k - may need to calculate)
-
-* hue is number of special latents according to the given threshold
-
-then create another 3 plots (one for each sae type) but with y axis as explained variance.
-
-save each as an individual plot, eg. matryoshka_pce.pdf
-
-
-
-parameters are:
-
-
-
-* local sae folder(s). they might contain subfolders, in which case recursively check them and load with the existing load sae function. should accept multiple folders and test on all given saes
-
-* alpha_diff_thresh (default 0.5) for the special latent function
-
-
-
-\brainstorming

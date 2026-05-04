@@ -27,22 +27,18 @@ Total run counts are the product of all swept values and seeds. Note that $n_\te
 \resizebox{\linewidth}{!}{%
 \begin{tabular}{ll}
 \toprule
-\textbf{Shared Parameters} & \textbf{Swept Values} \\
+\textbf{Parameters} & \textbf{Swept Values} \\
 \midrule
-$d_{\mathrm{SAE}}$ (All) & \{128, 192, 256, 320\} \\
-$d_{\mathrm{SAE}}$ (BatchTopK extra) & \{64, 384\} \\
+$d_{\mathrm{SAE}}$ & \{128, 192, 256, 320\} \\
 $k$ / Target $L_0$ (All) & \{3, 4, 5\} \\
 $k$ / Target $L_0$ (BatchTopK extra) & \{1, 2\} \\
 $k$ / Target $L_0$ (JumpReLU extra) & \{2\} \\
-Learning rate (BatchTopK, Matryoshka) & $3\!\times\!10^{-4}$ \\
-\midrule
-\textbf{Architecture-Specific} & \textbf{Values} \\
-\midrule
-JumpReLU Sparsity penalty & \{0.1, 0.5, 1.0, 5.0\} \\
-JumpReLU Learning rate & \{$7\!\times\!10^{-5}$, $3\!\times\!10^{-4}$\} \\
+JumpReLU sparsity penalty & \{0.1, 0.5, 1.0, 5.0\} \\
+JumpReLU learning rate & \{$7\!\times\!10^{-5}$, $3\!\times\!10^{-4}$\} \\
+BatchTopK, Matryoshka learning rate & $3\!\times\!10^{-4}$ \\
 Matryoshka $n_{\text{groups}}$ & \{1, 2, 4\} \\
 \midrule
-\textbf{Experiment Scale} & \textbf{Seeds / Total Runs} \\
+& \textbf{Seeds / Total Runs} \\
 \midrule
 BatchTopK & 15 seeds / 450 runs \\
 JumpReLU & 5 seeds / 640 runs \\
@@ -53,7 +49,8 @@ Matryoshka & 15 seeds / 540 runs \\
 \end{table}
 % NOTE maybe each SAE should have equal number of runs to avoid bias in aggregate stats?
 
-It is not feasible to analyse every SAE under every reasonable hyperparameter configuration, so we select a single BatchTopK SAE for in-depth study. We validate key findings across 1,630 diverse SAE configurations and seeds (Table \ref{tab:sae_sweep_configs}), as well as across different SAE architectures (BatchTopK, JumpReLU, Matryoshka), demonstrating that our results are not an artefact of this specific checkpoint. We select BatchTopK for its simplicity: it works by keeping the top $n \times k$ activations over a batch of $n$ inputs and sets the rest to zero, where $k$ is a tuned hyperparameter. This forces an average of $k$ latent activations per input, so the actual $L_0$ sparsity is approximately $k$. In contrast, Matryoshka SAEs work similarly but force a hierarchical dictionary, and JumpReLU SAEs use the more complex JumpReLU activation function. However, by generating hypotheses based on the in-depth BatchTopK analysis and then testing them against the more complex variants, we support generalisation of our results.
+We select a single BatchTopK SAE for in-depth study but validate key findings across 1,630 diverse SAE configurations and seeds (Table \ref{tab:sae_sweep_configs}), as well as across different SAE architectures (BatchTopK, JumpReLU, Matryoshka), demonstrating that our results are not an artefact of this specific checkpoint. 
+We select BatchTopK for its simplicity: it works by keeping the top $n \times k$ activations over a batch of $n$ inputs and sets the rest to zero, where $k$ is a tuned hyperparameter. This forces an average of $k$ latent activations per input, so the actual $L_0$ sparsity is approximately $k$. In contrast, Matryoshka SAEs work similarly but force a hierarchical dictionary, and JumpReLU SAEs use the more complex JumpReLU activation function. However, by generating hypotheses based on the in-depth BatchTopK analysis and then testing them against the more complex variants, we support generalisation of our results.
 
 \begin{table}[ht]
 \centering
@@ -108,8 +105,8 @@ $L_0$ & $d_\text{SAE}$ & EV ($\uparrow$) & PCE ($\downarrow$) & Dead \% ($\downa
 \end{table}
 % TODO update with new sweep
 
-To select a specific BatchTopK SAE checkpoint to analyse, we run a grid-search over $k \in [1,5]$ and SAE expansion factors $i \in [1,6]$, such that $d_\text{sae} = i \times d_\text{model}$. Results are shown in Table \ref{tab:sae_sweep}.
-We compare SAEs based on sparsity ($L_0$) and loss reconstructed, in line with previous work \cite{karvonen2025saebench,ferrando2024primer}.
+To select a specific BatchTopK SAE checkpoint to analyse, we run a grid-search over $k \in [1,5]$ and SAE expansion factors $i \in [2,5]$, such that $d_\text{sae} = i \times d_\text{model}$. Results are shown in Table \ref{tab:sae_sweep}.
+We evaluate SAEs based on sparsity ($L_0$) and loss recovered, in line with previous work \cite{karvonen2025saebench,ferrando2024primer}.
 % \begin{enumerate}
 %     \item \textbf{Explained variance (EV)}: variance of the input explained by the SAE's reconstruction is a popular and robust measure for the SAE's reconstruction quality \cite{bussmann2024batchtopk,mcdougall2025gemmascope2}. 
 %     \item \textbf{Patched cross-entropy loss (PCE)}: cross-entropy loss when patching the SAE-reconstructed activations back into the model. This is an effective measure for how the SAE impacts downstream performance, because perfect SAE reconstructions should solve the task as effectively as the model. As this reflects reconstruction quality, it is a complementary metric to EV. The baseline model cross-entropy loss was 0.1115, so $\text{PCE} = 0.1115$ is optimal.
@@ -120,9 +117,10 @@ We compare SAEs based on sparsity ($L_0$) and loss reconstructed, in line with p
 
 Our grid-search shows that BatchTopK SAEs with $k = 1$ and $k=2$ perform much worse than other SAEs for both PCE and EV. BatchTopK SAEs with $k \in [3,5]$ are joint-best for EV up to 3 s.f. and PCE up to 2 s.f. We take $k=3$ because performance difference is negligible and lower sparsity typically improves interpretability and analysis: with at most 3 latents active per token, we can more easily exhaustively analyse each latent's role in any given computation.
 SAEs with $d_\text{sae} \in [128,320]$ perform best for EV and PCE. 
+% TODO say bit on learning rates?
 
 \begin{table}[htbp]
-\caption{Selected SAE configuration. The learning rate, optimiser, betas, schedule and auxiliary loss are defaults from \cite{bussmann2024batchtopk,marks2024dictionary_learning} and were constant for all BatchTopK runs.}
+\caption{Selected SAE configuration. The optimiser, betas, schedule and auxiliary loss are fixed in the implementation \cite{marks2024dictionary_learning}, and so are excluded here for brevity.}
 \label{tab:sae_config}
 \centering
 \resizebox{\linewidth}{!}{%
@@ -130,11 +128,10 @@ SAEs with $d_\text{sae} \in [128,320]$ perform best for EV and PCE.
 \toprule
 \textbf{Parameter} & \textbf{Value} \\
 \midrule
-SAE type & BatchTopK \cite{bussmann2024batchtopk} \\
+SAE type & BatchTopK \\
 % Activation source & SEP token, residual stream after layer 0 \\
 Input dimension ($d_{\text{model}}$) & 64 \\
 Dictionary size ($d_{\text{SAE}}$) & 128 \\
-Expansion factor & $128 / 64 = 2\times$ \\
 $k$ & 3 \\
 Actual sparsity ($L_0$) & 3.00 \\
 % Activation centering & Mean-centred (pre-training) \\
@@ -142,12 +139,12 @@ Actual sparsity ($L_0$) & 3.00 \\
 % Decoder normalisation & Unit-norm columns \\
 \midrule
 Learning rate & $3 \times 10^{-4}$ \\
-Optimiser & \texttt{Adam} \\
-Betas & $(0.9,\ 0.999)$ \\
+% Optimiser & \texttt{Adam} \\
+% Betas & $(0.9,\ 0.999)$ \\
 Batch size & 4096 \\
 Training steps & 50{,}000 \\
-LR schedule & Linear warmup (1{,}000 steps), then constant \\
-Auxiliary loss ($\alpha$) & $1/32$ \\
+% LR schedule & Linear warmup (1{,}000 steps), then constant \\
+% Auxiliary loss ($\alpha$) & $1/32$ \\
 Seed & 1 \\
 \midrule
 Hardware & NVIDIA GeForce RTX 2080 Ti \\
@@ -158,28 +155,26 @@ Hardware & NVIDIA GeForce RTX 2080 Ti \\
 
 We therefore study a BatchTopK SAE with $k = 3$ and $d_\text{SAE} = 128$, as shown in Table \ref{tab:sae_config}. Among the trained checkpoints with this configuration, we select the one with the fewest dead latents ($3.1\%$), which is far below the $k=3, d_\text{SAE}=128$ group average of $10.9 \pm 5.3\%$, and achieves 0.9919 EV and 0.1796 PCE. This checkpoint selection introduces selection bias toward high-performing models. We address this by confirming across 1,630 diverse SAEs that special latents (identifiable by $\Delta\alpha$ correlation) emerge reliably regardless of configuration, establishing that our findings are not specific to this checkpoint.
 
-\subsubsection{Analysis}
-
-We can sometimes learn what feature an SAE latent has learned to represent by looking at inputs that cause it to activate \cite{bills2023language}, so we begin with this approach. This allows us to observe, for each latent, the sort of inputs that it responds to and we can generate hypotheses based on correlations between latent activation and various input properties. 
-We test these hypotheses using latent steering \cite{ferrando2024primer,arditi2024refusal} in which we linearly scale the SAE latent's activation for a given input, patch the SAE reconstruction back into the model downstream and compare the new output to the original output. If the output changes predictably according to the hypothesis for what that latent represents, then that supports the hypothesis (Section \ref{s:related-work}).
-Since the entire input space is small (10,000 possible input bigrams), we can feasibly record SAE activations for every single input, which is more robust than sampling activations and inferring to other inputs.
-% TODO maybe write this more intuitively? Idea is taht anomalies will be caughts
+% \subsubsection{Analysis}
+For analysis, we begin by inspecting max activating examples for each latent.
+To test if a latent has graded activations, we use steer by linearly scaling the SAE latent's activation for a given input, patch the SAE reconstruction back into the model downstream and compare the new output to the original output. 
+% If the output changes predictably according to the hypothesis for what that latent represents, then that supports the hypothesis (Section \ref{s:related-work}).
+% Since the entire input space is small (10,000 possible input bigrams), we can feasibly record SAE activations for every single input, which is more robust than sampling activations and inferring to other inputs.
 
 \begin{table*}[ht]
 \centering
-\caption{Comparison of cherry-picked SAE architecture types across configuration and performance metrics. These SAEs are used to support generalisation claims when a large testing sample is not computationally feasible.Dashes indicate parameters not applicable to a given architecture. $L_0$ (actual) is the mean number of active latents measured at eval time.}
+\caption{Comparison of cherry-picked SAE architecture types across configuration and performance metrics. These SAEs are used to support generalisation claims when a large testing sample is not computationally feasible. Dashes indicate parameters not applicable to a given architecture. $L_0$ (actual) is the mean number of active latents measured at eval time. \textbf{Bold}: best value per performance metric.}
 \label{tab:cherry-picked-saes}
 \resizebox{\linewidth}{!}{%
-\begin{tabular}{l rr rrrr rrrr}
+\begin{tabular}{l rr rrr rrrr}
 \toprule
 \multirow{2}{*}{\textbf{SAE Type}}
-  & \multicolumn{6}{c}{\textbf{Configuration}}
+  & \multicolumn{5}{c}{\textbf{Configuration}}
   & \multicolumn{4}{c}{\textbf{Performance}} \\
-\cmidrule(lr){2-7}\cmidrule(lr){8-11}
+\cmidrule(lr){2-6}\cmidrule(lr){7-10}
   & $d_{\mathrm{SAE}}$
   & LR
-  & $k$
-  & Target $L_0$
+  & $k$ / Target $L_0$
   & Sp.\ Pen.
   & $n_{\mathrm{groups}}$
   & CE Increase $\downarrow$
@@ -188,16 +183,16 @@ Since the entire input space is small (10,000 possible input bigrams), we can fe
   & $L_0$ (actual) \\
 \midrule
 \multirow{2}{*}{BatchTopK}
-  & 192 & $3\!\times\!10^{-4}$ & 3 & ---  & ---  & --- & 0.0257 & 0.9929 & 26.04 & 3.36 \\
-  & 128 & $3\!\times\!10^{-4}$ & 5 & ---  & ---  & --- & 0.0292 & 0.9939 &  0.78 & 4.90 \\
+  & 192 & $3\!\times\!10^{-4}$ & 3 & ---  & --- & 0.0257 & 0.9929 & 26.04 & 3.36 \\
+  & 128 & $3\!\times\!10^{-4}$ & 5 & ---  & --- & 0.0292 & 0.9939 &  \textbf{0.78} & 4.90 \\
 \midrule
 \multirow{2}{*}{JumpReLU}
-  & 256 & $7\!\times\!10^{-5}$ & --- & 5 & 5 & --- & 0.0141 & 0.9965 & 50.78 & 4.03 \\
-  & 128 & $7\!\times\!10^{-5}$ & --- & 5 & 5 & --- & 0.0176 & 0.9963 & 17.97 & 3.24 \\
+  & 256 & $7\!\times\!10^{-5}$ & 5 & 5 & --- & \textbf{0.0141} & \textbf{0.9965} & 50.78 & 4.03 \\
+  & 128 & $7\!\times\!10^{-5}$ & 5 & 5 & --- & 0.0176 & 0.9963 & 17.97 & \textbf{3.24} \\
 \midrule
 \multirow{2}{*}{Matryoshka}
-  & 256 & $3\!\times\!10^{-4}$ & 3 & --- & --- & 2 & 0.0262 & 0.9928 & 39.06 & 3.32 \\
-  & 192 & $3\!\times\!10^{-4}$ & 4 & --- & --- & 4 & 0.0325 & 0.9927 & 12.50 & 3.98 \\
+  & 256 & $3\!\times\!10^{-4}$ & 3 & --- & 2 & 0.0262 & 0.9928 & 39.06 & 3.32 \\
+  & 192 & $3\!\times\!10^{-4}$ & 4 & --- & 4 & 0.0325 & 0.9927 & 12.50 & 3.98 \\
 \bottomrule
 \end{tabular}
 }
