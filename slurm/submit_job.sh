@@ -32,7 +32,7 @@ echo "------------------------------------------------------"
 #     --exclude_l0 1 2
 
 # python scripts/compare_sae.py --sae_folders sae_checkpoints/
-python scripts/plot_sae_sweep.py --exclude-d-sae 64 100 384 448 512 --exclude-runs-col --exclude-special-col
+python scripts/plot_sae_sweep.py --exclude-d-sae 64 100 384 448 512 --exclude-special-col # --exclude-runs-col
 
 # python3 visualisation/special_latents_across_saes.py \
 #    --local-folder sae_checkpoints/sweep_tbxyl1y7 \

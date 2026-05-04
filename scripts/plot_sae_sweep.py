@@ -61,9 +61,9 @@ def parse_report(path: Path) -> pd.DataFrame:
     """Parse the summary table from an sae_comparison_*.md report."""
     text = path.read_text()
 
-    # ── Summary table columns ─────────────────────────────────────────────────
-    # | Model | d_sae | k | L0 | Dead % | Exp Var | Baseline CE | Patched CE | CE Increase | N Special |
-    #   [1]    [2]    [3]  [4]   [5]      [6]       [7]           [8]          [9]            [10]
+    # Summary table columns
+    # | Model | d_sae | Actual L0 | Dead % | Exp Var | Baseline CE | Patched CE | CE Increase | N Special |
+    #   [1]    [2]      [3]       [4]      [5]       [6]           [7]          [8]            [9]
     rows = []
     in_summary = False
     for line in text.splitlines():
@@ -72,20 +72,19 @@ def parse_report(path: Path) -> pd.DataFrame:
             continue
         if in_summary and line.startswith("##"):
             break
-        if in_summary and line.startswith("| sae_"):
+        if (in_summary and line.startswith("| sae_")) or line.startswith("| btk_"):
             cols = [c.strip() for c in line.split("|")]
             try:
                 rows.append({
                     "model":       cols[1],
                     "d_sae":       int(cols[2]),
-                    "k":           int(cols[3]),
-                    "l0":          int(round(float(cols[4]))),
-                    "dead_pct":    float(cols[5].rstrip("%")),
-                    "ev":          float(cols[6]),
-                    "baseline_ce": float(cols[7]),
-                    "patched_ce":  float(cols[8]),
-                    "ce_increase": float(cols[9]),
-                    "n_special":   int(cols[10]) if cols[10] != "—" else 0,
+                    "l0":          int(round(float(cols[3]))),
+                    "dead_pct":    float(cols[4].rstrip("%")),
+                    "ev":          float(cols[5]),
+                    "baseline_ce": float(cols[6]),
+                    "patched_ce":  float(cols[7]),
+                    "ce_increase": float(cols[8]),
+                    "n_special":   int(cols[9]) if cols[9] != "—" else 0,
                 })
             except (IndexError, ValueError):
                 pass
