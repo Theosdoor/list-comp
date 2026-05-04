@@ -1,0 +1,88 @@
+\section{Experimental Setup}\label{app:exp_setup}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.5\linewidth]{figures/rq2_pipeline.pdf}
+    \caption{
+      This diagram shows the structure of the two-layer attention-only transformer and how the SAE is used to extract and analyse the learned representations. $v$ denotes the residual stream, which is read from and written to after each layer and has shape $(5,d_\text{model})$. $t$ is the vector of input tokens $[d_1, d_2, \texttt{SEP}, \texttt{MASK}, \texttt{MASK}]$, $E$ and $P$ are the token and position embedding matrices respectively, $U$ is the unembedding matrix, and each attention layer has key and query matrices, $\boldsymbol K^i$ and $\boldsymbol Q^i$ respectively, for $i \in [1,2,3]$. The value and output matrices for each layer are fixed to the identity, and $d_\text{head}=64$.
+      The SAE takes the residual vector at \texttt{SEP}, $v_\texttt{SEP}$, as input and patches reconstruction $\hat{v}_\texttt{SEP}$ back into the stream.
+      Accuracy is calculated on the final two output logits only, represented by $(o_1, o_2)$.
+    }
+    \label{fig:rq2_pipeline}
+\end{figure}
+
+\begin{table}[ht]
+\centering
+\caption{SAE sweep results aggregated over HOW MANY [TODO] seeds and learning rates (mean $\pm$ std). $L_0$: mean active features per token. $d_\text{SAE}$: dictionary size. \textbf{EV} (explained variance): fraction of activation variance recovered by the SAE reconstruction ($\uparrow$ better). \textbf{PCE} (patched cross-entropy): language-model CE after substituting SAE reconstructions for true activations ($\downarrow$ better; baseline $= 0.1115$). \textbf{Dead\,\%}: percentage of dictionary features with zero activation across the evaluation set ($\downarrow$ better). 
+% $N_\text{special}$: features whose activation strongly correlates with the SEP attention difference $\alpha_{d_1}-\alpha_{d_2}$, as discussed in Section \ref{s:res_rq2}. 
+\textbf{Bold}: best within each $L_0$ block; \underline{\textbf{underlined}}: best overall.}
+\label{tab:sae_sweep}
+\begin{tabular}{cccrrrr}
+\toprule
+$L_0$ & $d_\text{SAE}$ & Runs & EV ($\uparrow$) & PCE ($\downarrow$) & Dead \% ($\downarrow$) \\
+\midrule
+  1 & 128 & 15 & $0.6796 \pm 0.0039$ & $4.8800 \pm 0.1734$ & \textbf{12.9 $\pm$ 2.9} \\
+  1 & 192 & 15 & $0.6755 \pm 0.0036$ & $\mathbf{4.7661 \pm 0.1141}$ & 43.9 $\pm$ 1.9 \\
+  1 & 256 & 15 & $0.6824 \pm 0.0052$ & $4.7997 \pm 0.0903$ & 53.9 $\pm$ 2.0 \\
+  1 & 320 & 15 & $\mathbf{0.6859 \pm 0.0039}$ & $4.8711 \pm 0.1156$ & 61.9 $\pm$ 1.3 \\
+\midrule
+  2 & 128 & 14 & $0.9478 \pm 0.0023$ & $\mathbf{1.5176 \pm 0.0874}$ & \textbf{17.9 $\pm$ 1.3} \\
+  2 & 192 & 15 & $0.9461 \pm 0.0034$ & $1.6309 \pm 0.2440$ & 42.6 $\pm$ 1.4 \\
+  2 & 256 & 15 & $0.9452 \pm 0.0084$ & $1.6028 \pm 0.1765$ & 54.4 $\pm$ 1.5 \\
+  2 & 320 & 15 & $\mathbf{0.9493 \pm 0.0036}$ & $1.6711 \pm 0.1941$ & 61.6 $\pm$ 1.8 \\
+\midrule
+  3 & 128 & 19 & $0.9465 \pm 0.1747$ & $1.4374 \pm 2.9323$ & \textbf{13.0 $\pm$ 3.9} \\
+  3 & 192 & 14 & $0.9940 \pm 0.0005$ & $0.1444 \pm 0.0039$ & 34.8 $\pm$ 4.8 \\
+  3 & 256 & 12 & $0.9940 \pm 0.0008$ & $\mathbf{0.1431 \pm 0.0040}$ & 48.2 $\pm$ 7.1 \\
+  3 & 320 & 13 & $\mathbf{0.9943 \pm 0.0008}$ & $0.1438 \pm 0.0035$ & 54.1 $\pm$ 6.9 \\
+\midrule
+  4 & 128 & 15 & $0.9939 \pm 0.0002$ & $0.1434 \pm 0.0015$ & \textbf{1.2 $\pm$ 0.9} \\
+  4 & 192 & 12 & $0.9953 \pm 0.0003$ & $0.1420 \pm 0.0012$ & 5.1 $\pm$ 2.0 \\
+  4 & 256 & 15 & $0.9954 \pm 0.0023$ & $0.1419 \pm 0.0040$ & 17.9 $\pm$ 15.8 \\
+  4 & 320 & 16 & $\mathbf{0.9965 \pm 0.0018}$ & $\mathbf{0.1390 \pm 0.0020}$ & 19.4 $\pm$ 12.6 \\
+\midrule
+  5 & 128 & 15 & $0.9939 \pm 0.0001$ & $0.1417 \pm 0.0013$ & \underline{\textbf{0.3 $\pm$ 0.4}} \\
+  5 & 192 & 19 & $0.9946 \pm 0.0021$ & $0.1412 \pm 0.0020$ & 5.2 $\pm$ 8.3 \\
+  5 & 256 & 17 & $0.9965 \pm 0.0005$ & $0.1399 \pm 0.0016$ & 7.2 $\pm$ 3.3 \\
+  5 & 320 & 15 & \underline{$\mathbf{0.9973 \pm 0.0004}$} & \underline{$\mathbf{0.1382 \pm 0.0013}$} & 11.8 $\pm$ 3.2 \\
+\bottomrule
+\end{tabular}
+\end{table}
+% TODO update with new sweep and add number of seeds & remove runs col
+
+\begin{table*}[htbp]
+\centering
+\caption{Comparison of cherry-picked SAE architecture types across configuration and performance metrics. These SAEs are used to support generalisation claims when a large testing sample is not computationally feasible. Dashes indicate parameters not applicable to a given architecture. $L_0$ (actual) is the mean number of active latents measured at eval time. \textbf{Bold}: best value per performance metric.}
+\label{tab:cherry-picked-saes}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{l rr rrr rrrr}
+\toprule
+\multirow{2}{*}{\textbf{SAE Type}}
+  & \multicolumn{5}{c}{\textbf{Configuration}}
+  & \multicolumn{4}{c}{\textbf{Performance}} \\
+\cmidrule(lr){2-6}\cmidrule(lr){7-10}
+  & $d_{\mathrm{SAE}}$
+  & LR
+  & $k$ / Target $L_0$
+  & Sp.\ Pen.
+  & $n_{\mathrm{groups}}$
+  & CE Increase $\downarrow$
+  & Expl.\ Var.\ $\uparrow$
+  & Dead~(\%) $\downarrow$
+  & $L_0$ (actual) \\
+\midrule
+\multirow{2}{*}{BatchTopK}
+  & 192 & $3\!\times\!10^{-4}$ & 3 & ---  & --- & 0.0257 & 0.9929 & 26.04 & 3.36 \\
+  & 128 & $3\!\times\!10^{-4}$ & 5 & ---  & --- & 0.0292 & 0.9939 &  \textbf{0.78} & 4.90 \\
+\midrule
+\multirow{2}{*}{JumpReLU}
+  & 256 & $7\!\times\!10^{-5}$ & 5 & 5 & --- & \textbf{0.0141} & \textbf{0.9965} & 50.78 & 4.03 \\
+  & 128 & $7\!\times\!10^{-5}$ & 5 & 5 & --- & 0.0176 & 0.9963 & 17.97 & \textbf{3.24} \\
+\midrule
+\multirow{2}{*}{Matryoshka}
+  & 256 & $3\!\times\!10^{-4}$ & 3 & --- & 2 & 0.0262 & 0.9928 & 39.06 & 3.32 \\
+  & 192 & $3\!\times\!10^{-4}$ & 4 & --- & 4 & 0.0325 & 0.9927 & 12.50 & 3.98 \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}

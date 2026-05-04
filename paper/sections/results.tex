@@ -6,7 +6,7 @@
     \centering
     \includegraphics[width=\linewidth]{figures/sae_heatmap.pdf}
     \caption{
-        These $100\times100$ heatmaps show how specific SAE latents activate for different input bigrams $(d_1, d_2)$, of which there are $100\times100$ combinations. The top-left corner cell is input $(0,0)$ and the bottom-right corner cell is $(99,99)$. Each heatmap shows:
+        These $100\times100$ heatmaps show how specific SAE latents activate for different input bigrams $(d_1, d_2)$, of which there are $100\times100$ combinations. The top-left corner cell is input $(0,0)$ and the bottom-right corner cell is $(99,99)$.
         \textbf{Left} ($1$-symbol detector): latent 0 activates only if $d_1$ or $d_2 = 41$, and activates most strongly when $d_1=d_2=41$. This results in a `plus-sign' pattern.
         \textbf{Center} ($k$-symbol detector, $k>1$): latent 5 activates only if $d_1$ or $d_2$ is either $7$ or $58$, resulting in two `plus-sign' patterns.
         \textbf{Right} (special latent): latent 11 activates for most inputs and activates much more strongly at peak than all other latents.
@@ -14,13 +14,11 @@
     \label{fig:sae-heatmap}
 \end{figure*} 
 
-For the selected BatchTopK SAE checkpoint (Table \ref{tab:sae_config}) trained on the residual at \texttt{SEP}, $\boldsymbol r_{s}^{L_1}$, we inspect the learned latents and their activations for different input bigrams. 
-We plot a heatmap for each latent to provide a visual overview of the bigrams that activate it, as shown in Figure \ref{fig:sae-heatmap}.
+For the selected SAE checkpoint (Table \ref{tab:sae_config}) we inspect the learned latents and their activations for different inputs by plotting activation heatmaps (Figure \ref{fig:sae-heatmap}).
+We identify two distinct types of latents that this SAE has learned (we exclude 8\% of latents, which activate on fewer than 0.1\% of inputs): $k$-symbol detectors and special latents.
 
-In this way, we identify two distinct types of latents that this SAE has learned (excluding 8\% of latents, which activate on fewer than 0.1\% of inputs): $k$-symbol detectors and special latents.
-
-\textbf{$k$-symbol detectors (91\% of latents):} 88\% of latents are $1$-symbol detectors: they activate only if one specific symbol is present in the input at either $d_1$ or $d_2$, shown by the `plus-sign' pattern in Figure \ref{fig:sae-heatmap}. They activate most strongly where $d_1=d_2$ (the intersection), and otherwise their activation magnitude varies only with symbol presence, not position. This aligns with the binary view of SAE latents: they represent a single feature (symbol presence) and activate if that feature is present.
-3\% of latents detect multiple symbols ($k>1$), such as latent 5 in Figure \ref{fig:sae-heatmap}. Moreover, these sometimes activate with different magnitudes for different symbols (e.g., latent 5 activates stronger for symbol 7 than symbol 58), suggesting magnitude may carry information.
+\textbf{$k$-symbol detectors (91\% of latents):} 88\% of latents are $1$-symbol detectors: they activate only if one specific symbol is present in the input at either $d_1$ or $d_2$, shown by the `plus-sign' pattern in Figure \ref{fig:sae-heatmap}. They activate most strongly where $d_1=d_2$ (the intersection), and otherwise their activation magnitude varies only with symbol presence, not position.
+3\% of latents detect multiple symbols ($k>1$) and sometimes activate with different magnitudes for different symbols (e.g., latent 5 activates stronger for symbol 7 than symbol 58), suggesting magnitude carries information.
 
 \textbf{Special latents (2 latents, 9\% of activations):} Only two latents (11 and 56) do not follow the above pattern. Latent 11 activates on 64\% of inputs and latent 56 on 9.9\%, compared to <4.5\% for all other latents (Appendix \ref{app:further_analysis}). Because they activate across most inputs, their activation cannot indicate whether a specific symbol is present.
 
@@ -28,53 +26,34 @@ In this way, we identify two distinct types of latents that this SAE has learned
     \centering
     \includegraphics[width=\linewidth]{figures/alpha_diff_correlation_plot.pdf}
     \caption{
-        \textbf{Left}: This plot shows the (Pearson) correlation of each latent with \(\Delta \alpha = \alpha_{s \to d_1} - \alpha_{s \to d_2}\), which is intuitively the emphasis given to $d_1$ over $d_2$ by \texttt{SEP} in the transformer model's first layer's attention pattern. The y-axis uses a symmetric logarithmic scale with a linear scale between $[-0.05,0.05]$. $d_1$-favouring latents are highlighted \textcolor{red}{red} and $d_2$-favouring latents are highlighted \textcolor{blue}{blue}. The top three strongest correlations are: latent 11 with $r=0.807$, latent 56 with $r=-0.3213$, and latent 96 with $r=0.0036$.
-        \textbf{Right}: This plot shows the correlation of latent 11 with $\Delta \alpha$ in more detail, as this latent has the strongest correlation. All 10,000 possible input bigrams are plotted, and highlighted \textcolor{blue}{blue} if they activate latent 11 and \textcolor{gray}{grey} otherwise. We see that the latent activates with greater magnitude for larger $\Delta \alpha$.
+        \textbf{Left}: This plot shows the (Pearson) correlation of each latent with \(\Delta \alpha = \alpha_{s \to d_1} - \alpha_{s \to d_2}\), which is intuitively the emphasis given to $d_1$ over $d_2$ by \texttt{SEP} in the transformer model's first layer's attention pattern. The y-axis uses a symmetric logarithmic scale with a linear scale between $[-0.05,0.05]$. $d_1$-favouring latents are highlighted red and $d_2$-favouring latents are highlighted blue. The top three strongest correlations are: latent 11 with $r=0.807$, latent 56 with $r=-0.3213$, and latent 96 with $r=0.0036$.
+        \textbf{Right}: This plot shows the correlation of latent 11 with $\Delta \alpha$ in more detail, as this latent has the strongest correlation. All 10,000 possible input bigrams are plotted, and highlighted blue if they activate latent 11 and grey otherwise. We see that the latent activates with greater magnitude for larger $\Delta \alpha$.
         }
     \label{fig:alpha_diff_correlation_plot}
 \end{figure*} 
 
-% TODO
-% The circuit analysis in Section~\ref{ss:results-circuits} predicts 
-% that the residual at \texttt{SEP} is a linear combination of input 
-% embeddings with attention weights as coefficients. This motivates our 
-% primary hypothesis for the SAE analysis: that latents representing 
-% bigram order will have activations correlated with 
-% $\Delta\alpha = \alpha_{s \to d_1} - \alpha_{s \to d_2}$, the scalar 
-% quantity that distinguishes the two orderings of a bigram.
-
-Moreover, our earlier circuits analysis shows that both representations for input bigrams $(a,b)$ and $(b,a)$, $a,b \in [0,99]$, at $\boldsymbol r_{s}^{L_1}$ are linear combinations of the input token and positional embeddings with coefficients defined by the first layer's attention pattern.
-Therefore, we investigate whether latents' activation magnitudes correlate with the relative magnitude of the \texttt{SEP} position's attention to $d_1$ and $d_2$,
+Moreover, \citet{farrell2025order} find that $\boldsymbol r_{s}^{L_1}$ is a linear combination of input embeddings with attention weights as coefficients, so we compare correlations with
 \( 
 \Delta \alpha = \alpha_{s \to d_1} - 
 \alpha_{s \to d_2}
-\), as shown in Figure \ref{fig:alpha_diff_correlation_plot}. % TODO i'm not sure how obvious it is to do this? its not really the circuits analysis right, but the discussion that talks about this. ask patrick
+\), as shown in Figure \ref{fig:alpha_diff_correlation_plot}.
 Latent 11's activation magnitude strongly positively correlates with $\Delta \alpha$ (Pearson correlation coefficient $r=0.807$), and latent 56 weakly negatively correlates with $\Delta \alpha$ ($r=-0.3213$). We compute correlations over the whole dataset, and all latents have correlation $|r| < 0.004$ with $\Delta \alpha$, suggesting that these two features are indeed special relative to the others.
 Since latent 11 strongly positively correlates with $\Delta \alpha$ we refer to it as strongly $d_1$-favouring, and we similarly refer to latent 56 as weakly $d_2$-favouring. Latent 11 has a much stronger correlation than 56, so we refer to it as the primary special feature.
 
 \subsection{Steering Experiments}\label{ss:steering_exp}
 
-We hypothesise that special latents could have graded activations, which would mean they exhibit different behavior at different activation magnitudes, rather than simply being on/off. Specifically, we hypothesise that these special latents have meaningful activation ranges corresponding to different bigram orderings. To test this hypothesis, we use steering vectors \cite{ferrando2024primer,arditi2024refusal} to perform a causal linear intervention: we scale special latent activations and observe whether the model's outputs change predictably.
-% Graded latents are problematic for the binary view because a different activation magnitude can cause it to represent a different feature.
-More specifically, we:
+We hypothesise that special latents could have graded activations. Specifically, we hypothesise that these special latents have meaningful activation ranges corresponding to different bigram orderings. To test this hypothesis, we use steering vectors \cite{ferrando2024primer,arditi2024refusal} to perform a causal linear intervention: we scale special latent activations and observe whether the model's outputs change predictably.
+
+We:
 \begin{enumerate}
     \item Input bigram $(d_1, d_2)$ into the transformer model (Figure \ref{fig:rq2_pipeline}) and record the special latent's activation magnitude $m$ for that input, using the SAE trained on $\boldsymbol r_{s}^{L_1}$.
     \item Scale $m$ by some factor $p$ and reconstruct $\boldsymbol r_{s}^{L_1}$ as $\hat{\boldsymbol r}_{s}^{L_1}$ using the modified SAE activations.
     \item Replace $\boldsymbol r_{s}^{L_1}$ with $\hat{\boldsymbol r}_{s}^{L_1}$ in the model, and compute the logits at positions $(o_1, o_2)$ as normal.
     \item Repeat for all factors $p \in [0,10]$ with step size 0.05 across all input bigrams. Predictable and consistent shifts in the output logits under this intervention provide evidence that the special latent is graded.
 \end{enumerate}
-% \textbf{Why this works}:
-The binary view \cite{quirke2025binary} expects SAE latents to activate when a feature is present and remain inactive otherwise, with magnitude being irrelevant to the feature represented. If this were true for special latents, scaling their activation (step 2 above) would either keep outputs unchanged (same latents remain active) or produce nonsense. However, based on the circuits analysis in \citet{farrell2025order} showing that output order depends on $\Delta \alpha$, and the observation that special latents correlate with $\Delta \alpha$ (Section \ref{ss:sae_feat_analysis}), we predict that scaling these latents will cause systematic output swaps: for input $(a,b)$ where the model correctly outputs $(a,b)$, scaling the special latent may produce output $(b,a)$ at appropriate scaling factors.
 
+% The binary view \cite{quirke2025binary} expects SAE latents to activate when a feature is present and remain inactive otherwise, with magnitude being irrelevant to the feature represented. If this were true for special latents, scaling their activation (step 2 above) would either keep outputs unchanged (same latents remain active) or produce nonsense. However, based on the circuits analysis in \citet{farrell2025order} showing that output order depends on $\Delta \alpha$, and the observation that special latents correlate with $\Delta \alpha$ (Section \ref{ss:sae_feat_analysis}), we predict that scaling these latents will cause systematic output swaps: for input $(a,b)$ where the model correctly outputs $(a,b)$, scaling the special latent may produce output $(b,a)$ at appropriate scaling factors.
 
-\begin{figure*}[th]
-    \centering
-    \includegraphics[width=0.8\linewidth]{figures/steering_feat_success.pdf}
-    \caption{
-        This graph shows for input $(20,49)$ how the logits at the two output positions change as latent 11's activation magnitude is scaled. Each line shows the logit for some $i \in [0, 99]$ (100 lines total), such that if the top line at some latent scale represents symbol $i$, then $i$ is predicted at that output position when the latent's activation magnitude is scaled by that factor. The line corresponding to the symbol in position $d_1$ is blue, and the symbol in position $d_2$ is red. For the outputs to swap from $(20, 49)$ (correct) to $(49, 20)$ by scaling the latent's activation magnitude, there must be a range of scales where the red line is on top on the left plot and the blue line is on top on the right plot. For this example, this range is $[0.16, 2.20]$.
-    }
-    \label{fig:steering_feat_success}
-\end{figure*} 
 
 Figure \ref{fig:steering_feat_success} shows a specific example input for which the predicted behaviour occurs using latent 11. When no latent scaling is applied ($p=1$) we see that the argmax at $o_1$ matches the input token at $d_1$ as expected, and similarly $o_2$ matches $d_2$. However, for $p \in [0.16, 2.20]$ we have the opposite: $o_1$ has argmax $d_2$ and $o_2$ has argmax $d_1$. In this way, latent 11 behaves as a graded latent for this input. 
 We define a successful output swap as follows: the symbol from $d_1$ is predicted at position $o_2$ and the symbol from $d_2$ is predicted at position $o_1$. The `swap range' is the set of scaling factors $p$ for which this condition holds.

@@ -1,16 +1,5 @@
 \section{Methodology}\label{s:method}
 
-% \begin{figure}[t]
-%     \centering
-%     \includegraphics[width=\linewidth]{figures/rq2_pipeline.pdf}
-%     \caption{
-%       This diagram shows the structure of the two-layer attention-only transformer and how the SAE is used to extract and analyse the learned representations. $v$ denotes the residual stream, which is read from and written to after each layer and has shape $(5,d_\text{model})$. $t$ is the vector of input tokens $[d_1, d_2, \texttt{SEP}, \texttt{MASK}, \texttt{MASK}]$, $E$ and $P$ are the token and position embedding matrices respectively, $U$ is the unembedding matrix, and each attention layer has key and query matrices, $\boldsymbol K^i$ and $\boldsymbol Q^i$ respectively, for $i \in [1,2,3]$. The value and output matrices for each layer are fixed to the identity, and $d_\text{head}=64$.
-%       The SAE takes the residual vector at \texttt{SEP}, $v_\texttt{SEP}$, as input and patches reconstruction $\hat{v}_\texttt{SEP}$ back into the stream.
-%       Accuracy is calculated on the final two output logits only, represented by $(o_1, o_2)$.
-%     }
-%     \label{fig:rq2_pipeline}
-% \end{figure}
-
 \citet{farrell2025order} demonstrate the relative magnitude-based composition at the seperator's residual activation after the first layer. We refer to this vector as $\boldsymbol r_{s}^{L_1}$, where $s$ is the seperator token position, and train SAEs on that activation.
 
 We consider 3 SAE variants: BatchTopK \cite{bussmann2024batchtopk}, JumpReLU \cite{rajamanoharan2024jumping} and Matryoshka \cite{bussmann2025learning}, with implementations from \citet{marks2024dictionary_learning}. These represent the state of the art: Matryoshka and JumpReLU SAEs are used in Gemma Scope to interpret Gemma 2 \cite{lieberum2024gemma} and 3 \cite{mcdougall2025gemmascope2}, and all three are highly cited.
@@ -52,67 +41,15 @@ Matryoshka & 15 seeds / 540 runs \\
 We select a single BatchTopK SAE for in-depth study but validate key findings across 1,630 diverse SAE configurations and seeds (Table \ref{tab:sae_sweep_configs}), as well as across different SAE architectures (BatchTopK, JumpReLU, Matryoshka), demonstrating that our results are not an artefact of this specific checkpoint. 
 We select BatchTopK for its simplicity: it works by keeping the top $n \times k$ activations over a batch of $n$ inputs and sets the rest to zero, where $k$ is a tuned hyperparameter. This forces an average of $k$ latent activations per input, so the actual $L_0$ sparsity is approximately $k$. In contrast, Matryoshka SAEs work similarly but force a hierarchical dictionary, and JumpReLU SAEs use the more complex JumpReLU activation function. However, by generating hypotheses based on the in-depth BatchTopK analysis and then testing them against the more complex variants, we support generalisation of our results.
 
-\begin{table}[ht]
-\centering
-\caption{SAE sweep results aggregated over seeds and learning rates (mean $\pm$ std). $L_0$: mean active features per token. $d_\text{SAE}$: dictionary size. \textbf{EV} (explained variance): fraction of activation variance recovered by the SAE reconstruction ($\uparrow$ better). \textbf{PCE} (patched cross-entropy): language-model CE after substituting SAE reconstructions for true activations ($\downarrow$ better; baseline $= 0.1115$). \textbf{Dead\,\%}: percentage of dictionary features with zero activation across the evaluation set ($\downarrow$ better). 
-% $N_\text{special}$: features whose activation strongly correlates with the SEP attention difference $\alpha_{d_1}-\alpha_{d_2}$, as discussed in Section \ref{s:res_rq2}. 
-\textbf{Bold}: best within each $L_0$ block; \underline{\textbf{underlined}}: best overall.}
-\label{tab:sae_sweep}
-
-\resizebox{\linewidth}{!}{%
-\begin{tabular}{ccrrrr}
-\toprule
-$L_0$ & $d_\text{SAE}$ & EV ($\uparrow$) & PCE ($\downarrow$) & Dead \% ($\downarrow$) \\
-\midrule
-  1 & 64 & $0.5946 \pm 0.0035$ & $7.5576 \pm 0.2640$ & \textbf{0.1 $\pm$ 0.4} \\
-  1 & 128 & $0.6639 \pm 0.0113$ & $5.6684 \pm 0.7471$ & 11.7 $\pm$ 5.9 \\
-  1 & 192 & $0.6668 \pm 0.0089$ & $5.4586 \pm 0.5238$ & 38.7 $\pm$ 2.8 \\
-  1 & 256 & $0.6670 \pm 0.0074$ & $5.3517 \pm 0.3238$ & 49.2 $\pm$ 4.8 \\
-  1 & 320 & $\mathbf{0.6709 \pm 0.0065}$ & $5.4254 \pm 0.3393$ & 56.7 $\pm$ 5.8 \\
-  1 & 384 & $0.6683 \pm 0.0066$ & $\mathbf{5.1292 \pm 0.2389}$ & 57.8 $\pm$ 7.9 \\
-\midrule
-  2 & 64 & $0.7396 \pm 0.0062$ & $2.6535 \pm 0.1888$ & \underline{\textbf{0.0}} \\
-  2 & 128 & $0.9351 \pm 0.0049$ & $1.9155 \pm 0.2133$ & 15.0 $\pm$ 3.2 \\
-  2 & 192 & $0.9375 \pm 0.0086$ & $1.7859 \pm 0.1338$ & 37.3 $\pm$ 5.6 \\
-  2 & 256 & $0.9347 \pm 0.0063$ & $1.7910 \pm 0.2067$ & 49.9 $\pm$ 8.7 \\
-  2 & 320 & $\mathbf{0.9377 \pm 0.0066}$ & $1.8507 \pm 0.1693$ & 55.2 $\pm$ 11.4 \\
-  2 & 384 & $0.9318 \pm 0.0089$ & $\mathbf{1.7846 \pm 0.1073}$ & 59.4 $\pm$ 12.8 \\
-\midrule
-  3 & 64 & $0.7874 \pm 0.0049$ & $1.3783 \pm 0.1077$ & \underline{\textbf{0.0}} \\
-  3 & 128 & $0.9922 \pm 0.0007$ & $0.1853 \pm 0.0118$ & 10.9 $\pm$ 5.3 \\
-  3 & 192 & \underline{$\mathbf{0.9924 \pm 0.0006}$} & $\mathbf{0.1765 \pm 0.0095}$ & 35.7 $\pm$ 7.0 \\
-  3 & 256 & $0.9763 \pm 0.0697$ & $0.3261 \pm 0.6377$ & 40.3 $\pm$ 12.4 \\
-  3 & 320 & $0.9915 \pm 0.0017$ & $0.1900 \pm 0.0433$ & 45.3 $\pm$ 14.3 \\
-  3 & 384 & $0.9916 \pm 0.0017$ & $0.1914 \pm 0.0173$ & 52.7 $\pm$ 12.2 \\
-\midrule
-  4 & 64 & $0.8135 \pm 0.0077$ & $0.9146 \pm 0.1187$ & \underline{\textbf{0.0}} \\
-  4 & 128 & $0.9921 \pm 0.0004$ & $\mathbf{0.1799 \pm 0.0044}$ & 2.5 $\pm$ 3.5 \\
-  4 & 192 & $\mathbf{0.9921 \pm 0.0008}$ & $0.1826 \pm 0.0056$ & 14.3 $\pm$ 11.5 \\
-  4 & 256 & $0.9920 \pm 0.0013$ & $0.1871 \pm 0.0058$ & 19.5 $\pm$ 11.9 \\
-  4 & 320 & $0.9918 \pm 0.0016$ & $0.1983 \pm 0.0263$ & 27.2 $\pm$ 16.2 \\
-  4 & 384 & $0.9913 \pm 0.0021$ & $0.2023 \pm 0.0191$ & 35.2 $\pm$ 14.1 \\
-\midrule
-  5 & 64 & $0.8327 \pm 0.0064$ & $0.7296 \pm 0.0937$ & \underline{\textbf{0.0}} \\
-  5 & 128 & $0.9921 \pm 0.0002$ & \underline{$\mathbf{0.1750 \pm 0.0023}$} & 1.6 $\pm$ 1.8 \\
-  5 & 192 & $\mathbf{0.9924 \pm 0.0007}$ & $0.1826 \pm 0.0054$ & 10.2 $\pm$ 8.9 \\
-  5 & 256 & $0.9908 \pm 0.0012$ & $0.1984 \pm 0.0117$ & 9.7 $\pm$ 9.1 \\
-  5 & 320 & $0.9916 \pm 0.0014$ & $0.2124 \pm 0.0203$ & 16.4 $\pm$ 17.3 \\
-  5 & 384 & $0.9894 \pm 0.0015$ & $0.2275 \pm 0.0187$ & 15.9 $\pm$ 13.5 \\
-\bottomrule
-\end{tabular}
-}
-
-\end{table}
-% TODO update with new sweep
-
 To select a specific BatchTopK SAE checkpoint to analyse, we run a grid-search over $k \in [1,5]$ and SAE expansion factors $i \in [2,5]$, such that $d_\text{sae} = i \times d_\text{model}$. Results are shown in Table \ref{tab:sae_sweep}.
-We evaluate SAEs based on sparsity ($L_0$) and loss recovered, in line with previous work \cite{karvonen2025saebench,ferrando2024primer}.
-% \begin{enumerate}
-%     \item \textbf{Explained variance (EV)}: variance of the input explained by the SAE's reconstruction is a popular and robust measure for the SAE's reconstruction quality \cite{bussmann2024batchtopk,mcdougall2025gemmascope2}. 
-%     \item \textbf{Patched cross-entropy loss (PCE)}: cross-entropy loss when patching the SAE-reconstructed activations back into the model. This is an effective measure for how the SAE impacts downstream performance, because perfect SAE reconstructions should solve the task as effectively as the model. As this reflects reconstruction quality, it is a complementary metric to EV. The baseline model cross-entropy loss was 0.1115, so $\text{PCE} = 0.1115$ is optimal.
-%     \item \textbf{Sparsity ($L_0$)}: sparser SAEs (smaller $L_0$ norm) have fewer latents activate for each input, which generally means the learned latents are more interpretable \cite{bricken2023monosemanticity,karvonen2025saebench}.
-%     \item \textbf{Percentage of dead (inactive) latents}: SAEs often have some dead latents which do not activate for any input. A high percentage indicates that the SAE is not efficiently using its capacity. We expect to see this increase as $d_{SAE}$ increases. While this is a useful metric for general SAE quality, dead latents are discarded during analysis so this metric is not as critical as the others.
-% \end{enumerate}
+We evaluate SAEs based on:
+% and loss recovered, in line with previous work \cite{karvonen2025saebench,ferrando2024primer}.
+\begin{itemize}
+    \item \textbf{Explained variance (EV)}: variance of the input explained by the SAE's reconstruction is a popular and robust measure for the SAE's reconstruction quality \cite{bussmann2024batchtopk,mcdougall2025gemmascope2}. 
+    \item \textbf{Patched cross-entropy loss (PCE)}: cross-entropy loss when patching the SAE-reconstructed activations back into the model. This is an effective measure for how the SAE impacts downstream performance, because perfect SAE reconstructions should solve the task as effectively as the model. As this reflects reconstruction quality, it is a complementary metric to EV. The baseline model cross-entropy loss was 0.1115, so $\text{PCE} = 0.1115$ is optimal.
+    \item \textbf{Sparsity ($L_0$)}: sparser SAEs (smaller $L_0$ norm) have fewer latents activate for each input, which generally means the learned latents are more interpretable \cite{bricken2023monosemanticity,karvonen2025saebench}.
+    \item \textbf{Percentage of dead (inactive) latents}: SAEs often have some dead latents which do not activate for any input. A high percentage indicates that the SAE is not efficiently using its capacity. We expect to see this increase as $d_{SAE}$ increases. While this is a useful metric for general SAE quality, dead latents are discarded during analysis so this metric is not as critical as the others.
+\end{itemize}
 \citet{farrell2025order} train the transformer using a dataset of 10,000 bigrams: $(d_1, d_2)$ where both elements are uniformly sampled from the range $[0, 99]$. We cache the activations at $\boldsymbol r_{s}^{L_1}$ for all bigrams.
 
 Our grid-search shows that BatchTopK SAEs with $k = 1$ and $k=2$ perform much worse than other SAEs for both PCE and EV. BatchTopK SAEs with $k \in [3,5]$ are joint-best for EV up to 3 s.f. and PCE up to 2 s.f. We take $k=3$ because performance difference is negligible and lower sparsity typically improves interpretability and analysis: with at most 3 latents active per token, we can more easily exhaustively analyse each latent's role in any given computation.
@@ -160,42 +97,5 @@ For analysis, we begin by inspecting max activating examples for each latent.
 To test if a latent has graded activations, we use steer by linearly scaling the SAE latent's activation for a given input, patch the SAE reconstruction back into the model downstream and compare the new output to the original output. 
 % If the output changes predictably according to the hypothesis for what that latent represents, then that supports the hypothesis (Section \ref{s:related-work}).
 % Since the entire input space is small (10,000 possible input bigrams), we can feasibly record SAE activations for every single input, which is more robust than sampling activations and inferring to other inputs.
-
-\begin{table*}[ht]
-\centering
-\caption{Comparison of cherry-picked SAE architecture types across configuration and performance metrics. These SAEs are used to support generalisation claims when a large testing sample is not computationally feasible. Dashes indicate parameters not applicable to a given architecture. $L_0$ (actual) is the mean number of active latents measured at eval time. \textbf{Bold}: best value per performance metric.}
-\label{tab:cherry-picked-saes}
-\resizebox{\linewidth}{!}{%
-\begin{tabular}{l rr rrr rrrr}
-\toprule
-\multirow{2}{*}{\textbf{SAE Type}}
-  & \multicolumn{5}{c}{\textbf{Configuration}}
-  & \multicolumn{4}{c}{\textbf{Performance}} \\
-\cmidrule(lr){2-6}\cmidrule(lr){7-10}
-  & $d_{\mathrm{SAE}}$
-  & LR
-  & $k$ / Target $L_0$
-  & Sp.\ Pen.
-  & $n_{\mathrm{groups}}$
-  & CE Increase $\downarrow$
-  & Expl.\ Var.\ $\uparrow$
-  & Dead~(\%) $\downarrow$
-  & $L_0$ (actual) \\
-\midrule
-\multirow{2}{*}{BatchTopK}
-  & 192 & $3\!\times\!10^{-4}$ & 3 & ---  & --- & 0.0257 & 0.9929 & 26.04 & 3.36 \\
-  & 128 & $3\!\times\!10^{-4}$ & 5 & ---  & --- & 0.0292 & 0.9939 &  \textbf{0.78} & 4.90 \\
-\midrule
-\multirow{2}{*}{JumpReLU}
-  & 256 & $7\!\times\!10^{-5}$ & 5 & 5 & --- & \textbf{0.0141} & \textbf{0.9965} & 50.78 & 4.03 \\
-  & 128 & $7\!\times\!10^{-5}$ & 5 & 5 & --- & 0.0176 & 0.9963 & 17.97 & \textbf{3.24} \\
-\midrule
-\multirow{2}{*}{Matryoshka}
-  & 256 & $3\!\times\!10^{-4}$ & 3 & --- & 2 & 0.0262 & 0.9928 & 39.06 & 3.32 \\
-  & 192 & $3\!\times\!10^{-4}$ & 4 & --- & 4 & 0.0325 & 0.9927 & 12.50 & 3.98 \\
-\bottomrule
-\end{tabular}
-}
-\end{table*}
 
 To test whether our results on the selected SAE checkpoint generalise to others, we check for similar results on 1630 different SAE configurations and seeds (Table \ref{tab:sae_sweep_configs}) where feasible. When this is computationally infeasible, we use a targeted subset of SAE checkpoints as shown in Table \ref{tab:cherry-picked-saes}, which were selected for strong performance and varying $d_\text{SAE}$ and $L_0$ to provide a diverse test sample, although we note that this small set is not sufficient for statistical significance.
