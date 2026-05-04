@@ -1,6 +1,6 @@
 \section{Methodology}\label{s:method}
 
-\citet{farrell2025order} demonstrate the relative magnitude-based composition at the seperator's residual activation after the first layer. We refer to this vector as $\boldsymbol r_{s}^{L_1}$, where $s$ is the seperator token position, and train SAEs on that activation.
+\citet{farrell2025order} demonstrate the relative magnitude-based composition at the separator's residual activation after the first layer. We refer to this vector as $\boldsymbol r_{s}^{L_1}$, where $s$ is the separator token position, and train SAEs on that activation.
 
 We consider 3 SAE variants: BatchTopK \cite{bussmann2024batchtopk}, JumpReLU \cite{rajamanoharan2024jumping} and Matryoshka \cite{bussmann2025learning}, with implementations from \citet{marks2024dictionary_learning}. These represent the state of the art: Matryoshka and JumpReLU SAEs are used in Gemma Scope to interpret Gemma 2 \cite{lieberum2024gemma} and 3 \cite{mcdougall2025gemmascope2}, and all three are highly cited.
 % TODO may need better justification (related work?)
@@ -44,12 +44,15 @@ We select BatchTopK for its simplicity: it works by keeping the top $n \times k$
 To select a specific BatchTopK SAE checkpoint to analyse, we run a grid-search over $k \in [1,5]$ and SAE expansion factors $i \in [2,5]$, such that $d_\text{sae} = i \times d_\text{model}$. Results are shown in Table \ref{tab:sae_sweep}.
 We evaluate SAEs based on:
 % and loss recovered, in line with previous work \cite{karvonen2025saebench,ferrando2024primer}.
-\begin{itemize}
-    \item \textbf{Explained variance (EV)}: variance of the input explained by the SAE's reconstruction is a popular and robust measure for the SAE's reconstruction quality \cite{bussmann2024batchtopk,mcdougall2025gemmascope2}. 
-    \item \textbf{Patched cross-entropy loss (PCE)}: cross-entropy loss when patching the SAE-reconstructed activations back into the model. This is an effective measure for how the SAE impacts downstream performance, because perfect SAE reconstructions should solve the task as effectively as the model. As this reflects reconstruction quality, it is a complementary metric to EV. The baseline model cross-entropy loss was 0.1115, so $\text{PCE} = 0.1115$ is optimal.
-    \item \textbf{Sparsity ($L_0$)}: sparser SAEs (smaller $L_0$ norm) have fewer latents activate for each input, which generally means the learned latents are more interpretable \cite{bricken2023monosemanticity,karvonen2025saebench}.
-    \item \textbf{Percentage of dead (inactive) latents}: SAEs often have some dead latents which do not activate for any input. A high percentage indicates that the SAE is not efficiently using its capacity. We expect to see this increase as $d_{SAE}$ increases. While this is a useful metric for general SAE quality, dead latents are discarded during analysis so this metric is not as critical as the others.
-\end{itemize}
+
+\textbf{Explained variance (EV)}: variance of the input explained by the SAE's reconstruction is a popular and robust measure for the SAE's reconstruction quality \cite{bussmann2024batchtopk,mcdougall2025gemmascope2}. 
+
+\textbf{Patched cross-entropy loss (PCE)}: cross-entropy loss when patching the SAE-reconstructed activations back into the model. This is an effective measure for how the SAE impacts downstream performance, because perfect SAE reconstructions should solve the task as effectively as the model. As this reflects reconstruction quality, it is a complementary metric to EV. The baseline model cross-entropy loss was 0.1115, so $\text{PCE} = 0.1115$ is optimal.
+
+\textbf{Sparsity ($L_0$)}.
+
+\textbf{Percentage of dead (inactive) latents}.
+
 \citet{farrell2025order} train the transformer using a dataset of 10,000 bigrams: $(d_1, d_2)$ where both elements are uniformly sampled from the range $[0, 99]$. We cache the activations at $\boldsymbol r_{s}^{L_1}$ for all bigrams.
 
 Our grid-search shows that BatchTopK SAEs with $k = 1$ and $k=2$ perform much worse than other SAEs for both PCE and EV. BatchTopK SAEs with $k \in [3,5]$ are joint-best for EV up to 3 s.f. and PCE up to 2 s.f. We take $k=3$ because performance difference is negligible and lower sparsity typically improves interpretability and analysis: with at most 3 latents active per token, we can more easily exhaustively analyse each latent's role in any given computation.

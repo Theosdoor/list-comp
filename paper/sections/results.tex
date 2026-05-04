@@ -59,22 +59,19 @@ Figure \ref{fig:steering_feat_success} shows a specific example input for which 
 We define a successful output swap as follows: the symbol from $d_1$ is predicted at position $o_2$ and the symbol from $d_2$ is predicted at position $o_1$. The `swap range' is the set of scaling factors $p$ for which this condition holds.
 % For a successful swap, there must be a positve range 
 
-We test all 10,000 input bigrams and find that steering latent 11 produces output swaps for 5,002 out of 10,000 input bigrams (50.0\%). For 3,600 inputs (36\%), latent 11 does not activate, so steering has no effect ($m=0$). For the remaining 1,424 inputs (14.2\%), latent 11 activates but no scaling produces a swap. This occurs for several reasons (visual examples in appendices in the code submission):
-% Appendix \ref{s:further_steering}):
-\begin{itemize}
-    \item \textbf{No positive overlapping scale ranges}: for 9.2\% of inputs, latent 11 must be negatively scaled to swap the output at one of the output positions.
-    % (Figure \ref{fig:steering_feat11_o1_negative_scale})
-    BatchTopK SAE latent activations are strictly non-negative, where zero indicates feature absence and positive values indicate feature presence. Scaling a latent negatively does not represent absence, but rather introduces an out-of-distribution 'anti-feature' by subtracting its vector from the residual stream. We reject these cases because they force the SAE to behave in a way that is mathematically impossible during training, meaning they cannot be used as evidence for a naturally learned graded latent.
-    \item \textbf{Positive but mutually exclusive scale ranges}: for 2.3\% of inputs, it is possible to scale the latent to swap the symbol at each output position individually but not simultaneously.
-    % (Figure \ref{fig:steering_feat11_no_o2_crossover_in_bounds})
-    \item \textbf{No swap occurs in observed ranges}: for 1.6\% of inputs, the logit for the symbol at $d_2$ is always dominant at $o_2$ in the observed scale range, so there is no scale where the the symbol at $d_1$ is predicted instead. 
-    % (Figure \ref{fig:steering_feat11_o2_never_predicts_d1}).
-    For 0.2\% of inputs a similar situation occurs at $o_1$.
-    % (Figure \ref{fig:steering_feat11_o1_never_predicts_d2}).
-    \item \textbf{Matching bigram elements}: 0.8\% of the inputs both activate the latent and 
-    have identical input symbols, so swapping the outputs is degenerate. The 
-    remaining 0.2\% of same-symbol inputs do not activate the latent.
-\end{itemize}
+We test all 10,000 input bigrams and find that steering latent 11 produces output swaps for 5,002 out of 10,000 input bigrams (50.0\%). For 3,600 inputs (36\%), latent 11 does not activate, so steering has no effect ($m=0$). For the remaining 1,424 inputs (14.2\%), latent 11 activates but no scaling produces a swap. This occurs for several reasons (visual examples in Appendix \ref{app:further_steering}):
+
+\textbf{No positive overlapping scale ranges}: for 9.2\% of inputs, latent 11 must be negatively scaled to swap the output at one of the output positions (Figure \ref{fig:steering_feat11_o1_negative_scale}).
+BatchTopK SAE latent activations are strictly non-negative, where zero indicates feature absence and positive values indicate feature presence. Scaling a latent negatively does not represent absence, but rather introduces an out-of-distribution 'anti-feature' by subtracting its vector from the residual stream. We reject these cases because they force the SAE to behave in a way that is mathematically impossible during training, meaning they cannot be used as evidence for a naturally learned graded latent.
+
+\textbf{Positive but mutually exclusive scale ranges}: for 2.3\% of inputs, it is possible to scale the latent to swap the symbol at each output position individually but not simultaneously (Figure \ref{fig:steering_feat11_no_o2_crossover_in_bounds}).
+
+\textbf{No swap occurs in observed ranges}: for 1.6\% of inputs, the logit for the symbol at $d_2$ is always dominant at $o_2$ in the observed scale range, so there is no scale where the the symbol at $d_1$ is predicted instead (Figure \ref{fig:steering_feat11_o2_never_predicts_d1}).
+For 0.2\% of inputs a similar situation occurs at $o_1$ (Figure \ref{fig:steering_feat11_o1_never_predicts_d2}).
+
+\textbf{Matching bigram elements}: 0.8\% of the inputs both activate the latent and 
+have identical input symbols, so swapping the outputs is degenerate. The 
+remaining 0.2\% of same-symbol inputs do not activate the latent.
 % NOTE
 % 1) negative o1
 % 2) no o2 in bounds

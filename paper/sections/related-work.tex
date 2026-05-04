@@ -9,7 +9,6 @@ The encoder maps dense activation to a high-dimensional sparse latent space, and
 % The encoder projects the dense activations into a high-dimensional sparse latent space, and the decoder reconstructs the original activations using a dictionary of feature vectors. 
 % An SAE is an autoencoder with a single hidden layer that is trained to reconstruct its input while enforcing sparsity in the activations of the neurons in this hidden layer \cite{huben2024sparse,bricken2023monosemanticity}.
 
-
 Several architectural variants address limitations in the standard ReLU-based SAE
 % (Table \ref{tab:sae_types}) 
 For example, standard $L_1$ penalties often cause "shrinkage," where the reconstructed feature magnitudes are systematically underestimated \cite{ferrando2024primer}. Gated SAEs \cite{rajamanoharan2024improving} address this by decoupling feature detection from magnitude estimation using a gated mechanism. JumpReLU SAEs \citep{rajamanoharan2024jumping} replace the standard ReLU with a discontinuous step function at a learned threshold, optimizing an $L_0$ penalty to achieve the same decoupling.
@@ -23,19 +22,19 @@ SAEs have been successfully used on exploratory interpretability tasks like mode
 For example, \citet{leask2025sparse} show that SAEs can achieve high reconstruction quality while learning latents that do not correspond to any interpretable unit of computation.
 Therefore, reconstruction metrics are necessary but not sufficient evidence that an SAE has recovered the model's true representational structure.
 
-\citet{wattenberg2024relational} argue that matrix binding will result in echo features in SAEs, where the SAE learns latents corresponding to projections of the same feature into different binding subspaces. The effects of ID vectors and onion representations on SAEs have so far not been studied. 
+% \citet{wattenberg2024relational} argue that matrix binding will result in echo features in SAEs, where the SAE learns latents corresponding to projections of the same feature into different binding subspaces. The effects of ID vectors and onion representations on SAEs have so far not been studied. 
 
 SAE latents are generally treated as binary features in the literature \citep{paulo2024automatically, quirke2025binary}, where they are 'on' if the feature is active and 'off' otherwise. In contrast, our results demonstrate graded latent activations in which relative activation magnitude encodes relational information, such as sequence order. If these results generalise to LLMs, then they could undermine this binary perspective. Additionally, graded latent activations may be ignored or misinterpreted by any downstream interpretability tool that assumes all features are independently interpretable and linear.
 
 
 \textbf{Relative Magnitude-based Composition.}
-Their two-layer attention-only transformer achieves an ordered bigram copying task, in which the model must encode bigram $(d_1,d_2)$ into a single separator token and then reconstruct the bigram in the same order as output.
-They find that the model learns to represent the ordered bigram at the seperator token using the relative magnitude of scalar attention weights, rather than representing each possible ordering as a different direction in activation space.
-Specifically, they calculate the residual activation at the seperator token $\boldsymbol r^{L_1}_s$ as:
+\cite{farrell2025order} train a two-layer attention-only transformer to solve an ordered bigram copying task, in which the model must encode bigram $(d_1,d_2)$ into a single separator token and then reconstruct the bigram in the same order as output.
+They find that the model learns to represent the ordered bigram at the separator token using the relative magnitude of scalar attention weights, rather than representing each possible ordering as a different direction in activation space.
+Specifically, they calculate the residual activation at the separator token $\boldsymbol r^{L_1}_s$ as:
 \begin{equation}
     \boldsymbol r^{L_1}_s = \alpha_{s\to d_1} (\boldsymbol E_{d_1} + \boldsymbol P_{d_1}) + \alpha_{s \to d_2}(\boldsymbol E_{d_2} + \boldsymbol P_{d_2}) + \boldsymbol E_s + \boldsymbol P_s
 \end{equation}
-where $\alpha_{s\to d_i}$ is the attention weight in the first layer for query $s$ (seperator token) and key $d_i$ (element of input bigram), and $\boldsymbol E_{x}$ and $\boldsymbol P_{x}$ are the token and positional embeddings for token $x$ respectively.
+where $\alpha_{s\to d_i}$ is the attention weight in the first layer for query $s$ (separator token) and key $d_i$ (element of input bigram), and $\boldsymbol E_{x}$ and $\boldsymbol P_{x}$ are the token and positional embeddings for token $x$ respectively.
 They predict that an SAE trained on $\boldsymbol r^{L_1}_s$ will learn latents corresponding to $(\boldsymbol E_{a} + \boldsymbol P_{d_1})$ and $(\boldsymbol E_{b} + \boldsymbol P_{d_2})$ with activations equal to the attention probabilities $\alpha$, and that this results in graded latent activations.
 
 Graded latent activations undermine the assumption that SAE latents are independent and binary \cite{} because ...
