@@ -1,22 +1,20 @@
 \section{Methodology}\label{s:method}
 
-\begin{figure}[t]
-    \centering
-    \includegraphics[width=\linewidth]{figures/rq2_pipeline.pdf}
-    \caption{
-      This diagram shows the structure of the two-layer attention-only transformer and how the SAE is used to extract and analyse the learned representations. $v$ denotes the residual stream, which is read from and written to after each layer and has shape $(5,d_\text{model})$. $t$ is the vector of input tokens $[d_1, d_2, \texttt{SEP}, \texttt{MASK}, \texttt{MASK}]$, $E$ and $P$ are the token and position embedding matrices respectively, $U$ is the unembedding matrix, and each attention layer has key and query matrices, $\boldsymbol K^i$ and $\boldsymbol Q^i$ respectively, for $i \in [1,2,3]$. The value and output matrices for each layer are fixed to the identity, and $d_\text{head}=64$.
-      The SAE takes the residual vector at \texttt{SEP}, $v_\texttt{SEP}$, as input and patches reconstruction $\hat{v}_\texttt{SEP}$ back into the stream.
-      Accuracy is calculated on the final two output logits only, represented by $(o_1, o_2)$.
-    }
-    \label{fig:rq2_pipeline}
-\end{figure}
+% \begin{figure}[t]
+%     \centering
+%     \includegraphics[width=\linewidth]{figures/rq2_pipeline.pdf}
+%     \caption{
+%       This diagram shows the structure of the two-layer attention-only transformer and how the SAE is used to extract and analyse the learned representations. $v$ denotes the residual stream, which is read from and written to after each layer and has shape $(5,d_\text{model})$. $t$ is the vector of input tokens $[d_1, d_2, \texttt{SEP}, \texttt{MASK}, \texttt{MASK}]$, $E$ and $P$ are the token and position embedding matrices respectively, $U$ is the unembedding matrix, and each attention layer has key and query matrices, $\boldsymbol K^i$ and $\boldsymbol Q^i$ respectively, for $i \in [1,2,3]$. The value and output matrices for each layer are fixed to the identity, and $d_\text{head}=64$.
+%       The SAE takes the residual vector at \texttt{SEP}, $v_\texttt{SEP}$, as input and patches reconstruction $\hat{v}_\texttt{SEP}$ back into the stream.
+%       Accuracy is calculated on the final two output logits only, represented by $(o_1, o_2)$.
+%     }
+%     \label{fig:rq2_pipeline}
+% \end{figure}
 
-We hypothesise that relational composition occurs at the \texttt{SEP} position's residual stream activation vector after the first layer of the two-layer transformer model, as implied by \citet{farrell2025order}. We refer to this vector as $\boldsymbol r_{s}^{L_1}$.
-Therefore, we train SAEs on $\boldsymbol r_{s}^{L_1}$ to analyse how they respond to relational composition, as shown in Figure \ref{fig:rq2_pipeline}.
+\citet{farrell2025order} demonstrate the relative magnitude-based composition at the seperator's residual activation after the first layer. We refer to this vector as $\boldsymbol r_{s}^{L_1}$, where $s$ is the seperator token position, and train SAEs on that activation.
 
-There are many SAE variants in the literature, but we consider three: BatchTopK \cite{bussmann2024batchtopk}, JumpReLU \cite{rajamanoharan2024jumping} and Matryoshka \cite{bussmann2025learning}. A comparison is given in Table~\ref{tab:sae_types}.
-These have reliable open-source implementations in the \texttt{dictionary\_learning} library \cite{marks2024dictionary_learning}, and they represent the state of the art: Matryoshka and JumpReLU SAEs have been used by Google for their open suite of interpretability tools \cite{lieberum2024gemma,mcdougall2025gemmascope2}, and all three are highly cited.
-
+We consider 3 SAE variants: BatchTopK \cite{bussmann2024batchtopk}, JumpReLU \cite{rajamanoharan2024jumping} and Matryoshka \cite{bussmann2025learning}, with implementations from \citet{marks2024dictionary_learning}. These represent the state of the art: Matryoshka and JumpReLU SAEs are used in Gemma Scope to interpret Gemma 2 \cite{lieberum2024gemma} and 3 \cite{mcdougall2025gemmascope2}, and all three are highly cited.
+% TODO may need better justification (related work?)
 
 \begin{table}[ht]
 \centering
@@ -111,20 +109,17 @@ $L_0$ & $d_\text{SAE}$ & EV ($\uparrow$) & PCE ($\downarrow$) & Dead \% ($\downa
 % TODO update with new sweep
 
 To select a specific BatchTopK SAE checkpoint to analyse, we run a grid-search over $k \in [1,5]$ and SAE expansion factors $i \in [1,6]$, such that $d_\text{sae} = i \times d_\text{model}$. Results are shown in Table \ref{tab:sae_sweep}.
-We compare SAEs based on:
-\begin{enumerate}
-    \item \textbf{Explained variance (EV)}: variance of the input explained by the SAE's reconstruction is a popular and robust measure for the SAE's reconstruction quality \cite{bussmann2024batchtopk,mcdougall2025gemmascope2}. 
-    \item \textbf{Patched cross-entropy loss (PCE)}: cross-entropy loss when patching the SAE-reconstructed activations back into the model. This is an effective measure for how the SAE impacts downstream performance, because perfect SAE reconstructions should solve the task as effectively as the model. As this reflects reconstruction quality, it is a complementary metric to EV. The baseline model cross-entropy loss was 0.1115, so $\text{PCE} = 0.1115$ is optimal.
-    \item \textbf{Sparsity ($L_0$)}: sparser SAEs (smaller $L_0$ norm) have fewer latents activate for each input, which generally means the learned latents are more interpretable \cite{bricken2023monosemanticity,karvonen2025saebench}.
-    \item \textbf{Percentage of dead (inactive) latents}: SAEs often have some dead latents which do not activate for any input. A high percentage indicates that the SAE is not efficiently using its capacity. We expect to see this increase as $d_{SAE}$ increases. While this is a useful metric for general SAE quality, dead latents are discarded during analysis so this metric is not as critical as the others.
-\end{enumerate}
-We compute the metrics over the combined training and test dataset consisting of all 10,000 possible input bigrams. This provides more data than just the 2000 test examples which improves the generalisability of our results. Since the SAE is trained on model activations rather than inputs, there is no need for test-train splits. The ideal outcome is the SAE overfits to the target model latent's behaviour, so we can study the SAE and more robustly generalise to the model latent (although we cannot generalise with full confidence as discussed in Section \ref{s:related-work} \cite{chanin2024absorption,leask2025sparse}).
+We compare SAEs based on sparsity ($L_0$) and loss reconstructed, in line with previous work \cite{karvonen2025saebench,ferrando2024primer}.
+% \begin{enumerate}
+%     \item \textbf{Explained variance (EV)}: variance of the input explained by the SAE's reconstruction is a popular and robust measure for the SAE's reconstruction quality \cite{bussmann2024batchtopk,mcdougall2025gemmascope2}. 
+%     \item \textbf{Patched cross-entropy loss (PCE)}: cross-entropy loss when patching the SAE-reconstructed activations back into the model. This is an effective measure for how the SAE impacts downstream performance, because perfect SAE reconstructions should solve the task as effectively as the model. As this reflects reconstruction quality, it is a complementary metric to EV. The baseline model cross-entropy loss was 0.1115, so $\text{PCE} = 0.1115$ is optimal.
+%     \item \textbf{Sparsity ($L_0$)}: sparser SAEs (smaller $L_0$ norm) have fewer latents activate for each input, which generally means the learned latents are more interpretable \cite{bricken2023monosemanticity,karvonen2025saebench}.
+%     \item \textbf{Percentage of dead (inactive) latents}: SAEs often have some dead latents which do not activate for any input. A high percentage indicates that the SAE is not efficiently using its capacity. We expect to see this increase as $d_{SAE}$ increases. While this is a useful metric for general SAE quality, dead latents are discarded during analysis so this metric is not as critical as the others.
+% \end{enumerate}
+\citet{farrell2025order} train the transformer using a dataset of 10,000 bigrams: $(d_1, d_2)$ where both elements are uniformly sampled from the range $[0, 99]$. We cache the activations at $\boldsymbol r_{s}^{L_1}$ for all bigrams.
 
 Our grid-search shows that BatchTopK SAEs with $k = 1$ and $k=2$ perform much worse than other SAEs for both PCE and EV. BatchTopK SAEs with $k \in [3,5]$ are joint-best for EV up to 3 s.f. and PCE up to 2 s.f. We take $k=3$ because performance difference is negligible and lower sparsity typically improves interpretability and analysis: with at most 3 latents active per token, we can more easily exhaustively analyse each latent's role in any given computation.
-
 SAEs with $d_\text{sae} \in [128,320]$ perform best for EV and PCE. 
-$d_\text{sae} = 64$ performs poorly because the transformer has 64 dimensions which are likely polysemantic, making it difficult to expand each model dimension into monosemantic SAE latents. We show this result to demonstrate the importance of SAE dimension choice.
-Conversely, when $d_\text{sae}$ is too large, dead latents increase sharply (Table~\ref{tab:sae_sweep}), indicating that the dictionary size exceeds what the model's representations actually need to be represented monosemantically.
 
 \begin{table}[htbp]
 \caption{Selected SAE configuration. The learning rate, optimiser, betas, schedule and auxiliary loss are defaults from \cite{bussmann2024batchtopk,marks2024dictionary_learning} and were constant for all BatchTopK runs.}
