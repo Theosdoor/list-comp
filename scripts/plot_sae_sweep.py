@@ -74,9 +74,13 @@ def parse_report(path: Path) -> pd.DataFrame:
             break
         if (in_summary and line.startswith("| sae_")) or line.startswith("| btk_"):
             cols = [c.strip() for c in line.split("|")]
-            # Table columns (from compare_sae.py output):
-            # | Model | d_sae | Actual L0 | Dead % | Loss Recovered | Exp Var | H_orig | H* | H0 | N Special |
-            #   [1]    [2]      [3]        [4]      [5]              [6]       [7]      [8]  [9]  [10]
+            # Support both old (7-col) and new (10-col) table formats:
+            # Old: | Model | d_sae | L0 | Dead% | LR | Exp Var | N Special |
+            #        [1]    [2]    [3]   [4]    [5]   [6]      [7]
+            # New: | Model | d_sae | L0 | Dead% | LR | Exp Var | H_orig | H* | H0 | N Special |
+            #        [1]    [2]    [3]   [4]    [5]   [6]      [7]      [8]  [9]  [10]
+            n_cols = len(cols) - 2  # subtract leading/trailing empty strings from split
+            n_special_col = 10 if n_cols >= 10 else 7
             try:
                 rows.append({
                     "model":          cols[1],
@@ -84,7 +88,7 @@ def parse_report(path: Path) -> pd.DataFrame:
                     "l0":             int(round(float(cols[3]))),
                     "dead_pct":       float(cols[4].rstrip("%")),
                     "loss_recovered": float(cols[5]) if cols[5] != "—" else None,
-                    "n_special":      int(cols[10]) if cols[10] != "—" else 0,
+                    "n_special":      int(cols[n_special_col]) if cols[n_special_col] != "—" else 0,
                 })
             except (IndexError, ValueError):
                 pass
@@ -355,6 +359,10 @@ def main():
 
     df = parse_report(report_path)
     print(f"Parsed {len(df)} SAE rows")
+    if df.empty:
+        print(f"ERROR: No rows parsed from {report_path}. "
+              "Check that the report contains a Summary Table with rows starting '| sae_' or '| btk_'.")
+        return
 
     df = filter_df(df, args.l0_values, args.d_sae_values,
                    exclude_l0=args.exclude_l0, exclude_d_sae=args.exclude_d_sae)
