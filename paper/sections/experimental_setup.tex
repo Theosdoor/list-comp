@@ -11,6 +11,39 @@
     \label{fig:rq2_pipeline}
 \end{figure}
 
+\begin{table}[htbp]
+\centering
+\caption{
+SAE hyperparameter sweep configurations. Braces denote swept values; fixed values are listed directly.
+Fixed parameters across all runs: 50{,}000 training steps, 1{,}000 warmup steps, 4{,}096 batch size.
+Total run counts are the product of all swept values and seeds. Note that $n_\text{groups}=1$ in a Matryoshka SAE reduces it to a standard BatchTopK SAE, so this serves as an internal consistency check.
+}
+\label{tab:sae_sweep_configs}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameters} & \textbf{Swept Values} \\
+\midrule
+$d_{\mathrm{SAE}}$ & \{128, 192, 256, 320\} \\
+$k$ / Target $L_0$ (All) & \{3, 4, 5\} \\
+$k$ / Target $L_0$ (BatchTopK extra) & \{1, 2\} \\
+$k$ / Target $L_0$ (JumpReLU extra) & \{2\} \\
+JumpReLU sparsity penalty & \{0.1, 0.5, 1.0, 5.0\} \\
+JumpReLU learning rate & \{$7\!\times\!10^{-5}$, $3\!\times\!10^{-4}$\} \\
+BatchTopK, Matryoshka learning rate & $3\!\times\!10^{-4}$ \\
+Matryoshka $n_{\text{groups}}$ & \{1, 2, 4\} \\
+\midrule
+& \textbf{Seeds / Total Runs} \\
+\midrule
+BatchTopK & 15 seeds / 450 runs \\
+JumpReLU & 5 seeds / 640 runs \\
+Matryoshka & 15 seeds / 540 runs \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+% NOTE maybe each SAE should have equal number of runs to avoid bias in aggregate stats?
+
 \begin{table}[ht]
 \centering
 \caption{SAE sweep results aggregated over HOW MANY [TODO] seeds and learning rates (mean $\pm$ std). $L_0$: mean active features per token. $d_\text{SAE}$: dictionary size. \textbf{EV} (explained variance): fraction of activation variance recovered by the SAE reconstruction ($\uparrow$ better). \textbf{PCE} (patched cross-entropy): language-model CE after substituting SAE reconstructions for true activations ($\downarrow$ better; baseline $= 0.1115$). \textbf{Dead\,\%}: percentage of dictionary features with zero activation across the evaluation set ($\downarrow$ better). 

@@ -1,30 +1,18 @@
 \section{Related Work}\label{s:related-work}
 
 \textbf{Sparse Autoencoders.} 
-% TODO this is copied from old paper so need to edit it!
-Models can store more sparse features than the dimension of their activations naively allows through superposition, creating challenges for interpreting these models \citep{elhage2022toy}. Sparse Autoencoders (SAEs) \citep{bricken2023monosemanticity, huben2024sparse} and their variants \citep{gao2024scaling, bussmann2024batchtopk, rajamanoharan2024jumping, leask2025inference, costa2025evaluating, bussmann2025learning} have been proposed as a tool for recovering these sparse features from dense activations. 
-An SAE is typically implemented as an autoencoder with a single hidden layer, trained to reconstruct model activations while keeping the hidden representation sparse using a penalty (such as an $L_1$ regularization term) \citep{huben2024sparse,bricken2023monosemanticity}. 
-The encoder maps dense activation to a high-dimensional sparse latent space, and the decoder reconstructs the original activations using a learned dictionary of monosemantic latents, which ideally corresponds to interpretable features.
-% The motivation is that if polysemantic activations arise from superposition, an SAE should decompose them into monosemantic latents, each corresponding to one feature.
-% The encoder projects the dense activations into a high-dimensional sparse latent space, and the decoder reconstructs the original activations using a dictionary of feature vectors. 
-% An SAE is an autoencoder with a single hidden layer that is trained to reconstruct its input while enforcing sparsity in the activations of the neurons in this hidden layer \cite{huben2024sparse,bricken2023monosemanticity}.
+Models can represent more than $n$ features in $n$-dimensional activations through superposition which complicates interpretability \citep{elhage2022toy}.
+Sparse autoencoders (SAEs) \citep{bricken2023monosemanticity, huben2024sparse} and their variants \citep{gao2024scaling, bussmann2024batchtopk, rajamanoharan2024jumping, bussmann2025learning, karvonen2025saebench, leask2025inference} decompose dense activations into sparse feature representations in an attempt to address this.
+An SAE consists of a single hidden layer trained to reconstruct model activations subject to a sparsity penalty on the latent activations (typically $L_1$ or top-$k$ regularisation) \citep{huben2024sparse, bricken2023monosemanticity}.
 
-Several architectural variants address limitations in the standard ReLU-based SAE
-% (Table \ref{tab:sae_types}) 
-For example, standard $L_1$ penalties often cause "shrinkage," where the reconstructed feature magnitudes are systematically underestimated \cite{ferrando2024primer}. Gated SAEs \cite{rajamanoharan2024improving} address this by decoupling feature detection from magnitude estimation using a gated mechanism. JumpReLU SAEs \citep{rajamanoharan2024jumping} replace the standard ReLU with a discontinuous step function at a learned threshold, optimizing an $L_0$ penalty to achieve the same decoupling.
-TopK SAEs \citep{gao2024scaling} replace the sparsity penalty by explicitly retaining only the $k$ highest pre-activations per token. BatchTopK SAEs \citep{bussmann2024batchtopk} extend this by enforcing the TopK constraint across an entire batch, allowing natural variation in the number of active latents per token while maintaining the target sparsity in expectation. Matryoshka SAEs \citep{bussmann2025learning} train nested sub-dictionaries of increasing size under a shared encoder and decoder, producing representations at multiple levels of granularity from a single training run. We use Matryoshka, BatchTopK and JumpReLU variants in this paper.
+We use 3 types of SAEs in this paper.
+JumpReLU SAEs \citep{rajamanoharan2024jumping} use a discontinuous step function at a learned threshold and optimise an $L_0$ penalty.
+BatchTopK SAEs \citep{bussmann2024batchtopk} keep the top $n \times k$ activations over a batch of $n$ inputs and sets the rest to zero. This forces an average of $k$ latent activations per input, so the actual $L_0$ sparsity is approximately $k$. 
+Matryoshka SAEs \citep{bussmann2025learning} train nested sub-dictionaries of increasing size under a shared encoder and decoder, producing representations at multiple levels of granularity from a single training run.
+We focus on BatchTopK SAEs because they are much simpler than the others.
+% TODO justify this? or do in method? i saw a paper talking about using btk for simplicity or smthn but can't remember it!
 
-% explain SAEs - https://arxiv.org/pdf/2412.06410
-
-SAE performance is typically evaluated as the pareto frontier of two metrics: $L_0$ norm of the SAE latent activations vector, which measures sparsity, and reconstruction quality (explained variance, cross-entropy increase when patching reconstructions into the model) \citep{karvonen2025saebench,ferrando2024primer,bricken2023monosemanticity}.
-
-SAEs have been successfully used on exploratory interpretability tasks like model auditing \citep{marks2025auditing} and hypothesis generation \citep{movva2025sparse}, but it is unclear whether they can be used to recover the true features of models \citep{leask2025sparse, chanin2024absorption}.
-For example, \citet{leask2025sparse} show that SAEs can achieve high reconstruction quality while learning latents that do not correspond to any interpretable unit of computation.
-Therefore, reconstruction metrics are necessary but not sufficient evidence that an SAE has recovered the model's true representational structure.
-
-% \citet{wattenberg2024relational} argue that matrix binding will result in echo features in SAEs, where the SAE learns latents corresponding to projections of the same feature into different binding subspaces. The effects of ID vectors and onion representations on SAEs have so far not been studied. 
-
-SAE latents are generally treated as binary features in the literature \citep{paulo2024automatically, quirke2025binary}, where they are 'on' if the feature is active and 'off' otherwise. In contrast, our results demonstrate graded latent activations in which relative activation magnitude encodes relational information, such as sequence order. If these results generalise to LLMs, then they could undermine this binary perspective. Additionally, graded latent activations may be ignored or misinterpreted by any downstream interpretability tool that assumes all features are independently interpretable and linear.
+SAEs have been successfully used in the past \citep{marks2025auditing, movva2025sparse} but there are uncertainties over whether they learn robust dictionaries \citep{chanin2024absorption,leask2025sparse}. In our paper, we show that even a correct dictionary may be insufficient for complete model understanding using SAEs.
 
 
 \textbf{Relative Magnitude-based Composition.}
