@@ -1,5 +1,8 @@
 # TODO
 
+## Tidy up before sub
+
+
 ## Extensions
 
 - speed up xover pipeline by skipping inputs that don't activate the special feature - eg. d1=d2
