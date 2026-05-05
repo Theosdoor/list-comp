@@ -68,13 +68,12 @@ def compute_sae_downstream_metrics(model, sae, val_dl, act_mean, layer_idx=0, se
     """
     Compute downstream metrics for an SAE in three forward passes (baseline + patched + zero-ablation).
 
-    Returns accuracy and CE loss together to avoid redundant passes.
+    Returns accuracy and loss_recovered metric together.
 
     Returns:
         dict with keys:
             baseline_acc, reconstruction_acc, accuracy_drop, total_samples,
-            baseline_ce, patched_ce, ce_increase, total_tokens,
-            zero_ce, loss_recovered
+            total_tokens, zero_ce, loss_recovered
     """
     from ..utils.runtime import _RUNTIME
     list_len = _RUNTIME.list_len
@@ -178,12 +177,9 @@ def compute_sae_downstream_metrics(model, sae, val_dl, act_mean, layer_idx=0, se
         "reconstruction_acc": patched_acc,
         "accuracy_drop": baseline_acc - patched_acc,
         "total_samples": total_tokens,
-        "baseline_ce": baseline_ce,
-        "patched_ce": patched_ce,
-        "ce_increase": patched_ce - baseline_ce,
+        "total_tokens": total_tokens,
         "zero_ce": zero_ce,
         "loss_recovered": loss_recovered,
-        "total_tokens": total_tokens,
     }
 
 
