@@ -46,38 +46,37 @@ Matryoshka & 15 seeds / 540 runs \\
 
 \begin{table}[ht]
 \centering
-\caption{SAE sweep results aggregated over HOW MANY [TODO] seeds and learning rates (mean $\pm$ std). $L_0$: mean active features per token. $d_\text{SAE}$: dictionary size. \textbf{EV} (explained variance): fraction of activation variance recovered by the SAE reconstruction ($\uparrow$ better). \textbf{PCE} (patched cross-entropy): language-model CE after substituting SAE reconstructions for true activations ($\downarrow$ better; baseline $= 0.1115$). \textbf{Dead\,\%}: percentage of dictionary features with zero activation across the evaluation set ($\downarrow$ better). 
-% $N_\text{special}$: features whose activation strongly correlates with the SEP attention difference $\alpha_{d_1}-\alpha_{d_2}$, as discussed in Section \ref{s:res_rq2}. 
+\caption{SAE sweep results aggregated over multiple seeds (mean $\pm$ std). $L_0$: mean active features per token. $d_\text{SAE}$: dictionary size. \textbf{LR} (loss recovered): fraction of model loss recovered by the SAE reconstruction ($\uparrow$ better). \textbf{Dead\,\%}: percentage of dictionary features with zero activation across the evaluation set ($\downarrow$ better).
 \textbf{Bold}: best within each $L_0$ block; \underline{\textbf{underlined}}: best overall.}
 \label{tab:sae_sweep}
-\begin{tabular}{cccrrrr}
+\begin{tabular}{ccrr}
 \toprule
-$L_0$ & $d_\text{SAE}$ & Runs & EV ($\uparrow$) & PCE ($\downarrow$) & Dead \% ($\downarrow$) \\
+$L_0$ & $d_\text{SAE}$ & Runs & LR ($\uparrow$) & Dead \% ($\downarrow$) \\
 \midrule
-  1 & 128 & 15 & $0.6796 \pm 0.0039$ & $4.8800 \pm 0.1734$ & \textbf{12.9 $\pm$ 2.9} \\
-  1 & 192 & 15 & $0.6755 \pm 0.0036$ & $\mathbf{4.7661 \pm 0.1141}$ & 43.9 $\pm$ 1.9 \\
-  1 & 256 & 15 & $0.6824 \pm 0.0052$ & $4.7997 \pm 0.0903$ & 53.9 $\pm$ 2.0 \\
-  1 & 320 & 15 & $\mathbf{0.6859 \pm 0.0039}$ & $4.8711 \pm 0.1156$ & 61.9 $\pm$ 1.3 \\
+  1 & 128 & 44 & $0.9368 \pm 0.0028$ & \textbf{13.5 $\pm$ 2.1} \\
+  1 & 192 & 15 & $\mathbf{0.9410 \pm 0.0014}$ & 43.9 $\pm$ 1.9 \\
+  1 & 256 & 15 & $0.9406 \pm 0.0011$ & 53.9 $\pm$ 2.0 \\
+  1 & 320 & 15 & $0.9397 \pm 0.0015$ & 61.9 $\pm$ 1.3 \\
 \midrule
-  2 & 128 & 14 & $0.9478 \pm 0.0023$ & $\mathbf{1.5176 \pm 0.0874}$ & \textbf{17.9 $\pm$ 1.3} \\
-  2 & 192 & 15 & $0.9461 \pm 0.0034$ & $1.6309 \pm 0.2440$ & 42.6 $\pm$ 1.4 \\
-  2 & 256 & 15 & $0.9452 \pm 0.0084$ & $1.6028 \pm 0.1765$ & 54.4 $\pm$ 1.5 \\
-  2 & 320 & 15 & $\mathbf{0.9493 \pm 0.0036}$ & $1.6711 \pm 0.1941$ & 61.6 $\pm$ 1.8 \\
+  2 & 128 & 57 & $0.9798 \pm 0.0101$ & \textbf{17.0 $\pm$ 2.6} \\
+  2 & 192 & 20 & $0.9835 \pm 0.0056$ & 43.7 $\pm$ 2.2 \\
+  2 & 256 & 20 & $\mathbf{0.9836 \pm 0.0048}$ & 55.8 $\pm$ 2.7 \\
+  2 & 320 & 20 & $0.9828 \pm 0.0051$ & 63.2 $\pm$ 3.1 \\
 \midrule
-  3 & 128 & 19 & $0.9465 \pm 0.1747$ & $1.4374 \pm 2.9323$ & \textbf{13.0 $\pm$ 3.9} \\
-  3 & 192 & 14 & $0.9940 \pm 0.0005$ & $0.1444 \pm 0.0039$ & 34.8 $\pm$ 4.8 \\
-  3 & 256 & 12 & $0.9940 \pm 0.0008$ & $\mathbf{0.1431 \pm 0.0040}$ & 48.2 $\pm$ 7.1 \\
-  3 & 320 & 13 & $\mathbf{0.9943 \pm 0.0008}$ & $0.1438 \pm 0.0035$ & 54.1 $\pm$ 6.9 \\
+  3 & 128 & 405 & $\mathbf{0.9984 \pm 0.0036}$ & \textbf{17.4 $\pm$ 2.8} \\
+  3 & 192 & 293 & $0.9984 \pm 0.0020$ & 41.1 $\pm$ 3.8 \\
+  3 & 256 & 195 & $0.9979 \pm 0.0023$ & 51.5 $\pm$ 6.0 \\
+  3 & 320 & 201 & $0.9979 \pm 0.0024$ & 57.7 $\pm$ 7.4 \\
 \midrule
-  4 & 128 & 15 & $0.9939 \pm 0.0002$ & $0.1434 \pm 0.0015$ & \textbf{1.2 $\pm$ 0.9} \\
-  4 & 192 & 12 & $0.9953 \pm 0.0003$ & $0.1420 \pm 0.0012$ & 5.1 $\pm$ 2.0 \\
-  4 & 256 & 15 & $0.9954 \pm 0.0023$ & $0.1419 \pm 0.0040$ & 17.9 $\pm$ 15.8 \\
-  4 & 320 & 16 & $\mathbf{0.9965 \pm 0.0018}$ & $\mathbf{0.1390 \pm 0.0020}$ & 19.4 $\pm$ 12.6 \\
+  4 & 128 & 74 & $\mathbf{0.9993 \pm 0.0003}$ & \textbf{2.5 $\pm$ 2.4} \\
+  4 & 192 & 81 & $0.9990 \pm 0.0016$ & 20.8 $\pm$ 16.0 \\
+  4 & 256 & 75 & $0.9990 \pm 0.0015$ & 21.9 $\pm$ 20.4 \\
+  4 & 320 & 71 & $0.9993 \pm 0.0013$ & 20.8 $\pm$ 18.8 \\
 \midrule
-  5 & 128 & 15 & $0.9939 \pm 0.0001$ & $0.1417 \pm 0.0013$ & \underline{\textbf{0.3 $\pm$ 0.4}} \\
-  5 & 192 & 19 & $0.9946 \pm 0.0021$ & $0.1412 \pm 0.0020$ & 5.2 $\pm$ 8.3 \\
-  5 & 256 & 17 & $0.9965 \pm 0.0005$ & $0.1399 \pm 0.0016$ & 7.2 $\pm$ 3.3 \\
-  5 & 320 & 15 & \underline{$\mathbf{0.9973 \pm 0.0004}$} & \underline{$\mathbf{0.1382 \pm 0.0013}$} & 11.8 $\pm$ 3.2 \\
+  5 & 128 & 74 & $0.9993 \pm 0.0003$ & \underline{\textbf{0.5 $\pm$ 0.6}} \\
+  5 & 192 & 65 & $0.9995 \pm 0.0001$ & 6.2 $\pm$ 6.6 \\
+  5 & 256 & 64 & $0.9996 \pm 0.0000$ & 6.1 $\pm$ 4.0 \\
+  5 & 320 & 59 & \underline{$\mathbf{0.9997 \pm 0.0001}$} & 7.9 $\pm$ 5.1 \\
 \bottomrule
 \end{tabular}
 \end{table}
