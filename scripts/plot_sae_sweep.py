@@ -61,9 +61,12 @@ def parse_report(path: Path) -> pd.DataFrame:
     """Parse the summary table from an sae_comparison_*.md report."""
     text = path.read_text()
 
-    # Summary table columns
-    # | Model | d_sae | Actual L0 | Dead % | Loss Recovered | Baseline CE | Patched CE | CE Increase | N Special |
-    #   [1]    [2]      [3]       [4]      [5]               [6]           [7]          [8]            [9]
+    # Summary table columns:
+    # New: | Model | d_sae | L0 | Dead% | LR | Exp Var | H_orig | H* | H0 | N Special (mean_abs_corr) |
+    #        [1]    [2]    [3]   [4]    [5]   [6]      [7]      [8]  [9]  [10]
+    # Old: | Model | d_sae | L0 | Dead% | LR | Exp Var | N Special |
+    #        [1]    [2]    [3]   [4]    [5]   [6]      [7]
+    # N Special cell may be "3 (0.742)" — parse only the integer count.
     rows = []
     in_summary = False
     for line in text.splitlines():
@@ -74,11 +77,7 @@ def parse_report(path: Path) -> pd.DataFrame:
             break
         if in_summary and line.startswith("| ") and not line.startswith("|---") and "| Model |" not in line:
             cols = [c.strip() for c in line.split("|")]
-            # Support both old (7-col) and new (10-col) table formats:
-            # Old: | Model | d_sae | L0 | Dead% | LR | Exp Var | N Special |
-            #        [1]    [2]    [3]   [4]    [5]   [6]      [7]
-            # New: | Model | d_sae | L0 | Dead% | LR | Exp Var | H_orig | H* | H0 | N Special |
-            #        [1]    [2]    [3]   [4]    [5]   [6]      [7]      [8]  [9]  [10]
+            # Support both old (7-col) and new (10-col) table formats
             n_cols = len(cols) - 2  # subtract leading/trailing empty strings from split
             n_special_col = 10 if n_cols >= 10 else 7
             try:
@@ -88,7 +87,8 @@ def parse_report(path: Path) -> pd.DataFrame:
                     "l0":             int(round(float(cols[3]))),
                     "dead_pct":       float(cols[4].rstrip("%")),
                     "loss_recovered": float(cols[5]) if cols[5] != "—" else None,
-                    "n_special":      int(cols[n_special_col]) if cols[n_special_col] != "—" else 0,
+                    # Cell may be "3 (0.742)" — take only the leading integer count
+                    "n_special":      int(cols[n_special_col].split()[0]) if cols[n_special_col] not in ("—", "") else 0,
                 })
             except (IndexError, ValueError):
                 pass

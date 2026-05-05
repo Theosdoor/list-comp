@@ -298,7 +298,7 @@ def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all
     }
 
 #%%
-def generate_markdown_report(results, output_path):
+def generate_markdown_report(results, output_path, special_threshold=0.5):
     """Generate markdown comparison report."""
     if not results:
         return "No results to report."
@@ -310,12 +310,15 @@ def generate_markdown_report(results, output_path):
     has_best = any(r.get('using_best') for r in results)
 
     best_note = " (\\* = best checkpoint)" if has_best else ""
+    special_col_hdr = f"N Special (mean|r|, thresh={special_threshold})" if has_special else "N Special"
+    sep_width = "-" * len(special_col_hdr)
     lines = [
         "# SAE Sweep Comparison Report\n",
-        f"Compared {len(results)} SAE models on {results[0]['n_samples']} samples (full train+val dataset).{best_note}\n",
+        f"Compared {len(results)} SAE models on {results[0]['n_samples']} samples (full train+val dataset).{best_note}",
+        f"Special feature threshold: |r| > {special_threshold} (Pearson correlation with SEP attention difference α_d1 − α_d2).\n",
         "## Summary Table\n",
-        "| Model | d_sae | Actual L0 | Dead % | Loss Recovered | Exp Var | H_orig | H* | H0 | N Special (r) |",
-        "|-------|-------|-----------|--------|----------------|---------|--------|----|----|---------------|",
+        f"| Model | d_sae | Actual L0 | Dead % | Loss Recovered | Exp Var | H_orig | H* | H0 | {special_col_hdr} |",
+        f"|-------|-------|-----------|--------|----------------|---------|--------|----|----|{sep_width}|",
     ]
 
     for r in results:
@@ -512,7 +515,7 @@ def main():
 
     # Generate report
     if results:
-        report = generate_markdown_report(results, OUTPUT_FILE)
+        report = generate_markdown_report(results, OUTPUT_FILE, special_threshold=args.special_threshold)
         print(f"\n{'='*60}")
         print(f"✓ Report saved to {OUTPUT_FILE}")
         print(f"{'='*60}\n")
@@ -635,7 +638,7 @@ if __name__ == "__main__":
 
     # Generate report
     if results:
-        report = generate_markdown_report(results, OUTPUT_FILE)
+        report = generate_markdown_report(results, OUTPUT_FILE, special_threshold=args.special_threshold)
         print(f"\n{'='*60}")
         print(f"✓ Report saved to {OUTPUT_FILE}")
         print(f"{'='*60}\n")
