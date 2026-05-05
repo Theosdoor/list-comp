@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import argparse
 import os
 import glob
+import re
 from collections import defaultdict
 import torch
 from torch.utils.data import DataLoader, ConcatDataset
@@ -54,7 +55,46 @@ def parse_args():
                    help="Omit ± std from table cells, showing means only")
     p.add_argument("--special-threshold", type=float, default=0.5,
                    help="Correlation threshold for identifying special features (default: 0.5)")
+    p.add_argument("--best", action="store_true",
+                   help="Prefer best (lowest val loss) checkpoint where available; default uses final checkpoints only")
     return p.parse_args()
+
+
+#%%
+def parse_d_sae_from_path(path):
+    """Extract d_sae from a filename like btk_sae_d128_k3_lr... → 128."""
+    m = re.search(r'_d(\d+)_', os.path.basename(path))
+    return int(m.group(1)) if m else None
+
+
+def select_checkpoints(paths, use_best=False):
+    """Filter to avoid duplicating final/best pairs.
+
+    Default: keep only paths without '_best_' in the stem.
+    --best:  prefer the '_best_' variant when it exists, fall back to final.
+    Returns (selected_paths, using_best_set).
+    """
+    def _canonical(p):
+        return re.sub(r'_best(?=_)', '', Path(p).stem)
+
+    groups = defaultdict(dict)
+    for p in paths:
+        key = _canonical(p)
+        tag = 'best' if '_best_' in Path(p).stem else 'final'
+        groups[key][tag] = p
+
+    selected, using_best_set = [], set()
+    for key in sorted(groups):
+        variants = groups[key]
+        if use_best and 'best' in variants:
+            selected.append(variants['best'])
+            using_best_set.add(variants['best'])
+        elif 'final' in variants:
+            selected.append(variants['final'])
+        else:  # only best variant exists
+            selected.append(variants['best'])
+            using_best_set.add(variants['best'])
+    return selected, using_best_set
 
 
 #%%
@@ -267,10 +307,12 @@ def generate_markdown_report(results, output_path):
     results = sorted(results, key=lambda x: (x['d_sae'], x['l0']))
 
     has_special = 'n_special_features' in results[0]
+    has_best = any(r.get('using_best') for r in results)
 
+    best_note = " (\\* = best checkpoint)" if has_best else ""
     lines = [
         "# SAE Sweep Comparison Report\n",
-        f"Compared {len(results)} SAE models on {results[0]['n_samples']} samples (full train+val dataset).\n",
+        f"Compared {len(results)} SAE models on {results[0]['n_samples']} samples (full train+val dataset).{best_note}\n",
         "## Summary Table\n",
         "| Model | d_sae | Actual L0 | Dead % | Loss Recovered | Exp Var | H_orig | H* | H0 | N Special (r) |",
         "|-------|-------|-----------|--------|----------------|---------|--------|----|----|---------------|",
@@ -294,8 +336,9 @@ def generate_markdown_report(results, output_path):
             n_special = n_special_str + " |"
         else:
             n_special = " — |"
+        name_str = r['name'] + (" *" if r.get('using_best') else "")
         lines.append(
-            f"| {r['name']} | {r['d_sae']} | {r['l0']:.2f} |"
+            f"| {name_str} | {r['d_sae']} | {r['l0']:.2f} |"
             f" {r['dead_pct']:.1f}% | {lr_str} | {ev_str} | {h_orig_str} | {h_star_str} | {h0_str} |{n_special}"
         )
 
@@ -341,6 +384,7 @@ def generate_markdown_report(results, output_path):
                             f"corr={feat['correlation']:.4f}"
                         )
 
+    best_footnote = ["- **\\***: Using best (lowest validation loss) checkpoint rather than final checkpoint."] if has_best else []
     lines.extend([
         "",
         "## Notes\n",
@@ -352,6 +396,7 @@ def generate_markdown_report(results, output_path):
         "- **H***: patched cross-entropy (model with SAE reconstruction injected at SEP)",
         "- **H0**: zero-ablation cross-entropy (SEP residual zeroed; lower bound for loss_recovered)",
         "- **N Special**: features with |corr| > 0.5 with attention difference (alpha_d1 − alpha_d2)",
+        *best_footnote,
         "",
     ])
 
@@ -491,6 +536,25 @@ if __name__ == "__main__":
     
     print(f"Total {len(all_sae_paths)} SAE checkpoints across {len(sae_folders)} folder(s)")
 
+    # Filter by d_sae before loading (fast, parsed from filename)
+    if args.exclude_d_sae:
+        before = len(all_sae_paths)
+        all_sae_paths = [p for p in all_sae_paths
+                         if parse_d_sae_from_path(p) not in args.exclude_d_sae]
+        print(f"Excluded {before - len(all_sae_paths)} SAEs with d_sae in {args.exclude_d_sae}; {len(all_sae_paths)} remaining")
+    if args.d_sae_values:
+        before = len(all_sae_paths)
+        all_sae_paths = [p for p in all_sae_paths
+                         if parse_d_sae_from_path(p) in args.d_sae_values]
+        print(f"Kept {len(all_sae_paths)} SAEs with d_sae in {args.d_sae_values}")
+
+    # Select final or best checkpoints (avoids double-counting paired checkpoints)
+    all_sae_paths, using_best_set = select_checkpoints(all_sae_paths, use_best=args.best)
+    if args.best:
+        print(f"--best: {len(using_best_set)}/{len(all_sae_paths)} SAEs using best checkpoint; remainder using final")
+    else:
+        print(f"Using final checkpoints only ({len(all_sae_paths)} SAEs); pass --best to prefer best-val-loss checkpoints")
+
     # Group by base model
     groups = defaultdict(list)
     for sae_path in all_sae_paths:
@@ -559,6 +623,7 @@ if __name__ == "__main__":
                 metrics['name'] = name
                 metrics['n_samples'] = n_samples
                 metrics['base_model'] = os.path.basename(model_path)
+                metrics['using_best'] = sae_path in using_best_set
                 results.append(metrics)
 
                 status = f"  L0: {metrics['l0']:.2f}, Dead: {metrics['n_dead']}/{metrics['d_sae']} ({metrics['dead_pct']:.1f}%)"

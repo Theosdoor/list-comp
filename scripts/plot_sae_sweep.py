@@ -72,7 +72,7 @@ def parse_report(path: Path) -> pd.DataFrame:
             continue
         if in_summary and line.startswith("##"):
             break
-        if (in_summary and line.startswith("| sae_")) or line.startswith("| btk_"):
+        if in_summary and line.startswith("| ") and not line.startswith("|---") and "| Model |" not in line:
             cols = [c.strip() for c in line.split("|")]
             # Support both old (7-col) and new (10-col) table formats:
             # Old: | Model | d_sae | L0 | Dead% | LR | Exp Var | N Special |
