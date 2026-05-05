@@ -230,9 +230,6 @@ def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all
             'baseline_acc': downstream['baseline_acc'],
             'patched_task_acc': downstream['reconstruction_acc'],
             'acc_drop': downstream['accuracy_drop'],
-            'baseline_ce': downstream['baseline_ce'],
-            'patched_ce': downstream['patched_ce'],
-            'ce_increase': downstream['ce_increase'],
             'loss_recovered': downstream['loss_recovered'],
         }
         print(" Done.")
@@ -266,24 +263,22 @@ def generate_markdown_report(results, output_path):
     # Sort by d_sae, then actual L0
     results = sorted(results, key=lambda x: (x['d_sae'], x['l0']))
 
-    has_ce = 'baseline_ce' in results[0]
+    has_ce = False
     has_special = 'n_special_features' in results[0]
 
     lines = [
         "# SAE Sweep Comparison Report\n",
         f"Compared {len(results)} SAE models on {results[0]['n_samples']} samples (full train+val dataset).\n",
         "## Summary Table\n",
-        "| Model | d_sae | Actual L0 | Dead % | Loss Recovered | Baseline CE | Patched CE | CE Increase | N Special (r) |",
-        "|-------|-------|-----------|--------|----------------|-------------|------------|-------------|---------------|",
+        "| Model | d_sae | Actual L0 | Dead % | Loss Recovered | Explained Var | N Special (r) |",
+        "|-------|-------|-----------|--------|----------------|---------------|---------------|",
     ]
 
     for r in results:
         lr_val = r.get('loss_recovered')
         lr_str = f"{lr_val:.4f}" if lr_val is not None else "—"
-        ce_cols = (
-            f" {r['baseline_ce']:.4f} | {r['patched_ce']:.4f} | {r['ce_increase']:.4f} |"
-            if has_ce else " — | — | — |"
-        )
+        ev_val = r.get('explained_variance')
+        ev_str = f"{ev_val:.4f}" if ev_val is not None else "—"
         if has_special:
             n_special_str = f" {r['n_special_features']}"
             if 'mean_abs_correlation' in r:
