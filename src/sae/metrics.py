@@ -94,7 +94,17 @@ def compute_sae_downstream_metrics(model, sae, val_dl, act_mean, layer_idx=0, se
     correct_baseline = 0
     correct_patched = 0
     total_tokens = 0
+
+    # Extract vocab size upfront to avoid uninitialized use in later loops
     v = None
+    with torch.no_grad():
+        for inputs, targets in val_dl:
+            baseline_logits = model(inputs)[:, list_len + 1:]
+            v = baseline_logits.shape[-1]
+            break
+    
+    if v is None:
+        raise ValueError("Failed to determine vocab size from validation dataloader")
 
     # Baseline pass
     with torch.no_grad():
@@ -105,8 +115,6 @@ def compute_sae_downstream_metrics(model, sae, val_dl, act_mean, layer_idx=0, se
             b, t = out_targets.shape
 
             baseline_logits = model(inputs)[:, list_len + 1:]  # [batch, list_len, vocab]
-            if v is None:
-                v = baseline_logits.shape[-1]
             baseline_ce_total += F.cross_entropy(
                 baseline_logits.reshape(b * t, v),
                 out_targets.reshape(b * t),
@@ -151,6 +159,9 @@ def compute_sae_downstream_metrics(model, sae, val_dl, act_mean, layer_idx=0, se
                 out_targets.reshape(b * t),
                 reduction="sum",
             ).item()
+
+    if total_tokens == 0:
+        raise ValueError("Empty validation dataloader provided to compute_sae_downstream_metrics")
 
     baseline_ce = baseline_ce_total / total_tokens
     patched_ce = patched_ce_total / total_tokens

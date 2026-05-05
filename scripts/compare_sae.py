@@ -206,6 +206,7 @@ def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all
             'baseline_ce': downstream['baseline_ce'],
             'patched_ce': downstream['patched_ce'],
             'ce_increase': downstream['ce_increase'],
+            'loss_recovered': downstream['loss_recovered'],
         }
         print(" Done.")
     
@@ -245,11 +246,13 @@ def generate_markdown_report(results, output_path):
         "# SAE Sweep Comparison Report\n",
         f"Compared {len(results)} SAE models on {results[0]['n_samples']} samples (full train+val dataset).\n",
         "## Summary Table\n",
-        "| Model | d_sae | Actual L0 | Dead % | Exp Var | Baseline CE | Patched CE | CE Increase | N Special |",
-        "|-------|-------|-----------|--------|---------|-------------|------------|-------------|-----------|",
+        "| Model | d_sae | Actual L0 | Dead % | Loss Recovered | Baseline CE | Patched CE | CE Increase | N Special |",
+        "|-------|-------|-----------|--------|----------------|-------------|------------|-------------|-----------|",
     ]
 
     for r in results:
+        lr_val = r.get('loss_recovered')
+        lr_str = f"{lr_val:.4f}" if lr_val is not None else "—"
         ce_cols = (
             f" {r['baseline_ce']:.4f} | {r['patched_ce']:.4f} | {r['ce_increase']:.4f} |"
             if has_ce else " — | — | — |"
@@ -257,7 +260,7 @@ def generate_markdown_report(results, output_path):
         n_special = f" {r['n_special_features']} |" if has_special else " — |"
         lines.append(
             f"| {r['name']} | {r['d_sae']} | {r['l0']:.2f} |"
-            f" {r['dead_pct']:.1f}% | {r['explained_var']:.4f} |{ce_cols}{n_special}"
+            f" {r['dead_pct']:.1f}% | {lr_str} |{ce_cols}{n_special}"
         )
 
     # ── Firing rate statistics ─────────────────────────────────────────────────
@@ -307,9 +310,9 @@ def generate_markdown_report(results, output_path):
         "## Notes\n",
         "- **Actual L0**: mean active features per token (measured on full dataset)",
         "- **Dead %**: features that never fire on the full dataset (lower = better)",
-        "- **Exp Var**: fraction of SEP-activation variance explained by SAE reconstruction (higher = better)",
+        "- **Loss Recovered**: (H* − H0) / (Horig − H0); fraction of model loss recovered by SAE reconstruction vs zero ablation (higher = better; 1 = perfect, 0 = no better than zero ablation)",
         "- **Baseline / Patched CE**: output-token cross-entropy with original vs SAE-reconstructed activations",
-        "- **CE Increase**: Patched CE − Baseline CE — primary faithfulness metric (lower = better)",
+        "- **CE Increase**: Patched CE − Baseline CE — raw faithfulness delta (lower = better)",
         "- **N Special**: features with |corr| > 0.5 with attention difference (alpha_d1 − alpha_d2)",
         "",
     ])
