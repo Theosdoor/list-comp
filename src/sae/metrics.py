@@ -66,14 +66,14 @@ def compute_reconstruction_metrics(model, sae, val_dl, act_mean, layer_idx=0, se
 
 def compute_sae_downstream_metrics(model, sae, val_dl, act_mean, layer_idx=0, sep_idx=2, device="cuda"):
     """
-    Compute downstream metrics for an SAE in two forward passes (baseline + patched).
+    Compute downstream metrics for an SAE in three forward passes (baseline + patched + zero-ablation).
 
-    Returns accuracy and CE loss together to avoid redundant passes.
+    Returns accuracy and loss_recovered metric together.
 
     Returns:
         dict with keys:
             baseline_acc, reconstruction_acc, accuracy_drop, total_samples,
-            baseline_ce, patched_ce, ce_increase, total_tokens
+            total_tokens, zero_ce, loss_recovered
     """
     from ..utils.runtime import _RUNTIME
     list_len = _RUNTIME.list_len
@@ -81,30 +81,55 @@ def compute_sae_downstream_metrics(model, sae, val_dl, act_mean, layer_idx=0, se
     hook_name_resid = f"blocks.{layer_idx}.hook_resid_post"
     reconstruction_hook = make_dynamic_sae_patch_hook(sae, act_mean, sep_idx)
 
+    # Zero-ablation hook: replace SEP token residual with zeros
+    def zero_ablation_hook(activations, hook):
+        activations = activations.clone()
+        activations[:, sep_idx, :] = 0.0
+        return activations
+
     baseline_ce_total = 0.0
     patched_ce_total = 0.0
+    zero_ce_total = 0.0
     correct_baseline = 0
     correct_patched = 0
     total_tokens = 0
 
+    # Extract vocab size upfront to avoid uninitialized use in later loops
+    v = None
     with torch.no_grad():
-        for inputs, targets in tqdm(val_dl, desc="Computing SAE downstream metrics", leave=False):
+        for inputs, targets in val_dl:
+            baseline_logits = model(inputs)[:, list_len + 1:]
+            v = baseline_logits.shape[-1]
+            break
+    
+    if v is None:
+        raise ValueError("Failed to determine vocab size from validation dataloader")
+
+    # Baseline pass
+    with torch.no_grad():
+        for inputs, targets in tqdm(val_dl, desc="Computing baseline metrics", leave=False):
             inputs = inputs.to(device)
             targets = targets.to(device)
             out_targets = targets[:, list_len + 1:]  # [batch, list_len]
             b, t = out_targets.shape
 
-            # Baseline forward pass
             baseline_logits = model(inputs)[:, list_len + 1:]  # [batch, list_len, vocab]
-            v = baseline_logits.shape[-1]
             baseline_ce_total += F.cross_entropy(
                 baseline_logits.reshape(b * t, v),
                 out_targets.reshape(b * t),
                 reduction="sum",
             ).item()
             correct_baseline += (baseline_logits.argmax(dim=-1) == out_targets).sum().item()
+            total_tokens += b * t
 
-            # Patched forward pass
+    # Patched pass
+    with torch.no_grad():
+        for inputs, targets in tqdm(val_dl, desc="Computing patched metrics", leave=False):
+            inputs = inputs.to(device)
+            targets = targets.to(device)
+            out_targets = targets[:, list_len + 1:]  # [batch, list_len]
+            b, t = out_targets.shape
+
             patched_logits = model.run_with_hooks(
                 inputs,
                 fwd_hooks=[(hook_name_resid, reconstruction_hook)]
@@ -116,22 +141,45 @@ def compute_sae_downstream_metrics(model, sae, val_dl, act_mean, layer_idx=0, se
             ).item()
             correct_patched += (patched_logits.argmax(dim=-1) == out_targets).sum().item()
 
-            total_tokens += b * t
+    # Zero-ablation pass
+    with torch.no_grad():
+        for inputs, targets in tqdm(val_dl, desc="Computing zero-ablation metrics", leave=False):
+            inputs = inputs.to(device)
+            targets = targets.to(device)
+            out_targets = targets[:, list_len + 1:]  # [batch, list_len]
+            b, t = out_targets.shape
+
+            zero_logits = model.run_with_hooks(
+                inputs,
+                fwd_hooks=[(hook_name_resid, zero_ablation_hook)]
+            )[:, list_len + 1:]
+            zero_ce_total += F.cross_entropy(
+                zero_logits.reshape(b * t, v),
+                out_targets.reshape(b * t),
+                reduction="sum",
+            ).item()
+
+    if total_tokens == 0:
+        raise ValueError("Empty validation dataloader provided to compute_sae_downstream_metrics")
 
     baseline_ce = baseline_ce_total / total_tokens
     patched_ce = patched_ce_total / total_tokens
+    zero_ce = zero_ce_total / total_tokens
     baseline_acc = correct_baseline / total_tokens
     patched_acc = correct_patched / total_tokens
+
+    # Compute loss recovered
+    denom = baseline_ce - zero_ce
+    loss_recovered = (patched_ce - zero_ce) / denom if abs(denom) > 1e-10 else None
 
     return {
         "baseline_acc": baseline_acc,
         "reconstruction_acc": patched_acc,
         "accuracy_drop": baseline_acc - patched_acc,
         "total_samples": total_tokens,
-        "baseline_ce": baseline_ce,
-        "patched_ce": patched_ce,
-        "ce_increase": patched_ce - baseline_ce,
         "total_tokens": total_tokens,
+        "zero_ce": zero_ce,
+        "loss_recovered": loss_recovered,
     }
 
 
@@ -139,12 +187,6 @@ def compute_sae_patched_accuracy(model, sae, val_dl, act_mean, layer_idx=0, sep_
     """Thin wrapper around compute_sae_downstream_metrics for backward compatibility."""
     result = compute_sae_downstream_metrics(model, sae, val_dl, act_mean, layer_idx, sep_idx, device)
     return {k: result[k] for k in ("baseline_acc", "reconstruction_acc", "accuracy_drop", "total_samples")}
-
-
-def compute_sae_patched_ce_loss(model, sae, val_dl, act_mean, layer_idx=0, sep_idx=2, device="cuda"):
-    """Thin wrapper around compute_sae_downstream_metrics for backward compatibility."""
-    result = compute_sae_downstream_metrics(model, sae, val_dl, act_mean, layer_idx, sep_idx, device)
-    return {k: result[k] for k in ("baseline_ce", "patched_ce", "ce_increase", "total_tokens")}
 
 
 # loss recoverred metric implementation

@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+import argparse
 import os
 import glob
 from collections import defaultdict
@@ -29,6 +30,32 @@ OUTPUT_FILE = f'{OUTPUT_FOLDER}sae_comparison_{datetime.now().strftime("%Y%m%d_%
 COMPUTE_RECON_ACC = True
 
 DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+
+# TODO - use parse_args
+def parse_args():
+    p = argparse.ArgumentParser(description="Compare SAE checkpoints")
+    p.add_argument("--sae-folders", type=str, nargs="+", default=None,
+                   help="One or more folders to search for SAE checkpoints. If not provided, uses default SAE_FOLDER")
+    p.add_argument("--model-path", type=str, default=None,
+                   help="Override base model for all SAEs (useful for SAEs trained before model_path was saved in cfg)")
+    p.add_argument("--report", type=Path, default=None,
+                   help="Path to sae_comparison_*.md (default: most recent in project root)")
+    p.add_argument("--output-dir", type=Path, default=Path("results/compare_sae/"),
+                   help="Directory to write figure and table files")
+    p.add_argument("--l0-values", type=int, nargs="+", default=[1, 2, 3, 4, 5],
+                   help="L0 values to include (default: 1 2 3 4 5)")
+    p.add_argument("--d-sae-values", type=int, nargs="+", default=None,
+                   help="d_sae values to include (default: all)")
+    p.add_argument("--exclude-l0", type=int, nargs="+", default=None,
+                   help="L0 values to exclude (e.g. --exclude-l0 1)")
+    p.add_argument("--exclude-d-sae", type=int, nargs="+", default=None,
+                   help="d_sae values to exclude (e.g. --exclude-d-sae 64)")
+    p.add_argument("--no-table-errors", action="store_true",
+                   help="Omit ± std from table cells, showing means only")
+    p.add_argument("--special-threshold", type=float, default=0.5,
+                   help="Correlation threshold for identifying special features (default: 0.5)")
+    return p.parse_args()
+
 
 #%%
 def load_sae(sae_path):
@@ -96,7 +123,7 @@ def collect_activations(model, dataloader, sep_idx):
     )
 
 #%%
-def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all=None, alpha_d2_all=None, model=None, val_dl=None, sep_idx=2):
+def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all=None, alpha_d2_all=None, model=None, val_dl=None, sep_idx=2, special_threshold=0.5):
     """Compute metrics for a single SAE.
 
     If model and val_dl are provided and COMPUTE_RECON_ACC=True, computes downstream metrics.
@@ -181,7 +208,7 @@ def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all
             sae_acts_all=sae_acts,
             alpha_d1_all=alpha_d1_all,
             alpha_d2_all=alpha_d2_all,
-            threshold=0.5
+            threshold=special_threshold
         )
         special_info = {
             'n_special_features': special_results['n_special_features'],
@@ -203,9 +230,7 @@ def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all
             'baseline_acc': downstream['baseline_acc'],
             'patched_task_acc': downstream['reconstruction_acc'],
             'acc_drop': downstream['accuracy_drop'],
-            'baseline_ce': downstream['baseline_ce'],
-            'patched_ce': downstream['patched_ce'],
-            'ce_increase': downstream['ce_increase'],
+            'loss_recovered': downstream['loss_recovered'],
         }
         print(" Done.")
     
@@ -238,26 +263,32 @@ def generate_markdown_report(results, output_path):
     # Sort by d_sae, then actual L0
     results = sorted(results, key=lambda x: (x['d_sae'], x['l0']))
 
-    has_ce = 'baseline_ce' in results[0]
+    has_ce = False
     has_special = 'n_special_features' in results[0]
 
     lines = [
         "# SAE Sweep Comparison Report\n",
         f"Compared {len(results)} SAE models on {results[0]['n_samples']} samples (full train+val dataset).\n",
         "## Summary Table\n",
-        "| Model | d_sae | Actual L0 | Dead % | Exp Var | Baseline CE | Patched CE | CE Increase | N Special |",
-        "|-------|-------|-----------|--------|---------|-------------|------------|-------------|-----------|",
+        "| Model | d_sae | Actual L0 | Dead % | Loss Recovered | Explained Var | N Special (r) |",
+        "|-------|-------|-----------|--------|----------------|---------------|---------------|",
     ]
 
     for r in results:
-        ce_cols = (
-            f" {r['baseline_ce']:.4f} | {r['patched_ce']:.4f} | {r['ce_increase']:.4f} |"
-            if has_ce else " — | — | — |"
-        )
-        n_special = f" {r['n_special_features']} |" if has_special else " — |"
+        lr_val = r.get('loss_recovered')
+        lr_str = f"{lr_val:.4f}" if lr_val is not None else "—"
+        ev_val = r.get('explained_variance')
+        ev_str = f"{ev_val:.4f}" if ev_val is not None else "—"
+        if has_special:
+            n_special_str = f" {r['n_special_features']}"
+            if 'mean_abs_correlation' in r:
+                n_special_str += f" ({r['mean_abs_correlation']:.3f})"
+            n_special = n_special_str + " |"
+        else:
+            n_special = " — |"
         lines.append(
             f"| {r['name']} | {r['d_sae']} | {r['l0']:.2f} |"
-            f" {r['dead_pct']:.1f}% | {r['explained_var']:.4f} |{ce_cols}{n_special}"
+            f" {r['dead_pct']:.1f}% | {lr_str} |{ce_cols}{n_special}"
         )
 
     # ── Firing rate statistics ─────────────────────────────────────────────────
@@ -307,9 +338,9 @@ def generate_markdown_report(results, output_path):
         "## Notes\n",
         "- **Actual L0**: mean active features per token (measured on full dataset)",
         "- **Dead %**: features that never fire on the full dataset (lower = better)",
-        "- **Exp Var**: fraction of SEP-activation variance explained by SAE reconstruction (higher = better)",
+        "- **Loss Recovered**: (H* − H0) / (Horig − H0); fraction of model loss recovered by SAE reconstruction vs zero ablation (higher = better; 1 = perfect, 0 = no better than zero ablation)",
         "- **Baseline / Patched CE**: output-token cross-entropy with original vs SAE-reconstructed activations",
-        "- **CE Increase**: Patched CE − Baseline CE — primary faithfulness metric (lower = better)",
+        "- **CE Increase**: Patched CE − Baseline CE — raw faithfulness delta (lower = better)",
         "- **N Special**: features with |corr| > 0.5 with attention difference (alpha_d1 − alpha_d2)",
         "",
     ])
@@ -410,6 +441,7 @@ def main():
                     sae, act_mean, sep_acts, d1_all, d2_all, n_digits,
                     alpha_d1_all=alpha_d1_all, alpha_d2_all=alpha_d2_all,
                     model=model, val_dl=full_dl, sep_idx=sep_idx,
+                    special_threshold=args.special_threshold,
                 )
                 metrics['name'] = name
                 metrics['n_samples'] = n_samples
@@ -435,13 +467,7 @@ def main():
 
 #%%
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="Compare SAE checkpoints")
-    parser.add_argument("--sae_folders", type=str, nargs="+", default=None,
-                        help="One or more folders to search for SAE checkpoints. If not provided, uses default SAE_FOLDER")
-    parser.add_argument("--model_path", type=str, default=None,
-                        help="Override base model for all SAEs (useful for SAEs trained before model_path was saved in cfg)")
-    args = parser.parse_args()
+    args = parse_args()
 
     # Determine which folders to search
     sae_folders = args.sae_folders if args.sae_folders else [SAE_FOLDER]
@@ -518,6 +544,7 @@ if __name__ == "__main__":
                     sae, act_mean, sep_acts, d1_all, d2_all, n_digits,
                     alpha_d1_all=alpha_d1_all, alpha_d2_all=alpha_d2_all,
                     model=model, val_dl=full_dl, sep_idx=sep_idx,
+                    special_threshold=args.special_threshold,
                 )
                 metrics['name'] = name
                 metrics['n_samples'] = n_samples
