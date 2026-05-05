@@ -230,9 +230,9 @@ def write_latex_table(agg: pd.DataFrame, path: Path,
 
     # ── build table ───────────────────────────────────────────────────────────
     if exclude_special_col:
-        ncols = "crr" if exclude_runs_col else "ccrr"
-    else:
         ncols = "ccrr" if exclude_runs_col else "cccrr"
+    else:
+        ncols = "ccrrr" if exclude_runs_col else "cccrrr"
     
     lines = [
         r"\begin{table}[htbp]",
