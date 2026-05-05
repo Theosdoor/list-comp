@@ -3,12 +3,10 @@ SAE Sweep Summary: Table and Figure
 
 Reads sae_comparison_*.md (most recent), aggregates metrics by (l0, d_sae)
 across seeds and learning rates, and produces:
-  - A markdown + LaTeX summary table (L0, Loss Recovered, Patched CE, Dead %, N Special Features)
-  - Four aggregated scatter plots with Loss Recovered vs Patched CE:
-      row 0 — x = L0    (hue = d_sae, plasma palette)
-      row 1 — x = d_sae (hue = L0,    tab10 palette)
-      col 0 — y = Loss Recovered
-      col 1 — y = Patched CE Loss
+  - A markdown + LaTeX summary table (L0, Loss Recovered, Dead %, N Special Features)
+  - Two aggregated scatter plots:
+      x = L0    (hue = d_sae, plasma palette)  — y = Loss Recovered
+      x = d_sae (hue = L0,    tab10 palette)   — y = Loss Recovered
 
 Usage:
     python scripts/plot_sae_sweep.py
@@ -76,6 +74,9 @@ def parse_report(path: Path) -> pd.DataFrame:
             break
         if (in_summary and line.startswith("| sae_")) or line.startswith("| btk_"):
             cols = [c.strip() for c in line.split("|")]
+            # Table columns (from compare_sae.py output):
+            # | Model | d_sae | Actual L0 | Dead % | Loss Recovered | Exp Var | H_orig | H* | H0 | N Special |
+            #   [1]    [2]      [3]        [4]      [5]              [6]       [7]      [8]  [9]  [10]
             try:
                 rows.append({
                     "model":          cols[1],
@@ -83,7 +84,7 @@ def parse_report(path: Path) -> pd.DataFrame:
                     "l0":             int(round(float(cols[3]))),
                     "dead_pct":       float(cols[4].rstrip("%")),
                     "loss_recovered": float(cols[5]) if cols[5] != "—" else None,
-                    "n_special":      int(cols[7]) if cols[7] != "—" else 0,
+                    "n_special":      int(cols[10]) if cols[10] != "—" else 0,
                 })
             except (IndexError, ValueError):
                 pass

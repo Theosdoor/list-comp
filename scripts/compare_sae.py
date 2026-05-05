@@ -231,6 +231,9 @@ def evaluate_sae(sae, act_mean, sep_acts, d1_all, d2_all, n_digits, alpha_d1_all
             'patched_task_acc': downstream['reconstruction_acc'],
             'acc_drop': downstream['accuracy_drop'],
             'loss_recovered': downstream['loss_recovered'],
+            'h_orig': downstream.get('h_orig'),
+            'h_star': downstream.get('h_star'),
+            'h0': downstream.get('h0'),
         }
         print(" Done.")
     
@@ -269,8 +272,8 @@ def generate_markdown_report(results, output_path):
         "# SAE Sweep Comparison Report\n",
         f"Compared {len(results)} SAE models on {results[0]['n_samples']} samples (full train+val dataset).\n",
         "## Summary Table\n",
-        "| Model | d_sae | Actual L0 | Dead % | Loss Recovered | Explained Var | N Special (r) |",
-        "|-------|-------|-----------|--------|----------------|---------------|---------------|",
+        "| Model | d_sae | Actual L0 | Dead % | Loss Recovered | Exp Var | H_orig | H* | H0 | N Special (r) |",
+        "|-------|-------|-----------|--------|----------------|---------|--------|----|----|---------------|",
     ]
 
     for r in results:
@@ -278,6 +281,12 @@ def generate_markdown_report(results, output_path):
         lr_str = f"{lr_val:.4f}" if lr_val is not None else "—"
         ev_val = r.get('explained_var')
         ev_str = f"{ev_val:.4f}" if ev_val is not None else "—"
+        h_orig_val = r.get('h_orig')
+        h_orig_str = f"{h_orig_val:.4f}" if h_orig_val is not None else "—"
+        h_star_val = r.get('h_star')
+        h_star_str = f"{h_star_val:.4f}" if h_star_val is not None else "—"
+        h0_val = r.get('h0')
+        h0_str = f"{h0_val:.4f}" if h0_val is not None else "—"
         if has_special:
             n_special_str = f" {r['n_special_features']}"
             if 'mean_abs_correlation' in r:
@@ -287,7 +296,7 @@ def generate_markdown_report(results, output_path):
             n_special = " — |"
         lines.append(
             f"| {r['name']} | {r['d_sae']} | {r['l0']:.2f} |"
-            f" {r['dead_pct']:.1f}% | {lr_str} | {ev_str} |{n_special}"
+            f" {r['dead_pct']:.1f}% | {lr_str} | {ev_str} | {h_orig_str} | {h_star_str} | {h0_str} |{n_special}"
         )
 
     # ── Firing rate statistics ─────────────────────────────────────────────────
@@ -337,8 +346,11 @@ def generate_markdown_report(results, output_path):
         "## Notes\n",
         "- **Actual L0**: mean active features per token (measured on full dataset)",
         "- **Dead %**: features that never fire on the full dataset (lower = better)",
-        "- **Loss Recovered**: (H* − H0) / (Horig − H0); fraction of model loss recovered by SAE reconstruction vs zero ablation (higher = better; 1 = perfect, 0 = no better than zero ablation)",
-        "- **Explained Var**: fraction of activation variance explained by SAE reconstruction (higher = better)",
+        "- **Loss Recovered**: (H* − H0) / (H_orig − H0); fraction of model loss recovered by SAE reconstruction vs zero ablation (higher = better; 1 = perfect, 0 = no better than zero ablation)",
+        "- **Exp Var**: fraction of activation variance explained by SAE reconstruction (higher = better)",
+        "- **H_orig**: baseline cross-entropy (model without SAE intervention)",
+        "- **H***: patched cross-entropy (model with SAE reconstruction injected at SEP)",
+        "- **H0**: zero-ablation cross-entropy (SEP residual zeroed; lower bound for loss_recovered)",
         "- **N Special**: features with |corr| > 0.5 with attention difference (alpha_d1 − alpha_d2)",
         "",
     ])

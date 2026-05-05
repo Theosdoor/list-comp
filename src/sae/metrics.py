@@ -73,7 +73,7 @@ def compute_sae_downstream_metrics(model, sae, val_dl, act_mean, layer_idx=0, se
     Returns:
         dict with keys:
             baseline_acc, reconstruction_acc, accuracy_drop, total_samples,
-            total_tokens, zero_ce, loss_recovered
+            total_tokens, h_orig, h_star, h0, zero_ce, loss_recovered
     """
     from ..utils.runtime import _RUNTIME
     list_len = _RUNTIME.list_len
@@ -178,7 +178,10 @@ def compute_sae_downstream_metrics(model, sae, val_dl, act_mean, layer_idx=0, se
         "accuracy_drop": baseline_acc - patched_acc,
         "total_samples": total_tokens,
         "total_tokens": total_tokens,
-        "zero_ce": zero_ce,
+        "h_orig": baseline_ce,
+        "h_star": patched_ce,
+        "h0": zero_ce,
+        "zero_ce": zero_ce,   # backward-compat alias for h0
         "loss_recovered": loss_recovered,
     }
 
