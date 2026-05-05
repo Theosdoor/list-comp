@@ -119,7 +119,7 @@ def aggregate(df: pd.DataFrame) -> pd.DataFrame:
             "d_sae":                 d_sae,
             "n_runs":                n,
             "loss_recovered_mean":   g["loss_recovered"].dropna().mean(),
-            "loss_recovered_std":    g["loss_recovered"].dropna().std(ddof=1) if n > 1 else 0.0,
+            "loss_recovered_std":    g["loss_recovered"].dropna().std(ddof=1) if len(g["loss_recovered"].dropna()) > 1 else 0.0,
             "patched_ce_mean":       g["patched_ce"].mean(),
             "patched_ce_std":        g["patched_ce"].std(ddof=1) if n > 1 else 0.0,
             "dead_pct_mean":         g["dead_pct"].mean(),
@@ -231,11 +231,10 @@ def write_latex_table(agg: pd.DataFrame, path: Path,
         return f"${mean:.{dec}f} \\pm {std:.{dec}f}$"
 
     # ── build table ───────────────────────────────────────────────────────────
-    ncols = ("ccrrrrr" if exclude_runs_col else "cccrrrrr") if not exclude_special_col else ("ccrrrrr" if exclude_runs_col else "cccrrrrr")
     if exclude_special_col:
-        ncols = "ccrrrr" if exclude_runs_col else "cccrrrr"
+        ncols = "ccrrr" if exclude_runs_col else "cccrrr"
     else:
-        ncols = "ccrrrrr" if exclude_runs_col else "cccrrrrr"
+        ncols = "cccrrr" if exclude_runs_col else "cccrrrrr"
     
     lines = [
         r"\begin{table}[htbp]",
