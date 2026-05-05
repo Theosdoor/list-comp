@@ -189,12 +189,6 @@ def compute_sae_patched_accuracy(model, sae, val_dl, act_mean, layer_idx=0, sep_
     return {k: result[k] for k in ("baseline_acc", "reconstruction_acc", "accuracy_drop", "total_samples")}
 
 
-def compute_sae_patched_ce_loss(model, sae, val_dl, act_mean, layer_idx=0, sep_idx=2, device="cuda"):
-    """Thin wrapper around compute_sae_downstream_metrics for backward compatibility."""
-    result = compute_sae_downstream_metrics(model, sae, val_dl, act_mean, layer_idx, sep_idx, device)
-    return {k: result[k] for k in ("baseline_ce", "patched_ce", "ce_increase", "total_tokens")}
-
-
 # loss recoverred metric implementation
 # from https://github.com/adamkarvonen/SAEBench/blob/main/sae_bench/evals/core/main.py
 

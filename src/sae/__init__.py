@@ -26,7 +26,6 @@ from .metrics import (
     compute_reconstruction_metrics,
     compute_sae_downstream_metrics,
     compute_sae_patched_accuracy,
-    compute_sae_patched_ce_loss,
 )
 
 # SAE loading
@@ -77,7 +76,6 @@ __all__ = [
     "compute_reconstruction_metrics",
     "compute_sae_downstream_metrics",
     "compute_sae_patched_accuracy",
-    "compute_sae_patched_ce_loss",
     # SAE loading
     "load_sae_from_local",
     "load_sae_from_wandb_run",
