@@ -263,7 +263,6 @@ def generate_markdown_report(results, output_path):
     # Sort by d_sae, then actual L0
     results = sorted(results, key=lambda x: (x['d_sae'], x['l0']))
 
-    has_ce = False
     has_special = 'n_special_features' in results[0]
 
     lines = [
@@ -277,7 +276,7 @@ def generate_markdown_report(results, output_path):
     for r in results:
         lr_val = r.get('loss_recovered')
         lr_str = f"{lr_val:.4f}" if lr_val is not None else "—"
-        ev_val = r.get('explained_variance')
+        ev_val = r.get('explained_var')
         ev_str = f"{ev_val:.4f}" if ev_val is not None else "—"
         if has_special:
             n_special_str = f" {r['n_special_features']}"
@@ -288,7 +287,7 @@ def generate_markdown_report(results, output_path):
             n_special = " — |"
         lines.append(
             f"| {r['name']} | {r['d_sae']} | {r['l0']:.2f} |"
-            f" {r['dead_pct']:.1f}% | {lr_str} |{ce_cols}{n_special}"
+            f" {r['dead_pct']:.1f}% | {lr_str} | {ev_str} |{n_special}"
         )
 
     # ── Firing rate statistics ─────────────────────────────────────────────────
@@ -339,8 +338,7 @@ def generate_markdown_report(results, output_path):
         "- **Actual L0**: mean active features per token (measured on full dataset)",
         "- **Dead %**: features that never fire on the full dataset (lower = better)",
         "- **Loss Recovered**: (H* − H0) / (Horig − H0); fraction of model loss recovered by SAE reconstruction vs zero ablation (higher = better; 1 = perfect, 0 = no better than zero ablation)",
-        "- **Baseline / Patched CE**: output-token cross-entropy with original vs SAE-reconstructed activations",
-        "- **CE Increase**: Patched CE − Baseline CE — raw faithfulness delta (lower = better)",
+        "- **Explained Var**: fraction of activation variance explained by SAE reconstruction (higher = better)",
         "- **N Special**: features with |corr| > 0.5 with attention difference (alpha_d1 − alpha_d2)",
         "",
     ])

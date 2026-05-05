@@ -46,7 +46,7 @@ def inspect_checkpoint(path: Path) -> None:
     SCALAR_KEYS = [
         "final_loss", "final_l0", "avg_l0",
         "reconstruction_mse", "explained_variance",
-        "patched_ce", "baseline_ce", "ce_increase",
+        "loss_recovered",
         "patched_acc", "baseline_acc", "accuracy_drop",
         "n_special_features", "max_attn_correlation",
         "dead_features", "dead_features_pct",

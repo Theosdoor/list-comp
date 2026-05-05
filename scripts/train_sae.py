@@ -204,14 +204,10 @@ def _log_wandb_eval_metrics(model, sae, act_mean, d_sae):
                 model, sae, analysis_dl, act_mean,
                 layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE,
             )
-            wandb.summary["baseline_ce"] = downstream["baseline_ce"]
-            wandb.summary["patched_ce"] = downstream["patched_ce"]
-            wandb.summary["ce_increase"] = downstream["ce_increase"]
+            wandb.summary["loss_recovered"] = downstream.get("loss_recovered", None)
         except Exception as e:
-            print(f"    ⚠ Downstream CE metrics failed: {e}")
-            wandb.summary["baseline_ce"] = None
-            wandb.summary["patched_ce"] = None
-            wandb.summary["ce_increase"] = None
+            print(f"    ⚠ Downstream metrics failed: {e}")
+            wandb.summary["loss_recovered"] = None
 
         try:
             alpha_d1_all, alpha_d2_all = collect_attention_patterns(

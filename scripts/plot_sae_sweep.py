@@ -83,10 +83,7 @@ def parse_report(path: Path) -> pd.DataFrame:
                     "l0":             int(round(float(cols[3]))),
                     "dead_pct":       float(cols[4].rstrip("%")),
                     "loss_recovered": float(cols[5]) if cols[5] != "—" else None,
-                    "baseline_ce":    float(cols[6]),
-                    "patched_ce":     float(cols[7]),
-                    "ce_increase":    float(cols[8]),
-                    "n_special":      int(cols[9]) if cols[9] != "—" else 0,
+                    "n_special":      int(cols[7]) if cols[7] != "—" else 0,
                 })
             except (IndexError, ValueError):
                 pass
@@ -120,8 +117,6 @@ def aggregate(df: pd.DataFrame) -> pd.DataFrame:
             "n_runs":                n,
             "loss_recovered_mean":   g["loss_recovered"].dropna().mean(),
             "loss_recovered_std":    g["loss_recovered"].dropna().std(ddof=1) if len(g["loss_recovered"].dropna()) > 1 else 0.0,
-            "patched_ce_mean":       g["patched_ce"].mean(),
-            "patched_ce_std":        g["patched_ce"].std(ddof=1) if n > 1 else 0.0,
             "dead_pct_mean":         g["dead_pct"].mean(),
             "dead_pct_std":          g["dead_pct"].std(ddof=1) if n > 1 else 0.0,
             "n_special_mean":        g["n_special"].mean(),
@@ -151,8 +146,8 @@ def write_markdown_table(agg: pd.DataFrame, path: Path,
         "Aggregated over all seeds and learning rates. "
         + ("Values shown as means only.\n" if no_errors else "Values shown as mean ± std.\n"),
         "",
-        f"| L0 | d\\_sae |{runs_hdr} Loss Recovered | PCE | Dead % |{special_hdr}",
-        f"|----|--------|{runs_sep}----------------|-----|--------|{special_sep}",
+        f"| L0 | d\\_sae |{runs_hdr} Loss Recovered | Dead % |{special_hdr}",
+        f"|----|--------|{runs_sep}----------------|--------|{special_sep}",
     ]
     for _, r in agg.iterrows():
         runs_cell = "" if exclude_runs_col else f" {int(r.n_runs)} |"
@@ -160,7 +155,6 @@ def write_markdown_table(agg: pd.DataFrame, path: Path,
         lines.append(
             f"| {int(r.l0)} | {int(r.d_sae)} |{runs_cell}"
             f" {fmt(r.loss_recovered_mean, r.loss_recovered_std, no_errors=no_errors)} "
-            f"| {fmt(r.patched_ce_mean, r.patched_ce_std, no_errors=no_errors)} "
             f"| {fmt(r.dead_pct_mean, r.dead_pct_std, decimals=1, no_errors=no_errors)}% "
             f"|{special_cell}"
         )
@@ -181,7 +175,6 @@ def write_latex_table(agg: pd.DataFrame, path: Path,
     # (col, higher_is_better)
     scored_cols = [
         ("loss_recovered_mean", True),
-        ("patched_ce_mean", False),
         ("dead_pct_mean",   False),
     ]
     global_best = {
@@ -232,9 +225,9 @@ def write_latex_table(agg: pd.DataFrame, path: Path,
 
     # ── build table ───────────────────────────────────────────────────────────
     if exclude_special_col:
-        ncols = "ccrrr" if exclude_runs_col else "cccrrr"
+        ncols = "crr" if exclude_runs_col else "ccrr"
     else:
-        ncols = "cccrrr" if exclude_runs_col else "cccrrrrr"
+        ncols = "ccrr" if exclude_runs_col else "cccrr"
     
     lines = [
         r"\begin{table}[htbp]",
@@ -242,7 +235,6 @@ def write_latex_table(agg: pd.DataFrame, path: Path,
         r"\caption{SAE sweep results aggregated over seeds and learning rates (mean $\pm$ std). "
         r"$L_0$: mean active features per token. $d_\text{SAE}$: dictionary size. "
         r"\textbf{LR} (loss recovered): $(H^* - H_0) / (H_\text{orig} - H_0)$ where $H_\text{orig}$ is baseline CE, $H^*$ is SAE-patched CE, and $H_0$ is zero-ablation CE ($\uparrow$ better; 1 = perfect reconstruction). "
-        r"\textbf{PCE} (patched cross-entropy): language-model CE after substituting SAE reconstructions for true activations ($\downarrow$ better; baseline $= 0.1115$). "
         r"\textbf{Dead\,\%}: percentage of dictionary features with zero activation across the evaluation set ($\downarrow$ better). " +
         (r"$N_\text{special}$: features whose activation strongly correlates with the SEP attention difference $\alpha_{d_1}-\alpha_{d_2}$, as discussed in Section \ref{s:res_rq2}. " if not exclude_special_col else "") +
         r"\textbf{Bold}: best within each $L_0$ block; \underline{\textbf{underlined}}: best overall.}",
@@ -252,13 +244,13 @@ def write_latex_table(agg: pd.DataFrame, path: Path,
     ]
     
     if exclude_special_col:
-        header = (r"$L_0$ & $d_\text{SAE}$ & LR ($\uparrow$) & PCE ($\downarrow$) & Dead \% ($\downarrow$) \\"
+        header = (r"$L_0$ & $d_\text{SAE}$ & LR ($\uparrow$) & Dead \% ($\downarrow$) \\"
                   if exclude_runs_col else
-                  r"$L_0$ & $d_\text{SAE}$ & Runs & LR ($\uparrow$) & PCE ($\downarrow$) & Dead \% ($\downarrow$) \\")
+                  r"$L_0$ & $d_\text{SAE}$ & Runs & LR ($\uparrow$) & Dead \% ($\downarrow$) \\")
     else:
-        header = (r"$L_0$ & $d_\text{SAE}$ & LR ($\uparrow$) & PCE ($\downarrow$) & Dead \% ($\downarrow$) & $N_\text{special}$ \\"
+        header = (r"$L_0$ & $d_\text{SAE}$ & LR ($\uparrow$) & Dead \% ($\downarrow$) & $N_\text{special}$ \\"
                   if exclude_runs_col else
-                  r"$L_0$ & $d_\text{SAE}$ & Runs & LR ($\uparrow$) & PCE ($\downarrow$) & Dead \% ($\downarrow$) & $N_\text{special}$ \\")
+                  r"$L_0$ & $d_\text{SAE}$ & Runs & LR ($\uparrow$) & Dead \% ($\downarrow$) & $N_\text{special}$ \\")
     
     lines.append(header)
     lines.append(r"\midrule")
@@ -271,14 +263,13 @@ def write_latex_table(agg: pd.DataFrame, path: Path,
         prev_l0 = l0
 
         lr_cell   = _fmt(r.loss_recovered_mean, r.loss_recovered_std, "loss_recovered_mean", l0)
-        ce_cell   = _fmt(r.patched_ce_mean, r.patched_ce_std, "patched_ce_mean", l0)
         dead_cell = _fmt(r.dead_pct_mean,  r.dead_pct_std,  "dead_pct_mean",   l0, dec=1, plain=True)
 
         runs_cell = "" if exclude_runs_col else f"& {int(r.n_runs)} "
         special_cell = "" if exclude_special_col else f"& {lf(r.n_special_mean, r.n_special_std, dec=2)} "
         lines.append(
             f"  {l0} & {int(r.d_sae)} {runs_cell}"
-            f"& {lr_cell} & {ce_cell} & {dead_cell} "
+            f"& {lr_cell} & {dead_cell} "
             f"{special_cell}\\\\"
         )
     lines += [
@@ -322,12 +313,10 @@ def plot_sweep(df: pd.DataFrame, path: Path):
     # (x, y, hue, palette, xlabel, ylabel, ylim_top)
     panels = [
         ("l0",    "loss_recovered", "d_sae", dsae_pal, "← L0 (Lower is sparser)",    "↑ Loss Recovered", 1.0),
-        ("l0",    "patched_ce",     "d_sae", dsae_pal, "← L0 (Lower is sparser)",    "← Patched CE Loss", None),
         ("d_sae", "loss_recovered", "l0",    l0_pal,   "d_sae",                       "↑ Loss Recovered", 1.0),
-        ("d_sae", "patched_ce",     "l0",    l0_pal,   "d_sae",                       "← Patched CE Loss", None),
     ]
 
-    fig, axes = plt.subplots(2, 2, figsize=(13, 8))
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
 
     for i, (ax, (x, y, hue, palette, xlabel, ylabel, ylim_top)) in enumerate(zip(axes.flat, panels)):
         sns.pointplot(

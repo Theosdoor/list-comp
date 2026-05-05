@@ -19,7 +19,6 @@ Produces 15 files per run (suffix includes r threshold):
 
 Metrics:
   loss_recovered  = (H* - H0) / (H_orig - H0)   [higher = better]
-  patched_ce      = H*                            [lower = better]
   explained_var   = 1 - MSE(recon) / Var(orig)   [higher = better]
 
 Examples:
@@ -68,9 +67,8 @@ DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is
 CATEGORY_ORDER = ["0", "1", "2", ">2"]
 
 METRICS = {
-    "loss_recovered": ("Loss recovered",         "higher = better"),
-    "patched_ce":     ("Patched CE loss (H*)",   "lower = better"),
-    "explained_var":  ("Explained variance",     "higher = better"),
+    "loss_recovered": ("Loss recovered",     "higher = better"),
+    "explained_var":  ("Explained variance", "higher = better"),
 }
 
 TYPE_PALETTE  = {"btk": "#4c72b0", "jumprelu": "#dd8452", "matryoshka": "#55a868"}
@@ -186,7 +184,6 @@ def evaluate_sae(model, sae, act_mean, val_dl, sep_idx, list_len,
     return {
         "actual_l0":      actual_l0,
         "loss_recovered": loss_recovered,
-        "patched_ce":     h_star,
         "explained_var":  explained_var,
         "h_orig":         h_orig,
         "h_star":         h_star,
@@ -518,9 +515,8 @@ def main():
             })
             print(
                 f"  L0={metrics['actual_l0']:.2f}  "
-                f"loss_recovered={metrics['loss_recovered']:.4f}  "
-                f"patched_ce={metrics['patched_ce']:.4f}  "
-                f"explained_var={metrics['explained_var']:.4f}  "
+                f"lr={metrics['loss_recovered']:.4f}  "
+                f"ev={metrics['explained_var']:.4f}  "
                 f"n_special={metrics['n_special']}"
             )
         except Exception as exc:
