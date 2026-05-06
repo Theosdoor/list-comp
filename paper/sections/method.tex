@@ -2,7 +2,7 @@
 
 \citet{farrell2025order} demonstrate the relative magnitude-based composition at the separator's residual activation after the first layer. We refer to this vector as $\boldsymbol r_{s}^{L_1}$, where $s$ is the separator token position, and train SAEs on this.
 We consider BatchTopK \cite{bussmann2024batchtopk}, JumpReLU \cite{rajamanoharan2024jumping} and Matryoshka \cite{bussmann2025learning} SAEs with implementations from \citet{marks2024dictionary_learning}.
-We select a single BatchTopK SAE for in-depth study but validate key findings across 1,630 different SAE configurations, architectures and seeds (Table \ref{tab:sae_sweep_configs}), to evidence that our results are not simply an artefact of this specific checkpoint. 
+% We select a single BatchTopK SAE for in-depth study but validate key findings across 1,630 different SAE configurations, architectures and seeds (Table \ref{tab:sae_sweep_configs}), to evidence that our results are not simply an artefact of this specific checkpoint. 
 % TODO why select BTK (rel work?)
 We run a grid-search over $k \in [1,5]$ and SAE expansion factors $i \in [2,5]$, such that $d_\text{sae} = i \times d_\text{model}$ (Table \ref{tab:sae_sweep}).
 We evaluate them on sparsity ($L_0$) and loss recovered, in line with previous work \cite{karvonen2025saebench,ferrando2024primer}.

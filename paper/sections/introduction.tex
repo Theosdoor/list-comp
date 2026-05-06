@@ -1,21 +1,21 @@
 \section{Introduction}
 
 Sparse Autoencoders (SAEs) \citep{bricken2023monosemanticity, huben2024sparse} and their variants \citep{gao2024scaling, bussmann2024batchtopk, rajamanoharan2024jumping, leask2025inference, costa2025evaluating, bussmann2025learning} are popular tools for recovering features from dense internal activations in language models.
-Ideally, SAEs faithfully approximate an activation using sparse, linear combinations of independent feature vectors from an overcomplete dictionary \cite{bricken2023monosemanticity,karvonen2025saebench}.
-However, since SAEs are an unsupervised dictionary learning algorithm, they are trained using proxy metrics such as sparsity and reconstruction fidelity \cite{huben2024sparse}.
+% Ideally, SAEs faithfully approximate an activation using sparse, linear combinations of independent feature vectors from an overcomplete dictionary \cite{bricken2023monosemanticity,karvonen2025saebench}.
+% However, since SAEs are an unsupervised dictionary learning algorithm, they are trained using proxy metrics such as sparsity and reconstruction fidelity \cite{huben2024sparse}.
+Recent work has examined whether SAEs produce robust dictionaries. For example, \citet{chanin2024absorption} find that using sparsity as a proxy can cause feature absorption and \citet{leask2025sparse} find that SAEs do not find a unique and complete dictionary of atomic features.
+However, \citet{farrell2025order} suggest that even if an SAE recovers the correct dictionary, it may not provide a complete understanding of the model. 
+% They train an attention-only transformer on an ordered bigram copying task.
+They identify a novel `relative magnitude-based' feature composition mechanism in a toy attention-only transformer, and predict that an SAE will learn graded latent activations that are not necessarily independently interpretable.
+% in which both bigram orders, $(x,y)$ and $(y,x)$, are represented in a single fixed-length activation vector using the same basis vectors, and they are differentiated by the relative magnitude of the basis vectors (defined by scalar attention weights).
+% They predict that an SAE trained on this activation will learn graded latent activations: a latent for each basis vector with magnitudes equal to the attention weights.
+% In this way, an SAE could learn the correct dictionary and still provide an incomplete representation of the activation.
+% That is, we cannot achieve a complete understanding of the activation if we assume SAE latents are independently interpretable.
+Since interpretability with SAEs commonly assumes transformer features are independently interpretable \cite{elhage2022toy,bricken2023monosemanticity}, graded latent activations may present a problem.
 
-Substantial recent work has been focused on validating whether this training produces robust dictionaries. For example, \citet{chanin2024absorption} find that using sparsity as a proxy can cause feature absorption and \citet{leask2025sparse} find that SAEs do not find a unique and complete dictionary of atomic features.
+In this paper, we verify this prediction across a suite of BatchTopK \cite{bussmann2024batchtopk}, JumpReLU \cite{rajamanoharan2024jumping} and Matryoshka \cite{bussmann2025learning} SAEs on the toy model in \citet{farrell2025order} and present our findings of the learned behaviours. We thus aim to set the stage for further analysis on real-world pretrained SAEs such as Gemma Scope 1 \cite{lieberum2024gemma} and 2 \cite{mcdougall2025gemmascope2} which use JumpReLU and Matryoshka SAEs respectively.
 
-However, \citet{farrell2025order} present a study of an attention-only transformer model trained on an ordered bigram copying task that presents new problems for SAEs even if they recover a correct dictionary, which potentially cuts across the previous debate.
-They identify a novel `relative magnitude-based' feature composition mechanism, in which both bigram orders, $(x,y)$ and $(y,x)$, are represented in a single fixed-length activation vector using the same basis vectors, and they are differentiated by the relative magnitude of the basis vectors (defined by scalar attention weights).
-They predict that an SAE trained on this activation will learn graded latent activations: a latent for each basis vector with magnitudes equal to the attention weights.
-In this way, an SAE could learn the correct dictionary and still provide an incomplete representation of the activation.
-That is, we cannot achieve a complete understanding of the activation if we assume SAE latents are independently interpretable.
-If this generalises to real-world language models, this could be problematic for interpretability using SAEs which commonly assumes latents are independent \citep{mcdougall2025gemmascope2,karvonen2025saebench}. % TODO check they actually claim this
-
-However, \citet{farrell2025order} do not verify their SAE prediction. In this paper, we train a suite of BatchTopK \cite{bussmann2024batchtopk}, JumpReLU \cite{rajamanoharan2024jumping} and Matryoshka \cite{bussmann2025learning} SAEs on the toy model in \citet{farrell2025order} and provide in-depth analysis of the learned SAE behaviours. Through this, we aim to set the stage for further analysis on real-world pretrained SAEs such as Gemma Scope 1 \cite{lieberum2024gemma} and 2 \cite{mcdougall2025gemmascope2} which use JumpReLU and Matryoshka SAEs respectively.
-
-Our paper is structured as follows. Section \ref{s:method} outlines our SAE training and evaluation methodology. In Section \ref{s:results}, we analyse a specific BatchTopK SAE in-depth and find that it learned two latents with graded activations that can be steered and patched into the model downstream to swap the model output from $(x,y)$ to $(y,x)$. This provides causal evidence that the relative magnitude-based composition mechanism \dots TODO \dots. 
+Our paper is structured as follows. Section \ref{s:method} outlines our SAE training and evaluation methodology. In Section \ref{s:results}, we analyse a specific BatchTopK SAE and find two latents with graded activations that can be steered to swap the model output from $(x,y)$ to $(y,x)$. 
 Moreover, these graded latents can be reliably identified by checking for anomalous positive or negative correlation with the difference between two first-layer attention weights.
 We check for generalisation to other SAE configurations, including JumpReLU and Matryoshka SAEs, using an automated pipeline that, given an SAE, identifies latents of interest using correlations as described, and steers them to swap outputs. Across our sweep of 1600 SAEs we find we can reliably swap between 25-70\% of the transformer's original outputs, which is significant because \dots TODO \dots.
 We provide our pipeline to make it easy for other researchers to train SAEs and test them similarly.
