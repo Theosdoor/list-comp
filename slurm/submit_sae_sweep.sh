@@ -20,7 +20,7 @@ echo "------------------------------------------------------"
 
 
 # jumprelu 2
-# wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/fn9syo6t
+wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/fn9syo6t
 
 # matry 2
-wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/l9sd28fg
+# wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/l9sd28fg

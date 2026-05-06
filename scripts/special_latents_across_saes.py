@@ -40,6 +40,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import os
+import re
+from collections import defaultdict
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -47,7 +50,7 @@ import matplotlib.lines as mlines
 import seaborn as sns
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, ConcatDataset
 from tqdm import tqdm
 
 from src.models.transformer import make_model
@@ -79,10 +82,10 @@ TYPE_MARKERS  = {"btk": "o",       "jumprelu": "s",       "matryoshka": "^"}
 # Checkpoint discovery
 # ---------------------------------------------------------------------------
 
-def find_checkpoints(dirs: list[str]) -> list[Path]:
+def find_checkpoints(dirs: list[str]) -> list:
     checkpoints = []
     for d in dirs:
-        root = Path(d)
+        root = Path(d) if not isinstance(d, Path) else d
         if root.is_file() and root.suffix == ".pt":
             checkpoints.append(root)
         elif root.is_dir():
@@ -90,6 +93,36 @@ def find_checkpoints(dirs: list[str]) -> list[Path]:
         else:
             print(f"  Warning: {d} is not a .pt file or directory — skipping.")
     return checkpoints
+
+
+def select_checkpoints(paths, use_best=False):
+    """Filter to avoid duplicating final/best pairs.
+
+    Default: keep only paths without '_best_' in the stem (final checkpoints only).
+    --best:  prefer the '_best_' variant when it exists, fall back to final.
+    Returns (selected_paths, using_best_set).
+    """
+    def _canonical(p):
+        return re.sub(r'_best(?=_)', '', Path(p).stem)
+
+    groups = defaultdict(dict)
+    for p in paths:
+        key = _canonical(p)
+        tag = 'best' if '_best_' in Path(p).stem else 'final'
+        groups[key][tag] = p
+
+    selected, using_best_set = [], set()
+    for key in sorted(groups):
+        variants = groups[key]
+        if use_best and 'best' in variants:
+            selected.append(variants['best'])
+            using_best_set.add(variants['best'])
+        elif 'final' in variants:
+            selected.append(variants['final'])
+        else:  # only best variant exists
+            selected.append(variants['best'])
+            using_best_set.add(variants['best'])
+    return selected, using_best_set
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +278,8 @@ def plot_per_type_scatter(df_type, sae_type, metric_key, thresh, output_dir):
 
     ax.set_xlabel("Actual L0 (mean active features per token)")
     ax.set_ylabel(ylabel)
-    ax.set_title(f"{sae_type} — {ylabel}\n(r threshold = {thresh})")
+    sae_type_label = sae_type if sae_type in TYPE_PALETTE else f"{sae_type} (unknown)"
+    ax.set_title(f"{sae_type_label} — {ylabel}\n(r threshold = {thresh})")
 
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(handles, labels, title=f"Special latents\n(|r| > {thresh})",
@@ -359,7 +393,10 @@ def plot_all_types_scatter(df, metric_key, thresh, output_dir):
     n_cats   = len(CATEGORY_ORDER)
     cat_palette = dict(zip(CATEGORY_ORDER, sns.color_palette("muted", n_colors=n_cats)))
     present_cats = [c for c in CATEGORY_ORDER if c in df["n_special_bin"].values]
-    present_types = [t for t in TYPE_PALETTE if t in df["sae_type"].values]
+    present_types = [t for t in df["sae_type"].unique() if t in TYPE_PALETTE]
+    unknown_types = [t for t in df["sae_type"].unique() if t not in TYPE_PALETTE]
+    if unknown_types:
+        print(f"    ⚠ Skipping plotting for unknown types: {unknown_types}")
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     fig.suptitle(
@@ -478,16 +515,22 @@ def main():
           f"(d_model={d_model}, n_digits={n_digits}, list_len={list_len})")
 
     # --- Data ---
-    _, val_ds = get_dataset(list_len=list_len, n_digits=n_digits, no_dupes=False)
-    val_dl = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False)
-    print(f"✓ Validation set: {len(val_ds):,} samples\n")
+    train_ds, val_ds = get_dataset(list_len=list_len, n_digits=n_digits, no_dupes=False)
+    full_ds = ConcatDataset([train_ds, val_ds])
+    val_dl = DataLoader(full_ds, batch_size=args.batch_size, shuffle=False)
+    print(f"✓ Full dataset (train + val): {len(full_ds):,} samples\n")
 
     # --- Discover checkpoints ---
-    checkpoints = find_checkpoints(args.sae_dirs)
-    if not checkpoints:
+    all_checkpoints = find_checkpoints(args.sae_dirs)
+    if not all_checkpoints:
         print("No .pt checkpoints found. Exiting.")
         sys.exit(1)
-    print(f"Found {len(checkpoints)} checkpoint(s)\n")
+    
+    # Filter to final checkpoints only (skip _best_ variants by default)
+    checkpoints, using_best = select_checkpoints(all_checkpoints, use_best=False)
+    if using_best:
+        print(f"Found {len(all_checkpoints)} total checkpoints; {len(using_best)} are 'best' variants only (final not available)\n")
+    print(f"Using {len(checkpoints)} final checkpoint(s)\n")
 
     # --- Evaluate ---
     records = []
@@ -497,6 +540,16 @@ def main():
             ckpt     = torch.load(ckpt_path, map_location=DEVICE, weights_only=False)
             cfg      = ckpt.get("cfg", {})
             sae_type = cfg.get("sae_type", "btk")
+            d_sae    = cfg.get("dict_size", cfg.get("d_sae"))
+            
+            # Validate d_sae
+            if d_sae is None:
+                print(f"  ✗ Failed: No dict_size or d_sae in checkpoint config")
+                continue
+            
+            # Validate sae_type (warn if unknown, but don't fail)
+            if sae_type not in TYPE_PALETTE:
+                print(f"  ⚠ Warning: Unknown sae_type '{sae_type}' (expected: btk, jumprelu, matryoshka)")
 
             sae = instantiate_sae_from_cfg(cfg, d_model, DEVICE)
             sae.load_state_dict(ckpt["state_dict"])
@@ -510,7 +563,7 @@ def main():
             records.append({
                 "checkpoint": ckpt_path.name,
                 "sae_type":   sae_type,
-                "d_sae":      cfg.get("dict_size", cfg.get("d_sae")),
+                "d_sae":      d_sae,
                 **metrics,
             })
             print(
@@ -554,10 +607,12 @@ def main():
         sys.exit(1)
 
     output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Organize by alpha threshold
+    plot_dir = output_dir / f"r{thresh}"
+    plot_dir.mkdir(parents=True, exist_ok=True)
 
     # Save full (unfiltered) CSV so exclusions don't lose data
-    csv_path = output_dir / f"sae_metrics_r{thresh}.csv"
+    csv_path = plot_dir / f"sae_metrics_r{thresh}.csv"
     df.to_csv(csv_path, index=False)
     print(f"\n✓ Full metrics saved to {csv_path}")
 
@@ -574,13 +629,13 @@ def main():
         print(f"\n  {sae_type} ({n} SAEs):")
 
         for metric_key in METRICS:
-            plot_per_type_scatter(df_type, sae_type, metric_key, thresh, output_dir)
+            plot_per_type_scatter(df_type, sae_type, metric_key, thresh, plot_dir)
 
-        plot_per_type_boxplot(df_type, sae_type, thresh, output_dir)
+        plot_per_type_boxplot(df_type, sae_type, thresh, plot_dir)
 
     print("\n  All-types:")
     for metric_key in METRICS:
-        plot_all_types_scatter(df_plot, metric_key, thresh, output_dir)
+        plot_all_types_scatter(df_plot, metric_key, thresh, plot_dir)
 
     print("\nDone.")
 
