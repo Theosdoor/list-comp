@@ -4,7 +4,7 @@
 We consider BatchTopK \cite{bussmann2024batchtopk}, JumpReLU \cite{rajamanoharan2024jumping} and Matryoshka \cite{bussmann2025learning} SAEs with implementations from \citet{marks2024dictionary_learning}.
 % We select a single BatchTopK SAE for in-depth study but validate key findings across 1,630 different SAE configurations, architectures and seeds (Table \ref{tab:sae_sweep_configs}), to evidence that our results are not simply an artefact of this specific checkpoint. 
 % TODO why select BTK (rel work?)
-We run a grid-search over $k \in [1,5]$ and SAE expansion factors $i \in [2,5]$, such that $d_\text{sae} = i \times d_\text{model}$ (Table \ref{tab:sae_sweep}).
+We run a grid-search over $k \in [1,5]$ and SAE expansion factors $i \in [2,5]$, such that $d_\text{SAE} = i \times d_\text{model}$ (Table \ref{tab:sae_sweep}).
 We evaluate them on sparsity ($L_0$) and loss recovered, in line with previous work \cite{karvonen2025saebench,ferrando2024primer}.
 
 % \citet{farrell2025order} train the transformer using a dataset of 10,000 bigrams: $(d_1, d_2)$ where both elements are uniformly sampled from the range $[0, 99]$. We cache the activations at $\boldsymbol r_{s}^{L_1}$ for all bigrams.
@@ -24,7 +24,7 @@ Input dimension ($d_{\text{model}}$) & 64 \\
 Dictionary size ($d_{\text{SAE}}$) & 128 \\
 $k$ & 3 \\
 Actual sparsity ($L_0$) & 3.00 \\
-% Activation centering & Mean-centred (pre-training) \\
+% Activation centring & Mean-centred (pre-training) \\
 % Encoder init & $W_{\text{enc}} = W_{\text{dec}}^\top$ \\
 % Decoder normalisation & Unit-norm columns \\
 \midrule
@@ -42,13 +42,13 @@ Hardware & NVIDIA GeForce RTX 2080 Ti \\
 \end{tabular}
 \end{table}
 
-After a hyperparameter grid search (Table \ref{tab:sae_sweep}) we find that BatchTopK SAEs with $k \in [3,5]$ all achieve similar top performance so we take $k=3$ for increased sparsity. We select $d_\text{sae} = 128$ which is the smallest dimensionality that achieves top average performance. We select the checkpoint with fewest dead latents ($3.1\%$) out of BatchTopK SAEs with $k = 3, d_\text{SAE} = 128$ and loss recovered over 0.999. Table \ref{tab:sae_config} shows the final configuration.
+After a hyperparameter grid search (Table \ref{tab:sae_sweep}) we find that BatchTopK SAEs with $k \in [3,5]$ all achieve similar top performance so we take $k=3$ for increased sparsity. We select $d_\text{SAE} = 128$ which is the smallest dimensionality that achieves top average performance. We select the checkpoint with the fewest dead latents ($3.1\%$) out of BatchTopK SAEs with $k = 3, d_\text{SAE} = 128$ and loss recovered over 0.999. Table \ref{tab:sae_config} shows the final configuration.
 % This checkpoint selection introduces selection bias toward high-performing models. We address this by confirming across 1,630 diverse SAEs that special latents (identifiable by $\Delta\alpha$ correlation) emerge reliably regardless of configuration, establishing that our findings are not specific to this checkpoint.
 
 % \subsubsection{Analysis}
 For analysis, we begin by inspecting max activating examples for each latent.
-To test if a latent has graded activations, we use steer by linearly scaling the SAE latent's activation for a given input, patch the SAE reconstruction back into the model downstream and compare the new output to the original output. 
+To test if a latent has graded activations, we perform steering by linearly scaling the SAE latent's activation for a given input, patch the SAE reconstruction back into the model downstream and compare the new output to the original output. 
 % If the output changes predictably according to the hypothesis for what that latent represents, then that supports the hypothesis (Section \ref{s:related-work}).
 % Since the entire input space is small (10,000 possible input bigrams), we can feasibly record SAE activations for every single input, which is more robust than sampling activations and inferring to other inputs.
 
-We test generalisation of our results on 1630 different SAE configurations and seeds (Table \ref{tab:sae_sweep_configs}) where feasible. Otherwise, we use cherry-picked SAE checkpoints (Table \ref{tab:cherry-picked-saes}) with strong performance and varying $d_\text{SAE}$ and $L_0$ to provide a diverse test sample, although we note that this small set is insufficient for statistical significance.
+We test generalisation of our results on 1,630 different SAE configurations and seeds (Table \ref{tab:sae_sweep_configs}) where feasible. Otherwise, we use cherry-picked SAE checkpoints (Table \ref{tab:cherry-picked-saes}) with strong performance and varying $d_\text{SAE}$ and $L_0$ to provide a diverse test sample, although we note that this small set is insufficient for statistical significance.

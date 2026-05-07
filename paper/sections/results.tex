@@ -14,7 +14,7 @@
     \label{fig:sae-heatmap}
 \end{figure*} 
 
-We plot which the activating examples for each latent on a heatmap over all inputs (Figure \ref{fig:sae-heatmap}).
+We plot the activating examples for each latent on a heatmap over all inputs (Figure \ref{fig:sae-heatmap}).
 We identify two latent types, excluding 8\% of latents which activate on fewer than 0.1\% of inputs: $k$-symbol detectors and special latents.
 
 \textbf{$k$-symbol detectors (91\% of latents):} 88\% of latents are $1$-symbol detectors: they activate only if one specific symbol is present in the input at either $d_1$ or $d_2$, shown by the `plus-sign' pattern in Figure \ref{fig:sae-heatmap}. They activate most strongly where $d_1=d_2$ (the intersection), and otherwise their activation magnitude varies only with symbol presence, not position.
@@ -33,11 +33,11 @@ Latent 11 has a much stronger correlation than 56, so we refer to it as the prim
 
 \subsection{Steering Experiments}\label{ss:steering_exp}
 
-We hypothesise that special latents have graded activations. Specifically, we hypothesise that they have activation ranges corresponding to different bigram orderings. To test this hypothesis, we use steering vectors \cite{ferrando2024primer,arditi2024refusal} to perform a causal linear intervention: we scale special latent activations and observe whether the model's outputs change predictably.
+We hypothesise that special latents have graded activations. Specifically, we hypothesise that they have activation ranges corresponding to different bigram orderings. To test this hypothesis, we perform steering by linearly scaling special latent activations and observe whether the model's outputs change predictably.
 
 We: \textbf{1.} Run the transformer on bigram $(d_1, d_2)$ and record the special latent's activation magnitude $m$ from the SAE trained on $\boldsymbol r_{s}^{L_1}$.
 \textbf{2.} Scale $m$ by factor $p$, reconstruct $\hat{\boldsymbol r}_{s}^{L_1}$, and compute logits at $(o_1, o_2)$.
-\textbf{3.} Repeat across all $p \in [0,20]$ (step $0.05$) and all input bigrams.
+\textbf{3.} Repeat across all $p \in [0, 20]$ (step $0.05$) and all input bigrams.
 Systematic output logit shifts across this sweep would imply that the special latent is graded.
 
 % The binary view \cite{quirke2025binary} expects SAE latents to activate when a feature is present and remain inactive otherwise, with magnitude being irrelevant to the feature represented. If this were true for special latents, scaling their activation (step 2 above) would either keep outputs unchanged (same latents remain active) or produce nonsense. However, based on the circuits analysis in \citet{farrell2025order} showing that output order depends on $\Delta \alpha$, and the observation that special latents correlate with $\Delta \alpha$ (Section \ref{ss:sae_feat_analysis}), we predict that scaling these latents will cause systematic output swaps: for input $(a,b)$ where the model correctly outputs $(a,b)$, scaling the special latent may produce output $(b,a)$ at appropriate scaling factors.
@@ -79,5 +79,5 @@ This strongly suggests that the behaviour described so far in this section gener
 % ------- steering ---
 
 We provide a pipeline in Appendix \ref{app:further_generalise} that identifies special latents in a given SAE and attempts steering on all input bigrams. Since this is computationally expensive, we only test on our selected subset of SAEs (see Appendix \ref{app:exp_setup}, Table \ref{tab:cherry-picked-saes}).
-We find that all six sampled SAEs learned at least one special latent ($|r| > 0.3$), and five learned a pair of opposing special latents (one $d_1$-favouring and one $d_2$-favouring). In every tested SAE, steering at least one of these special latents successfully swapped the predicted outputs for a substantial portion of the input space, ranging from $26.6\%$ to $72.5\%$ of all inputs. When the output swap failed, the inputs typically either did not activate the latent at all or encountered constraints similar to those detailed in Section \ref{ss:steering_exp}, such as requiring negative activation scaling. This suggests that the relative magnitude-based mechanism, and the emergence of steerable, graded latent activations, generalizes consistently across varying SAE architectures and hyperparameter configurations.
+We find that all six sampled SAEs learned at least one special latent ($|r| > 0.3$), and five learned a pair of opposing special latents (one $d_1$-favouring and one $d_2$-favouring). In every tested SAE, steering at least one of these special latents successfully swapped the predicted outputs for a substantial portion of the input space, ranging from $26.6\%$ to $72.5\%$ of all inputs. When the output swap failed, the inputs typically either did not activate the latent at all or encountered constraints similar to those detailed in Section \ref{ss:steering_exp}, such as requiring negative activation scaling. This suggests that the relative magnitude-based mechanism, and the emergence of steerable, graded latent activations, generalises consistently across varying SAE architectures and hyperparameter configurations.
 Further results are in Appendix \ref{app:further_generalise}.
