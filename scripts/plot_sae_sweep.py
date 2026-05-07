@@ -58,15 +58,15 @@ def extract_sae_type(model_name: str) -> str:
         'btk_d100_k3_...' -> 'btk'
         'jumprelu_d100_...' -> 'jumprelu'
         'matryoshka_d100_...' -> 'matryoshka'
-        'sae_d100_...' or unknown -> 'btk' (default)
     
+    Returns None if prefix is unknown (instead of silently defaulting to 'btk').
     TODO: Parse from checkpoint config for robustness (see special_latents_across_saes.py).
     """
     model_name = model_name.lower()
     for sae_type in ["btk", "jumprelu", "matryoshka"]:
         if model_name.startswith(sae_type + "_"):
             return sae_type
-    return "btk"  # default
+    return None
 
 
 def find_latest_report(root: Path) -> Path:
@@ -89,17 +89,29 @@ def parse_report(path: Path) -> pd.DataFrame:
     # N Special cell may be "3 (0.742)" — parse only the integer count.
     rows = []
     in_summary = False
+    n_special_col = None
     for line in text.splitlines():
         if "## Summary Table" in line:
             in_summary = True
             continue
         if in_summary and line.startswith("##"):
             break
-        if in_summary and line.startswith("| ") and not line.startswith("|---") and "| Model |" not in line:
+        if in_summary and line.startswith("| ") and not line.startswith("|---"):
             cols = [c.strip() for c in line.split("|")]
-            # Support both old (7-col) and new (10-col) table formats
-            n_cols = len(cols) - 2  # subtract leading/trailing empty strings from split
-            n_special_col = 10 if n_cols >= 10 else 7
+            
+            # Parse header row to find n_special column
+            if "Model" in cols[1]:
+                for idx, col in enumerate(cols):
+                    if "N Special" in col or "special" in col.lower():
+                        n_special_col = idx
+                        break
+                continue
+            
+            # If we couldn't find n_special column in header, fall back to position-based guess
+            if n_special_col is None:
+                n_cols = len(cols) - 2  # subtract leading/trailing empty strings from split
+                n_special_col = 10 if n_cols >= 10 else 7
+            
             try:
                 model_name = cols[1]
                 rows.append({
@@ -110,10 +122,10 @@ def parse_report(path: Path) -> pd.DataFrame:
                     "dead_pct":       float(cols[4].rstrip("%")),
                     "loss_recovered": float(cols[5]) if cols[5] != "—" else None,
                     # Cell may be "3 (0.742)" — take only the leading integer count
-                    "n_special":      int(cols[n_special_col].split()[0]) if cols[n_special_col] not in ("—", "") else 0,
+                    "n_special":      int(cols[n_special_col].split()[0]) if n_special_col < len(cols) and cols[n_special_col] not in ("—", "") else None,
                 })
-            except (IndexError, ValueError):
-                pass
+            except (IndexError, ValueError) as e:
+                print(f"Warning: skipped row (parse error): {line}")
 
     return pd.DataFrame(rows)
 
@@ -144,11 +156,11 @@ def aggregate(df: pd.DataFrame) -> pd.DataFrame:
             "d_sae":                 d_sae,
             "n_runs":                n,
             "loss_recovered_mean":   g["loss_recovered"].dropna().mean(),
-            "loss_recovered_std":    g["loss_recovered"].dropna().std(ddof=1) if len(g["loss_recovered"].dropna()) > 1 else 0.0,
+            "loss_recovered_std":    g["loss_recovered"].dropna().std(ddof=1) if len(g["loss_recovered"].dropna()) > 1 else np.nan,
             "dead_pct_mean":         g["dead_pct"].mean(),
-            "dead_pct_std":          g["dead_pct"].std(ddof=1) if n > 1 else 0.0,
-            "n_special_mean":        g["n_special"].mean(),
-            "n_special_std":         g["n_special"].std(ddof=1) if n > 1 else 0.0,
+            "dead_pct_std":          g["dead_pct"].std(ddof=1) if n > 1 else np.nan,
+            "n_special_mean":        g["n_special"].dropna().mean(),
+            "n_special_std":         g["n_special"].dropna().std(ddof=1) if len(g["n_special"].dropna()) > 1 else np.nan,
         })
     return pd.DataFrame(rows).sort_values(["sae_type", "l0", "d_sae"]).reset_index(drop=True)
 
@@ -255,6 +267,7 @@ def write_latex_table(agg: pd.DataFrame, output_dir: Path,
         return rf"\underline{{{text}}}" if is_global else text
 
     def lf(mean, std, dec=4):
+        """Format as math-mode without bold/underline (for unscored columns)."""
         if no_errors or std == 0 or np.isnan(std):
             return f"{mean:.{dec}f}"
         return f"${mean:.{dec}f} \\pm {std:.{dec}f}$"
@@ -347,15 +360,15 @@ def plot_sweep(df: pd.DataFrame, output_dir: Path):
     l0_pal   = _qualitative_palette(df["l0"])
     dsae_pal = _sequential_palette(df["d_sae"], "plasma")
 
-    # (x, y, hue, palette, xlabel, ylabel, ylim_top)
+    # (x, y, hue, palette, xlabel, ylabel, ylim_top, show_legend)
     panels = [
-        ("l0",    "loss_recovered", "d_sae", dsae_pal, "← L0 (Lower is sparser)",    "↑ Loss Recovered", 1.0),
-        ("d_sae", "loss_recovered", "l0",    l0_pal,   "d_sae",                       "↑ Loss Recovered", 1.0),
+        ("l0",    "loss_recovered", "d_sae", dsae_pal, "← L0 (Lower is sparser)",    "↑ Loss Recovered", 1.0, False),
+        ("d_sae", "loss_recovered", "l0",    l0_pal,   "d_sae",                       "↑ Loss Recovered", 1.0, True),
     ]
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
 
-    for i, (ax, (x, y, hue, palette, xlabel, ylabel, ylim_top)) in enumerate(zip(axes.flat, panels)):
+    for ax, (x, y, hue, palette, xlabel, ylabel, ylim_top, show_legend) in zip(axes.flat, panels):
         sns.pointplot(
             data=df, x=x, y=y, hue=hue, palette=palette,
             errorbar="sd", markers="o", linestyles="-",
@@ -365,7 +378,7 @@ def plot_sweep(df: pd.DataFrame, output_dir: Path):
         ax.set_xlabel(xlabel, fontsize=11)
         ax.set_ylabel(ylabel, fontsize=11)
         ax.set_ylim(bottom=0, top=ylim_top)
-        if i % 2 == 0:  # left panels
+        if not show_legend:
             ax.get_legend().remove()
         else:
             ax.legend(fontsize=8, framealpha=0.9, loc="upper right",
