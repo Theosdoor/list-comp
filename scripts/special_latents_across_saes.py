@@ -731,6 +731,15 @@ def main():
     else:
         print(f"Using {len(checkpoints)} final checkpoint(s)\n")
 
+    # Pre-evaluation d_sae exclusion (mirrors --exclude-d-sae in compare_sae.py)
+    if args.exclude_d_sae:
+        def _d_sae_from_name(p):
+            m = re.search(r'_d(\d+)_', Path(p).name)
+            return int(m.group(1)) if m else None
+        before = len(checkpoints)
+        checkpoints = [p for p in checkpoints if _d_sae_from_name(p) not in args.exclude_d_sae]
+        print(f"Excluded d_sae {args.exclude_d_sae}: {before} → {len(checkpoints)} checkpoints\n")
+
     # --- Evaluate ---
     records = []
     for i, ckpt_path in enumerate(checkpoints):
