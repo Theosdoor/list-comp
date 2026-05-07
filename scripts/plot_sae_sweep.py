@@ -17,6 +17,8 @@ Usage:
 import argparse
 from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")  # Non-interactive backend for headless environments
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -48,6 +50,24 @@ def parse_args():
     return p.parse_args()
 
 # ── Parsing ───────────────────────────────────────────────────────────────────
+
+def extract_sae_type(model_name: str) -> str:
+    """Extract SAE type from model name prefix.
+    
+    Examples:
+        'btk_d100_k3_...' -> 'btk'
+        'jumprelu_d100_...' -> 'jumprelu'
+        'matryoshka_d100_...' -> 'matryoshka'
+        'sae_d100_...' or unknown -> 'btk' (default)
+    
+    TODO: Parse from checkpoint config for robustness (see special_latents_across_saes.py).
+    """
+    model_name = model_name.lower()
+    for sae_type in ["btk", "jumprelu", "matryoshka"]:
+        if model_name.startswith(sae_type + "_"):
+            return sae_type
+    return "btk"  # default
+
 
 def find_latest_report(root: Path) -> Path:
     report_dir = root / "results" / "compare_sae"
@@ -81,8 +101,10 @@ def parse_report(path: Path) -> pd.DataFrame:
             n_cols = len(cols) - 2  # subtract leading/trailing empty strings from split
             n_special_col = 10 if n_cols >= 10 else 7
             try:
+                model_name = cols[1]
                 rows.append({
-                    "model":          cols[1],
+                    "model":          model_name,
+                    "sae_type":       extract_sae_type(model_name),
                     "d_sae":          int(cols[2]),
                     "l0":             int(round(float(cols[3]))),
                     "dead_pct":       float(cols[4].rstrip("%")),
@@ -112,11 +134,12 @@ def filter_df(df: pd.DataFrame, l0_values, d_sae_values,
 
 
 def aggregate(df: pd.DataFrame) -> pd.DataFrame:
-    """Group by (l0, d_sae), compute mean ± std over seeds/lr runs."""
+    """Group by (sae_type, l0, d_sae), compute mean ± std over seeds/lr runs."""
     rows = []
-    for (l0, d_sae), g in df.groupby(["l0", "d_sae"]):
+    for (sae_type, l0, d_sae), g in df.groupby(["sae_type", "l0", "d_sae"]):
         n = len(g)
         rows.append({
+            "sae_type":              sae_type,
             "l0":                    l0,
             "d_sae":                 d_sae,
             "n_runs":                n,
@@ -127,7 +150,7 @@ def aggregate(df: pd.DataFrame) -> pd.DataFrame:
             "n_special_mean":        g["n_special"].mean(),
             "n_special_std":         g["n_special"].std(ddof=1) if n > 1 else 0.0,
         })
-    return pd.DataFrame(rows).sort_values(["l0", "d_sae"]).reset_index(drop=True)
+    return pd.DataFrame(rows).sort_values(["sae_type", "l0", "d_sae"]).reset_index(drop=True)
 
 
 # ── Table output ──────────────────────────────────────────────────────────────
@@ -139,9 +162,13 @@ def fmt(mean, std, decimals=4, no_errors=False):
     return f"{mean:.{decimals}f} ± {std:.{decimals}f}"
 
 
-def write_markdown_table(agg: pd.DataFrame, path: Path,
+def write_markdown_table(agg: pd.DataFrame, output_dir: Path,
                          no_errors: bool = False, exclude_runs_col: bool = False,
                          exclude_special_col: bool = False):
+    """Write markdown table to output_dir/sae_sweep_table.md"""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / "sae_sweep_table.md"
+    
     runs_hdr = "" if exclude_runs_col else " N runs |"
     special_hdr = "" if exclude_special_col else " N Special Feats |"
     runs_sep = "" if exclude_runs_col else "--------|"
@@ -167,7 +194,7 @@ def write_markdown_table(agg: pd.DataFrame, path: Path,
     print(f"  Markdown table → {path}")
 
 
-def write_latex_table(agg: pd.DataFrame, path: Path,
+def write_latex_table(agg: pd.DataFrame, output_dir: Path,
                       no_errors: bool = False, exclude_runs_col: bool = False,
                       exclude_special_col: bool = False):
     """LaTeX booktabs table suitable for a dissertation.
@@ -175,7 +202,11 @@ def write_latex_table(agg: pd.DataFrame, path: Path,
     Within each L0 section the best cell per column is bolded.
     The single best cell in the entire column is also underlined.
     Higher is better for Loss Recovered; lower is better for Patched CE and Dead %.
+    Writes to output_dir/sae_sweep_table.tex
     """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / "sae_sweep_table.tex"
+    
     # ── pre-compute bests ─────────────────────────────────────────────────────
     # (col, higher_is_better)
     scored_cols = [
@@ -302,14 +333,15 @@ def _sequential_palette(values, cmap_name: str) -> dict:
     return {v: cmap(0.15 + 0.7 * i / (len(vals) - 1)) for i, v in enumerate(vals)}
 
 
-def plot_sweep(df: pd.DataFrame, path: Path):
+def plot_sweep(df: pd.DataFrame, output_dir: Path):
+    """Save seaborn pointplots to output_dir/sae_sweep_figure.{pdf,png}
+    
+    2 panels:
+      x = L0    (hue = d_sae, plasma sequential)  — y = Loss Recovered
+      x = d_sae (hue = L0,    tab10 qualitative) — y = Loss Recovered
     """
-    2×2 grid of seaborn pointplots (±1 std over seeds/lr runs):
-      Row 0  — x = L0    (hue = d_sae, plasma sequential)
-      Row 1  — x = d_sae (hue = L0,    tab10 qualitative)
-      Col 0  — y = Loss Recovered
-      Col 1  — y = Patched CE Loss
-    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
     sns.set_theme(style="whitegrid", font_scale=1.05)
 
     l0_pal   = _qualitative_palette(df["l0"])
@@ -340,9 +372,15 @@ def plot_sweep(df: pd.DataFrame, path: Path):
                       ncol=2 if hue == "d_sae" else 1)
 
     fig.tight_layout()
-    fig.savefig(path, dpi=150, bbox_inches="tight")
+    
+    # Save both PDF and PNG
+    pdf_path = output_dir / "sae_sweep_figure.pdf"
+    png_path = output_dir / "sae_sweep_figure.png"
+    fig.savefig(pdf_path, dpi=150, bbox_inches="tight")
+    fig.savefig(png_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Figure          → {path}")
+    print(f"  Figure          → {pdf_path}")
+    print(f"  Figure          → {png_path}")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -355,7 +393,6 @@ def main():
     print(f"Reading: {report_path}")
 
     output_dir = root / args.output_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     df = parse_report(report_path)
     print(f"Parsed {len(df)} SAE rows")
@@ -367,16 +404,44 @@ def main():
     df = filter_df(df, args.l0_values, args.d_sae_values,
                    exclude_l0=args.exclude_l0, exclude_d_sae=args.exclude_d_sae)
     agg = aggregate(df)
-    print(f"Aggregated to {len(agg)} (L0, d_sae) groups")
+    print(f"Aggregated to {len(agg)} (L0, d_sae) groups\n")
 
-    write_markdown_table(agg, output_dir / "sae_sweep_table.md",
+    # Get unique SAE types and sort for consistent output
+    sae_types = sorted(agg["sae_type"].unique())
+    print(f"SAE types found: {sae_types}\n")
+
+    # ── Save per-type outputs ──────────────────────────────────────────────────
+    for sae_type in sae_types:
+        print(f"Saving {sae_type}:")
+        type_dir = output_dir / sae_type
+        
+        # Filter data for this type
+        agg_type = agg[agg["sae_type"] == sae_type].drop(columns=["sae_type"])
+        df_type = df[df["sae_type"] == sae_type]
+        
+        write_markdown_table(agg_type, type_dir,
+                             no_errors=args.no_table_errors, exclude_runs_col=args.exclude_runs_col,
+                             exclude_special_col=args.exclude_special_col)
+        write_latex_table(agg_type, type_dir,
+                          no_errors=args.no_table_errors, exclude_runs_col=args.exclude_runs_col,
+                          exclude_special_col=args.exclude_special_col)
+        plot_sweep(df_type, type_dir)
+
+    # ── Save aggregate outputs (all types combined) ────────────────────────────
+    print("\nSaving aggregate (all types):")
+    agg_dir = output_dir / "aggregate"
+    agg_all = agg.drop(columns=["sae_type"])
+    
+    write_markdown_table(agg_all, agg_dir,
                          no_errors=args.no_table_errors, exclude_runs_col=args.exclude_runs_col,
                          exclude_special_col=args.exclude_special_col)
-    write_latex_table(agg, output_dir / "sae_sweep_table.tex",
+    write_latex_table(agg_all, agg_dir,
                       no_errors=args.no_table_errors, exclude_runs_col=args.exclude_runs_col,
                       exclude_special_col=args.exclude_special_col)
-    plot_sweep(df, output_dir / "sae_sweep_figure.pdf")
-    plot_sweep(df, output_dir / "sae_sweep_figure.png")
+    plot_sweep(df, agg_dir)
+    
+    print(f"\n✓ All outputs saved to {output_dir}")
+
 
 
 if __name__ == "__main__":

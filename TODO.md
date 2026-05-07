@@ -1,7 +1,7 @@
 # TODO
 
 ## Tidy up before sub
-
+- merge plotsae_sweep & compare_sae scripts
 
 ## Extensions
 
