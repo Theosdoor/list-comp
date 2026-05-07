@@ -1,21 +1,26 @@
 #!/usr/bin/env python3
 """
-SAE analysis plots: loss recovered, patched CE, and explained variance vs L0.
+SAE analysis plots: loss recovered and explained variance vs L0.
 
-Produces 15 files per run (suffix includes r threshold):
+Produces 12 files per run (suffix includes r threshold):
 
-  Per-type scatters (9):
+  Per-type scatters (4):
     {type}_{metric}_r{thresh}.pdf
       x = actual L0, y = metric, hue = n_special_bin, fitted line per bin
 
-  Per-type box+strip (3):
-    {type}_boxplot_r{thresh}.pdf
-      3x2 grid: rows=metric, col0=x:L0(integer-binned) hue:n_special,
-                              col1=x:n_special_bin hue:n_special
+  Per-type box+strip per metric (4):
+    {type}_{metric}_boxplot_r{thresh}.pdf
+      2x2 grid: col0=x:L0(integer-binned) hue:n_special,
+                col1=x:n_special_bin hue:n_special
 
-  All-types scatters (3):
+  All-types scatters (2):
     all_{metric}_r{thresh}.pdf
       2 panels: left hue=sae_type, right hue=n_special_bin, fitted line per hue
+
+  All-types box+strip per metric (2):
+    all_{metric}_boxplot_r{thresh}.pdf
+      2x2 grid: col0=x:L0(integer-binned) hue:n_special,
+                col1=x:n_special_bin hue:n_special
 
 Metrics:
   loss_recovered  = (H* - H0) / (H_orig - H0)   [higher = better]
@@ -300,7 +305,8 @@ def _integer_l0_bins(df):
     return sorted(df["l0_bin"].dropna().unique())
 
 
-def plot_per_type_boxplot(df_type, sae_type, thresh, output_dir):
+def plot_per_type_boxplot(df_type, sae_type, metric_key, thresh, output_dir):
+    """Create a single 1x2 box+strip plot for one metric."""
     n_cats  = len(CATEGORY_ORDER)
     palette = dict(zip(CATEGORY_ORDER, sns.color_palette("muted", n_colors=n_cats)))
     present = [c for c in CATEGORY_ORDER if c in df_type["n_special_bin"].values]
@@ -310,12 +316,12 @@ def plot_per_type_boxplot(df_type, sae_type, thresh, output_dir):
     df_type["l0_bin"] = df_type["actual_l0"].round().astype(int).astype(str)
     l0_order = [str(v) for v in sorted(df_type["l0_bin"].astype(int).unique())]
 
-    metric_keys = list(METRICS.keys())
+    ylabel, direction = METRICS[metric_key]
 
-    fig, axes = plt.subplots(3, 2, figsize=(12, 13))
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     fig.suptitle(
-        f"{sae_type} SAE — metrics by L0 and special latent count  (|r| > {thresh})",
-        fontsize=13, y=1.01,
+        f"{sae_type} SAE — {ylabel} by L0 and special latent count  (|r| > {thresh})",
+        fontsize=12, y=1.02,
     )
 
     BOX_KW = dict(
@@ -334,53 +340,49 @@ def plot_per_type_boxplot(df_type, sae_type, thresh, output_dir):
         legend=False, size=3.0, alpha=0.5, jitter=True,
     )
 
-    for row, metric_key in enumerate(metric_keys):
-        ylabel, direction = METRICS[metric_key]
+    # --- Col 0: x = L0 bin, hue = n_special_bin ---
+    ax = axes[0]
+    sns.boxplot(data=df_type, x="l0_bin", y=metric_key,
+                order=l0_order, ax=ax, **BOX_KW)
+    sns.stripplot(data=df_type, x="l0_bin", y=metric_key,
+                  order=l0_order, ax=ax, **STRIP_KW)
+    ax.set_xlabel("L0 (integer-binned)", labelpad=6)
+    ax.set_ylabel(ylabel)
+    ax.set_title(f"{ylabel}  ({direction})")
+    ymin = ax.get_ylim()[0]
+    for i, lb in enumerate(l0_order):
+        n = (df_type["l0_bin"] == lb).sum()
+        ax.text(i, ymin, f"n={n}", ha="center", va="bottom",
+                fontsize=7.5, color="grey")
 
-        # --- Col 0: x = L0 bin, hue = n_special_bin ---
-        ax = axes[row, 0]
-        sns.boxplot(data=df_type, x="l0_bin", y=metric_key,
-                    order=l0_order, ax=ax, **BOX_KW)
-        sns.stripplot(data=df_type, x="l0_bin", y=metric_key,
-                      order=l0_order, ax=ax, **STRIP_KW)
-        ax.set_xlabel("L0 (integer-binned)", labelpad=6)
-        ax.set_ylabel(ylabel)
-        ax.set_title(f"{ylabel}  ({direction})")
-        ymin = ax.get_ylim()[0]
-        for i, lb in enumerate(l0_order):
-            n = (df_type["l0_bin"] == lb).sum()
-            ax.text(i, ymin, f"n={n}", ha="center", va="bottom",
-                    fontsize=7.5, color="grey")
+    # legend on left plot
+    handles = [
+        mlines.Line2D([], [], marker="o", color="w",
+                      markerfacecolor=palette[c], markersize=8, label=c)
+        for c in present
+    ]
+    ax.legend(handles=handles, title=f"Special latents\n(|r| > {thresh})",
+              framealpha=0.9, fontsize=8)
+    sns.despine(ax=ax)
 
-        # legend on first row only
-        if row == 0:
-            handles = [
-                mlines.Line2D([], [], marker="o", color="w",
-                              markerfacecolor=palette[c], markersize=8, label=c)
-                for c in present
-            ]
-            ax.legend(handles=handles, title=f"Special latents\n(|r| > {thresh})",
-                      framealpha=0.9, fontsize=8)
-        sns.despine(ax=ax)
-
-        # --- Col 1: x = n_special_bin, hue = n_special_bin ---
-        ax = axes[row, 1]
-        sns.boxplot(data=df_type, x="n_special_bin", y=metric_key,
-                    order=present, ax=ax, **BOX_KW)
-        sns.stripplot(data=df_type, x="n_special_bin", y=metric_key,
-                      order=present, ax=ax, **STRIP_KW)
-        ax.set_xlabel(f"Special latents (|r| > {thresh})", labelpad=6)
-        ax.set_ylabel(ylabel)
-        ax.set_title(f"{ylabel}  ({direction})")
-        ymin = ax.get_ylim()[0]
-        for i, cat in enumerate(present):
-            n = (df_type["n_special_bin"] == cat).sum()
-            ax.text(i, ymin, f"n={n}", ha="center", va="bottom",
-                    fontsize=7.5, color="grey")
-        sns.despine(ax=ax)
+    # --- Col 1: x = n_special_bin, hue = n_special_bin ---
+    ax = axes[1]
+    sns.boxplot(data=df_type, x="n_special_bin", y=metric_key,
+                order=present, ax=ax, **BOX_KW)
+    sns.stripplot(data=df_type, x="n_special_bin", y=metric_key,
+                  order=present, ax=ax, **STRIP_KW)
+    ax.set_xlabel(f"Special latents (|r| > {thresh})", labelpad=6)
+    ax.set_ylabel(ylabel)
+    ax.set_title(f"{ylabel}  ({direction})")
+    ymin = ax.get_ylim()[0]
+    for i, cat in enumerate(present):
+        n = (df_type["n_special_bin"] == cat).sum()
+        ax.text(i, ymin, f"n={n}", ha="center", va="bottom",
+                fontsize=7.5, color="grey")
+    sns.despine(ax=ax)
 
     plt.tight_layout()
-    out = output_dir / f"{sae_type}_boxplot_r{thresh}.pdf"
+    out = output_dir / f"{sae_type}_{metric_key}_boxplot_r{thresh}.pdf"
     fig.savefig(out, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved → {out.name}")
@@ -456,13 +458,98 @@ def plot_all_types_scatter(df, metric_key, thresh, output_dir):
     print(f"  Saved → {out.name}")
 
 
+# ── All-types box + strip ─────────────────────────────────────────────────────
+
+def plot_all_types_boxplot(df, metric_key, thresh, output_dir):
+    """Create a single 1x2 box+strip plot for one metric across all SAEs."""
+    n_cats  = len(CATEGORY_ORDER)
+    palette = dict(zip(CATEGORY_ORDER, sns.color_palette("muted", n_colors=n_cats)))
+    present = [c for c in CATEGORY_ORDER if c in df["n_special_bin"].values]
+
+    # Integer-bin L0
+    df = df.copy()
+    df["l0_bin"] = df["actual_l0"].round().astype(int).astype(str)
+    l0_order = [str(v) for v in sorted(df["l0_bin"].astype(int).unique())]
+
+    ylabel, direction = METRICS[metric_key]
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    fig.suptitle(
+        f"All SAE types — {ylabel} by L0 and special latent count  (|r| > {thresh})",
+        fontsize=12, y=1.02,
+    )
+
+    BOX_KW = dict(
+        hue="n_special_bin", hue_order=present,
+        palette={c: palette[c] for c in present},
+        legend=False, width=0.55,
+        boxprops=dict(alpha=0.35),
+        whiskerprops=dict(alpha=0.45),
+        capprops=dict(alpha=0.45),
+        medianprops=dict(color="black", linewidth=1.8),
+        fliersize=0,
+    )
+    STRIP_KW = dict(
+        hue="n_special_bin", hue_order=present,
+        palette={c: palette[c] for c in present},
+        legend=False, size=3.0, alpha=0.5, jitter=True,
+    )
+
+    # --- Col 0: x = L0 bin, hue = n_special_bin ---
+    ax = axes[0]
+    sns.boxplot(data=df, x="l0_bin", y=metric_key,
+                order=l0_order, ax=ax, **BOX_KW)
+    sns.stripplot(data=df, x="l0_bin", y=metric_key,
+                  order=l0_order, ax=ax, **STRIP_KW)
+    ax.set_xlabel("L0 (integer-binned)", labelpad=6)
+    ax.set_ylabel(ylabel)
+    ax.set_title(f"{ylabel}  ({direction})")
+    ymin = ax.get_ylim()[0]
+    for i, lb in enumerate(l0_order):
+        n = (df["l0_bin"] == lb).sum()
+        ax.text(i, ymin, f"n={n}", ha="center", va="bottom",
+                fontsize=7.5, color="grey")
+
+    # legend on left plot
+    handles = [
+        mlines.Line2D([], [], marker="o", color="w",
+                      markerfacecolor=palette[c], markersize=8, label=c)
+        for c in present
+    ]
+    ax.legend(handles=handles, title=f"Special latents\n(|r| > {thresh})",
+              framealpha=0.9, fontsize=8)
+    sns.despine(ax=ax)
+
+    # --- Col 1: x = n_special_bin, hue = n_special_bin ---
+    ax = axes[1]
+    sns.boxplot(data=df, x="n_special_bin", y=metric_key,
+                order=present, ax=ax, **BOX_KW)
+    sns.stripplot(data=df, x="n_special_bin", y=metric_key,
+                  order=present, ax=ax, **STRIP_KW)
+    ax.set_xlabel(f"Special latents (|r| > {thresh})", labelpad=6)
+    ax.set_ylabel(ylabel)
+    ax.set_title(f"{ylabel}  ({direction})")
+    ymin = ax.get_ylim()[0]
+    for i, cat in enumerate(present):
+        n = (df["n_special_bin"] == cat).sum()
+        ax.text(i, ymin, f"n={n}", ha="center", va="bottom",
+                fontsize=7.5, color="grey")
+    sns.despine(ax=ax)
+
+    plt.tight_layout()
+    out = output_dir / f"all_{metric_key}_boxplot_r{thresh}.pdf"
+    fig.savefig(out, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved → {out.name}")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(
-        description="SAE analysis plots — loss recovered, patched CE, explained variance vs L0.",
+        description="SAE analysis plots — loss recovered and explained variance vs L0.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -630,12 +717,12 @@ def main():
 
         for metric_key in METRICS:
             plot_per_type_scatter(df_type, sae_type, metric_key, thresh, plot_dir)
-
-        plot_per_type_boxplot(df_type, sae_type, thresh, plot_dir)
+            plot_per_type_boxplot(df_type, sae_type, metric_key, thresh, plot_dir)
 
     print("\n  All-types:")
     for metric_key in METRICS:
         plot_all_types_scatter(df_plot, metric_key, thresh, plot_dir)
+        plot_all_types_boxplot(df_plot, metric_key, thresh, plot_dir)
 
     print("\nDone.")
 

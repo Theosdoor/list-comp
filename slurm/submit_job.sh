@@ -23,7 +23,7 @@ python scripts/special_latents_across_saes.py \
     --model_path models/2layer_100dig_64d.pt \
     --alpha_diff_thresh 0.5 \
     --output_dir results/sae_plots \
-    --exclude_l0 1 2
+    # --exclude_l0 1 2
 
 # python scripts/compare_sae.py --sae-folders sae_checkpoints/ --exclude-d-sae 64 100 384 448 512
 # python scripts/plot_sae_sweep.py --exclude-d-sae 64 100 384 448 512 --exclude-special-col # --exclude-runs-col
