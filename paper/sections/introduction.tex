@@ -1,9 +1,7 @@
 \section{Introduction}
-
-Sparse Autoencoders (SAEs) \citep{bricken2023monosemanticity, huben2024sparse} and their variants \citep{gao2024scaling, bussmann2024batchtopk, rajamanoharan2024jumping, leask2025inference, costa2025evaluating, bussmann2025learning} are popular tools for recovering features from dense internal activations in language models.
-% Ideally, SAEs faithfully approximate an activation using sparse, linear combinations of independent feature vectors from an overcomplete dictionary \cite{bricken2023monosemanticity,karvonen2025saebench}.
-% However, since SAEs are an unsupervised dictionary learning algorithm, they are trained using proxy metrics such as sparsity and reconstruction fidelity \cite{huben2024sparse}.
-Recent work has examined whether SAEs produce robust dictionaries. For example, \citet{chanin2024absorption} find that using sparsity as a proxy can cause feature absorption and \citet{leask2025sparse} find that SAEs do not find a unique and complete dictionary of atomic features.
+Models can represent more than $n$ features in $n$-dimensional activations through superposition, which complicates interpretability \citep{elhage2022toy}.
+Sparse autoencoders (SAEs) \citep{bricken2023monosemanticity, huben2024sparse} and their variants \citep{gao2024scaling, bussmann2024batchtopk, rajamanoharan2024jumping, bussmann2025learning, karvonen2025saebench, leask2025inference} decompose dense activations into sparse feature representations in an attempt to address this.
+SAEs have been successfully used in the past \citep{marks2025auditing, movva2025sparse}, but there are uncertainties over whether they learn robust dictionaries. For example, \citet{chanin2024absorption} find that using sparsity as a proxy can cause feature absorption and \citet{leask2025sparse} find that SAEs do not find a unique and complete dictionary of atomic features.
 However, \citet{farrell2025order} suggest that even if an SAE recovers the correct dictionary, it may not provide a complete understanding of the model. 
 % They train an attention-only transformer on an ordered bigram copying task.
 They identify a novel `relative magnitude-based' feature composition mechanism in a toy attention-only transformer, and predict that an SAE will learn graded latent activations that are not necessarily independently interpretable.

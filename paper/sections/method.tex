@@ -9,7 +9,9 @@ where $\alpha_{s\to d_i}$ is the attention weight in the first layer for query $
 Thus, the model represents bigram orderings at $s$ using a linear combination of basis vectors, $(\boldsymbol E_{b} + \boldsymbol P_{d_2})$ and $(\boldsymbol E_{b} + \boldsymbol P_{d_2})$, with coefficients defined by the attention probabilities.
 % the relative magnitude of scalar attention weights, rather than representing each possible ordering as a different direction in activation space (which other composition methods do \citep{wattenberg2024relational}).
 
-We train BatchTopK \cite{bussmann2024batchtopk}, JumpReLU \cite{rajamanoharan2024jumping} and Matryoshka \cite{bussmann2025learning} SAEs on $\boldsymbol r_{s}^{L_1}$ using implementations from \citet{marks2024dictionary_learning}. We train them using all 10,000 possible inputs and evaluate using sparsity ($L_0$) and loss recovered \cite{karvonen2025saebench,ferrando2024primer}.
+We train BatchTopK \cite{bussmann2024batchtopk}, JumpReLU \cite{rajamanoharan2024jumping} and Matryoshka \cite{bussmann2025learning} SAEs on $\boldsymbol r_{s}^{L_1}$ using implementations from \citet{marks2024dictionary_learning}. 
+SAEs are trained on residual activations on the full finite input space of the toy task (10,000 inputs). 
+Because our goal is not out-of-distribution generalisation, we do not need a train/test split. Instead, we evaluate SAEs on sparsity ($L_0$) and loss recovered \cite{karvonen2025saebench,ferrando2024primer} over the complete activation distribution.
 
 \begin{table}[htbp]
 \caption{Selected SAE configuration. The optimiser, betas, schedule and auxiliary loss are fixed in the implementation \cite{marks2024dictionary_learning} and excluded here for brevity.}
@@ -50,7 +52,12 @@ After a grid search (Table \ref{tab:sae_sweep}) we find that BatchTopK SAEs with
 We inspect 
 
 For analysis, we begin by inspecting max activating examples for each latent.
-To test if a latent has graded activations, we perform steering by linearly scaling the SAE latent's activation for a given input, patch the SAE reconstruction back into the model downstream and compare the new output to the original output. 
+
+
+
+\citet{brien2025steering} steer model activations at inference time by amplifying SAE latent activations mediating refusal. 
+We apply this principle to test if a latent has graded activations, expecting that the model output will change at different activation graduations. This works by linearly scaling the SAE latent's activation for a given input, patch the SAE reconstruction back into the model downstream and compare the new output to the original output. 
+
 % If the output changes predictably according to the hypothesis for what that latent represents, then that supports the hypothesis (Section \ref{s:related-work}).
 % Since the entire input space is small (10,000 possible input bigrams), we can feasibly record SAE activations for every single input, which is more robust than sampling activations and inferring to other inputs.
 
