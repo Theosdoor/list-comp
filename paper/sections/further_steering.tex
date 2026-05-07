@@ -85,22 +85,21 @@ Figures \ref{fig:41_49_a}, \ref{fig:41_49_b} and \ref{fig:41_49_c} show an examp
 
 \begin{table}[ht]
 \centering
-\caption{We perform steering experiments on several chosen and randomly sampled SAE latents to demonstrate how steering with special latents (\textbf{bold}) compares to non-special latents. We record how many outputs are successfully swapped by steering only that latent, how many do not activate the latent, and how many activate the latent but cannot be swapped.}
+\caption{We perform steering experiments on several chosen and randomly sampled SAE latents to demonstrate how steering with special latents (\textbf{bold}) compares to non-special latents. We record how many outputs are successfully swapped by steering only that latent, how many do not activate the latent, and how many activate the latent but cannot be swapped. We additionally report the proportion of the activating inputs that are swapped (Cond. Swap).}
 \label{tab:latent_swap_metrics}
 \vspace{0.5em}
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}cccc@{}}
+\begin{tabular}{@{}ccccc@{}}
 \toprule
-\textbf{Latent} & \textbf{Swapped} & \textbf{No Activation} & \textbf{Active \& No Swap} \\
+\textbf{Latent} & \textbf{Swapped} & \textbf{No Activation} & \textbf{Active \& No Swap} & \textbf{Cond. Swap} \\
 \midrule
-0   & 6 (0.1\%)  & 9786 (97.9\%) & 208 (2.1\%)  \\
-5   & 23 (0.2\%)  & 9594 (95.9\%) & 383 (3.8\%)  \\
-\textbf{11}  & \textbf{4976 (49.8\%)} & \textbf{3600 (36.0\%)} & \textbf{1424 (14.2\%)} \\
-55  & 4 (0.0\%)  & 9787 (97.9\%) & 209 (2.1\%)  \\
-\textbf{56}  & \textbf{196 (2.0\%)}  & \textbf{9009 (90.1\%)} & \textbf{795 (7.9\%)}  \\
-63  & 4 (0.0\%)  & 9801 (98.0\%) & 195 (2.0\%)  \\
-82  & 4 (0.0\%)  & 9787 (97.9\%) & 209 (2.1\%)  \\
-117 & 37 (0.4\%)  & 9782 (97.8\%) & 181 (1.8\%)  \\
+0   & 6 (0.1\%)  & 9786 (97.9\%) & 208 (2.1\%)  & 2.8\% \\
+5   & 23 (0.2\%)  & 9594 (95.9\%) & 383 (3.8\%)  & 5.7\% \\
+\textbf{11}  & \textbf{4976 (49.8\%)} & \textbf{3600 (36.0\%)} & \textbf{1424 (14.2\%)} & \textbf{77.8\%} \\
+55  & 4 (0.0\%)  & 9787 (97.9\%) & 209 (2.1\%)  & 1.9\% \\
+\textbf{56}  & \textbf{196 (2.0\%)}  & \textbf{9009 (90.1\%)} & \textbf{795 (7.9\%)}  & \textbf{19.8\%} \\
+63  & 4 (0.0\%)  & 9801 (98.0\%) & 195 (2.0\%)  & 2.0\% \\
+82  & 4 (0.0\%)  & 9787 (97.9\%) & 209 (2.1\%)  & 1.9\% \\
+117 & 37 (0.4\%)  & 9782 (97.8\%) & 181 (1.8\%)  & 17.0\% \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -113,33 +112,35 @@ Every successful swap using a non-special latent has a co-activating special lat
 % TODO table with \% success etc (CHECK IT WAS GEMINI)
 \begin{table*}[t]
 \centering
-\caption{Generalisation of special latent steering to the selected SAE checkpoints from Table \ref{tab:selected-saes}. For each identified special latent ($|r| > 0.3$), we report its bias, Pearson correlation $r$ with $\Delta \alpha$, and the percentage of inputs where the latent was successfully steered to swap outputs (Success), did not activate (No Act.), or activated but could not be swapped (Active \& No Swap).}
+\caption{Generalisation of special latent steering to the selected SAE checkpoints from Table \ref{tab:selected-saes}. For each identified special latent ($|r| > 0.3$), we report its bias, Pearson correlation $r$ with $\Delta \alpha$, and the percentage of inputs where the latent was successfully steered to swap outputs (Success), did not activate (No Act.), or activated but could not be swapped (Active \& No Swap). Cond.\ Success is success conditional on the latent activating: $\mathrm{Success}/(\mathrm{Success}+\mathrm{Active\ No\ Swap})$.}
 \label{tab:steering_generalisation}
-\begin{tabular}{l c c c l c rrr}
+\scriptsize
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{l c c c l c rrrr}
 \toprule
-\multirow{2}{*}{\textbf{SAE Type}} & \multirow{2}{*}{$\boldsymbol{d_{\text{SAE}}}$} & \multirow{2}{*}{$\boldsymbol{L_0}$} & \multirow{2}{*}{\textbf{Latent}} & \multirow{2}{*}{\textbf{Type}} & \multirow{2}{*}{$\boldsymbol{r}$} & \multicolumn{3}{c}{\textbf{Steering Outcomes (\%)}} \\
-\cmidrule(lr){7-9}
-& & & & & & \textbf{Success} & \textbf{No Act.} & \textbf{Active \& No Swap} \\
+\multirow{2}{*}{\textbf{SAE Type}} & \multirow{2}{*}{$\boldsymbol{d_{\text{SAE}}}$} & \multirow{2}{*}{$\boldsymbol{L_0}$} & \multirow{2}{*}{\textbf{Latent}} & \multirow{2}{*}{\textbf{Type}} & \multirow{2}{*}{$\boldsymbol{r}$} & \multicolumn{4}{c}{\textbf{Steering Outcomes (\%)}} \\
+\cmidrule(lr){7-10}
+& & & & & & \textbf{Success} & \textbf{No Act.} & \textbf{Active No Swap} & \textbf{Cond.\ Success} \\
 \midrule
-\multirow{2}{*}{BatchTopK (Studied)} & \multirow{2}{*}{128} & \multirow{2}{*}{3.00} & 11 & $d_1$-favouring & $+0.807$ & $49.8\%$ & $36.0\%$ & $14.2\%$ \\
-& & & 56 & $d_2$-favouring & $-0.321$ & $2.0\%$ & $90.1\%$ & $7.9\%$ \\
+\multirow{2}{*}{BatchTopK (Studied)} & \multirow{2}{*}{128} & \multirow{2}{*}{3.00} & 11 & $d_1$-favouring & $+0.807$ & $49.8\%$ & $36.0\%$ & $14.2\%$ & $77.8\%$ \\
+& & & 56 & $d_2$-favouring & $-0.321$ & $2.0\%$ & $90.1\%$ & $7.9\%$ & $20.2\%$ \\
 \midrule
-\multirow{2}{*}{BatchTopK} & \multirow{2}{*}{192} & \multirow{2}{*}{3.36} & 47 & $d_2$-favouring & $-0.836$ & $52.9\%$ & $34.4\%$ & $12.7\%$ \\
-& & & 116 & $d_1$-favouring & $+0.365$ & $0.5\%$ & $91.7\%$ & $7.8\%$ \\
+\multirow{2}{*}{BatchTopK} & \multirow{2}{*}{192} & \multirow{2}{*}{3.36} & 47 & $d_2$-favouring & $-0.836$ & $52.9\%$ & $34.4\%$ & $12.7\%$ & $80.6\%$ \\
+& & & 116 & $d_1$-favouring & $+0.365$ & $0.5\%$ & $91.7\%$ & $7.8\%$ & $6.0\%$ \\
 \addlinespace
-& \multirow{2}{*}{128} & \multirow{2}{*}{4.90} & 68 & $d_1$-favouring & $+0.845$ & $32.9\%$ & $44.7\%$ & $22.4\%$ \\
-& & & 64 & $d_2$-favouring & $-0.730$ & $6.0\%$ & $62.0\%$ & $32.0\%$ \\
+& \multirow{2}{*}{128} & \multirow{2}{*}{4.90} & 68 & $d_1$-favouring & $+0.845$ & $32.9\%$ & $44.7\%$ & $22.4\%$ & $59.5\%$ \\
+& & & 64 & $d_2$-favouring & $-0.730$ & $6.0\%$ & $62.0\%$ & $32.0\%$ & $15.8\%$ \\
 \midrule
-\multirow{2}{*}{JumpReLU} & \multirow{2}{*}{256} & \multirow{2}{*}{4.03} & 195 & $d_1$-favouring & $+0.849$ & $38.8\%$ & $39.8\%$ & $21.4\%$ \\
-& & & 179 & $d_2$-favouring & $-0.721$ & $5.8\%$ & $60.2\%$ & $34.0\%$ \\
+\multirow{2}{*}{JumpReLU} & \multirow{2}{*}{256} & \multirow{2}{*}{4.03} & 195 & $d_1$-favouring & $+0.849$ & $38.8\%$ & $39.8\%$ & $21.4\%$ & $64.5\%$ \\
+& & & 179 & $d_2$-favouring & $-0.721$ & $5.8\%$ & $60.2\%$ & $34.0\%$ & $14.6\%$ \\
 \addlinespace
-& \multirow{2}{*}{128} & \multirow{2}{*}{3.24} & 105 & $d_2$-favouring & $-0.816$ & $28.6\%$ & $37.8\%$ & $33.6\%$ \\
-& & & 4 & $d_1$-favouring & $+0.756$ & $6.9\%$ & $62.3\%$ & $30.8\%$ \\
+& \multirow{2}{*}{128} & \multirow{2}{*}{3.24} & 105 & $d_2$-favouring & $-0.816$ & $28.6\%$ & $37.8\%$ & $33.6\%$ & $46.0\%$ \\
+& & & 4 & $d_1$-favouring & $+0.756$ & $6.9\%$ & $62.3\%$ & $30.8\%$ & $18.3\%$ \\
 \midrule
-\multirow{3}{*}{Matryoshka} & \multirow{2}{*}{256} & \multirow{2}{*}{3.32} & 48 & $d_2$-favouring & $-0.796$ & $26.6\%$ & $50.6\%$ & $22.8\%$ \\
-& & & 62 & $d_1$-favouring & $+0.591$ & $6.0\%$ & $71.2\%$ & $22.8\%$ \\
+\multirow{3}{*}{Matryoshka} & \multirow{2}{*}{256} & \multirow{2}{*}{3.32} & 48 & $d_2$-favouring & $-0.796$ & $26.6\%$ & $50.6\%$ & $22.8\%$ & $53.8\%$ \\
+& & & 62 & $d_1$-favouring & $+0.591$ & $6.0\%$ & $71.2\%$ & $22.8\%$ & $20.8\%$ \\
 \addlinespace
-& 192 & 3.98 & 30 & $d_1$-favouring & $+0.866$ & $72.5\%$ & $16.5\%$ & $11.0\%$ \\
+& 192 & 3.98 & 30 & $d_1$-favouring & $+0.866$ & $72.5\%$ & $16.5\%$ & $11.0\%$ & $86.8\%$ \\
 \bottomrule
 \end{tabular}
 \end{table*}

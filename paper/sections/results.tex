@@ -36,16 +36,16 @@ We hypothesise that special latents have graded activations. Specifically, we hy
 
 We: \textbf{1.} Run the transformer on bigram $(d_1, d_2)$ and record the special latent's activation magnitude $m$ from the SAE trained on $\boldsymbol r_{s}^{L_1}$.
 \textbf{2.} Scale $m$ by factor $p$, reconstruct $\hat{\boldsymbol r}_{s}^{L_1}$, and compute logits at $(o_1, o_2)$.
-\textbf{3.} Repeat across all $p \in [0, 20]$ (step $0.05$) and all input bigrams.
+\textbf{3.} Repeat across all $p \in [0, 10]$ (step $0.05$) and all input bigrams.
 Systematic output logit shifts across this sweep would imply that the special latent is graded.
 
 % The binary view \cite{quirke2025binary} expects SAE latents to activate when a feature is present and remain inactive otherwise, with magnitude being irrelevant to the feature represented. If this were true for special latents, scaling their activation (step 2 above) would either keep outputs unchanged (same latents remain active) or produce nonsense. However, based on the circuits analysis in \citet{farrell2025order} showing that output order depends on $\Delta \alpha$, and the observation that special latents correlate with $\Delta \alpha$ (Section \ref{ss:sae_feat_analysis}), we predict that scaling these latents will cause systematic output swaps: for input $(a,b)$ where the model correctly outputs $(a,b)$, scaling the special latent may produce output $(b,a)$ at appropriate scaling factors.
 
 
-Steering latent 11 produces output swaps for 5,002/10,000 bigrams (50.0\%) and an example is shown in Figure \ref{fig:steering_feat_success}. The remaining 50\% are not swapped: 3,600 inputs (36\%) where latent 11 does not activate ($m=0$), and 1,424 inputs (14.2\%) where it activates but no scaling produces a swap. The latter fail for the following reasons (see Appendix \ref{app:further_steering} for visualisations):
+Steering latent 11 produces output swaps for 4,976/10,000 bigrams (50\%) and an example is shown in Figure \ref{fig:steering_feat_success}. The remaining 50\% are not swapped: 3,600 inputs (36\%) where latent 11 does not activate ($m=0$), and 1,424 inputs (14\%) where it activates but no scaling produces a swap. The latter fail for the following reasons (see Appendix \ref{app:further_steering} for visualisations):
 \textbf{Negative scaling required (9.2\%):} Swapping $o_1$ requires negative $p$, which we reject as BatchTopK activations are non-negative by construction.
 \textbf{Mutually exclusive swap ranges (2.3\%):} Each output position can be individually swapped but not simultaneously.
-\textbf{No swap in observed range (1.8\%):} One logit remains dominant across all $p \in [0, 20]$.
+\textbf{No swap in observed range (1.8\%):} One logit remains dominant across all $p \in [0, 10]$.
 \textbf{Matching bigram elements (0.8\%):} $d_1 = d_2$, making the swap degenerate.
 % NOTE
 % 1) negative o1
@@ -73,5 +73,5 @@ Across the 2,440 checkpoints, SAEs with strong reconstruction performance tend t
 % ------- steering ---
 
 We provide a pipeline in Appendix \ref{app:further_generalise} that identifies special latents in a given SAE and attempts steering on all input bigrams. Since this is computationally expensive, we only test it on the six selected high-performing checkpoints (see Appendix \ref{app:exp_setup}, Table \ref{tab:selected-saes}).
-All six selected SAEs learned at least one special latent ($|r| > 0.3$). Five learned a pair of opposing special latents, one $d_1$-favouring and one $d_2$-favouring. In every tested SAE, steering at least one special latent swapped a substantial portion of outputs, ranging from $26.6\%$ to $72.5\%$ of inputs. When the output swap failed, the inputs typically either did not activate the latent at all or encountered constraints similar to those detailed in Section \ref{ss:steering_exp}, such as requiring negative activation scaling. This provides evidence that steerable, graded latent activations occur in selected high-performing examples from each tested SAE architecture, but it does not establish their prevalence across the full sweep.
+All six selected SAEs learned at least one special latent ($|r| > 0.3$). Five learned a pair of opposing special latents, one $d_1$-favouring and one $d_2$-favouring. In every tested SAE, steering at least one special latent swapped a substantial portion of outputs, ranging from $26.6\%$ to $72.5\%$ of inputs. Table \ref{tab:steering_generalisation} also reports success conditional on latent activation, separating unsuccessful steering from cases where the latent is inactive. When the output swap failed, the inputs typically either did not activate the latent at all or encountered constraints similar to those detailed in Section \ref{ss:steering_exp}, such as requiring negative activation scaling. This provides evidence that steerable, graded latent activations occur in selected high-performing examples from each tested SAE architecture, but it does not establish their prevalence across the full sweep.
 Further results are in Appendix \ref{app:further_generalise}.
