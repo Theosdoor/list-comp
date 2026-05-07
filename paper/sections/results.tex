@@ -6,10 +6,10 @@
     \centering
     \includegraphics[width=\linewidth]{figures/sae_heatmap.pdf}
     \caption{
-        These $100\times100$ heatmaps show how specific SAE latents activate for different input bigrams $(d_1, d_2)$, of which there are $100\times100$ combinations. The top-left corner cell is input $(0,0)$ and the bottom-right corner cell is $(99,99)$.
-        \textbf{Left} ($1$-symbol detector): latent 0 activates only if $d_1$ or $d_2 = 41$, and activates most strongly when $d_1=d_2=41$. This results in a `plus-sign' pattern.
-        \textbf{Center} ($k$-symbol detector, $k>1$): latent 5 activates only if $d_1$ or $d_2$ is either $7$ or $58$, resulting in two `plus-sign' patterns.
-        \textbf{Right} (special latent): latent 11 activates for most inputs and activates much more strongly at peak than all other latents.
+        These $100\times100$ heatmaps show example SAE latent activations over all input bigrams $(d_1, d_2)$ with $d_1, d_2 \in [0,99]$: top-left cell is $(0,0)$, bottom-right cell is $(99,99)$.
+        \textbf{Left} ($1$-symbol detector): latent 0 activates strongly if $d_1$ or $d_2 = 41$ and peaks at $d_1=d_2=41$, producing a plus-sign pattern.
+        \textbf{Centre} ($k$-symbol detector, $k>1$): latent 5 activates strongly if $d_1$ or $d_2 \in \{7, 58\}$, producing two plus-sign patterns.
+        \textbf{Right} (special latent): latent 11 activates on most inputs with generally much greater magnitudes than any other latent.
         }
     \label{fig:sae-heatmap}
 \end{figure*} 

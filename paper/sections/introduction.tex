@@ -11,7 +11,7 @@ They identify a novel `relative magnitude-based' feature composition mechanism i
 % They predict that an SAE trained on this activation will learn graded latent activations: a latent for each basis vector with magnitudes equal to the attention weights.
 % In this way, an SAE could learn the correct dictionary and still provide an incomplete representation of the activation.
 % That is, we cannot achieve a complete understanding of the activation if we assume SAE latents are independently interpretable.
-Since interpretability with SAEs commonly assumes transformer features are independently interpretable \cite{elhage2022toy,bricken2023monosemanticity}, graded latent activations may present a problem.
+Since interpretability with SAEs commonly assumes this independence for transformer features \cite{elhage2022toy,bricken2023monosemanticity}, graded latent activations may present a problem.
 
 In this paper, we verify this prediction across a suite of BatchTopK \cite{bussmann2024batchtopk}, JumpReLU \cite{rajamanoharan2024jumping} and Matryoshka \cite{bussmann2025learning} SAEs on the toy model in \citet{farrell2025order} and present our findings of the learned behaviours. We thus aim to set the stage for further analysis on real-world pretrained SAEs such as Gemma Scope 1 \cite{lieberum2024gemma} and 2 \cite{mcdougall2025gemmascope2} which use JumpReLU and Matryoshka SAEs respectively.
 

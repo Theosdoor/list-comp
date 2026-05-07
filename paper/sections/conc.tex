@@ -5,10 +5,9 @@ In this paper, we showed that SAEs trained on an activation that uses relative m
 We release our trained SAEs on Weights \& Biases to support future work and reproducibility of our results.
 Limitations are listed in Appendix \ref{app:limitations}.
 
-\textbf{Future Work.}
-The most important next step is determining whether real-world pretrained SAEs learn graded latent activations.
-\citet{lieberum2024gemma} and \citet{mcdougall2025gemmascope2} provide a natural test environment in Gemma Scope, which include JumpReLU and Matryoshka SAEs trained on Gemma 2 and Gemma 3 at multiple widths; the same SAE variants we study here. The specific target would be identifying SAE latents in pretrained models where activation magnitude, rather than feature presence, is causally relevant for downstream behaviour.
+In future work we will attempt to find graded latent activations in real-world pretrained SAEs.
+The Gemma Scope releases \citep{lieberum2024gemma,mcdougall2025gemmascope2} provide a natural test environment, which include JumpReLU and Matryoshka SAEs trained on Gemma 2 and Gemma 3 at multiple widths; the same SAE variants we study here. The specific target would be identifying SAE latents in pretrained models where activation magnitude, rather than feature presence, is causally relevant for downstream behaviour.
 
-Finally, \cite{farrell2025order} did not fully characterise the failure modes of the base transformer model (roughly 9\% of inputs), and it is worth investigating whether these relate systematically to the cases where latent steering also fails.
+% Moreover, \cite{farrell2025order} did not fully characterise the failure modes of the base transformer model (roughly 9\% of inputs), and it is worth investigating whether these relate systematically to the cases where latent steering also fails.
 
 In summary, the findings in this paper are intended as a foundation for further research on magnitude-based feature composition mechanisms in LLMs.

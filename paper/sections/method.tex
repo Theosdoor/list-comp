@@ -41,7 +41,7 @@ Hardware & NVIDIA GeForce RTX 2080 Ti \\
 \end{tabular}
 \end{table}
 
-After a hyperparameter grid search (Table \ref{tab:sae_sweep}) we find that BatchTopK SAEs with $k \in [3,5]$ all achieve similar top performance so we take $k=3$ for sparsity. We select $d_\text{sae} = 128$ which is the smallest dimensionality that achieves top average performance. We select the checkpoint with fewest dead latents ($3.1\%$) out of BatchTopK SAEs with $k = 3, d_\text{SAE} = 128$ and loss recovered over 0.999. Table \ref{tab:sae_config} shows the final configuration.
+After a hyperparameter grid search (Table \ref{tab:sae_sweep}) we find that BatchTopK SAEs with $k \in [3,5]$ all achieve similar top performance so we take $k=3$ for increased sparsity. We select $d_\text{sae} = 128$ which is the smallest dimensionality that achieves top average performance. We select the checkpoint with fewest dead latents ($3.1\%$) out of BatchTopK SAEs with $k = 3, d_\text{SAE} = 128$ and loss recovered over 0.999. Table \ref{tab:sae_config} shows the final configuration.
 % This checkpoint selection introduces selection bias toward high-performing models. We address this by confirming across 1,630 diverse SAEs that special latents (identifiable by $\Delta\alpha$ correlation) emerge reliably regardless of configuration, establishing that our findings are not specific to this checkpoint.
 
 % \subsubsection{Analysis}
