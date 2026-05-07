@@ -1,6 +1,6 @@
 \section{Methodology}\label{s:method}
 
-We study a two-layer attention-only transformer trained on an ordered bigram copying task introduced by \citet{farrell2025order} (Table \ref{tab:model_config}), in which the model must encode bigram $(d_1,d_2)$ into a single separator token, $s$, and reconstruct the bigram as output, $(o_1, o_2)$ where $(o_1, o_2) = (d_1,d_2)$. The 5-token input is represented as $[d_1, d_2, s, o_1, o_2]$ where $d_1$ and $d_2$ are uniformly sampled from $[0,99]$ and $s, o_1, o_2$ are special tokens, giving 10,000 possible ordered bigrams.
+We study a two-layer attention-only transformer trained on the ordered bigram copying task introduced by \citet{farrell2025order} (Table \ref{tab:model_config}). The model encodes bigram $(d_1,d_2)$ into a single separator token, $s$, and reconstructs it as $(o_1,o_2)=(d_1,d_2)$. The 5-token input is represented as $[d_1, d_2, s, o_1, o_2]$, where $d_1$ and $d_2$ are uniformly sampled from $[0,99]$ and $s, o_1, o_2$ are special tokens. This gives 10,000 possible ordered bigrams.
 \citet{farrell2025order} find that the residual at $s$ after the first layer, $\boldsymbol r_{s}^{L_1}$, is:
 \begin{equation*}
     \boldsymbol r^{L_1}_s = \alpha_{s\to d_1} (\boldsymbol E_{d_1} + \boldsymbol P_{d_1}) + \alpha_{s \to d_2}(\boldsymbol E_{d_2} + \boldsymbol P_{d_2}) + \boldsymbol E_s + \boldsymbol P_s
@@ -47,7 +47,7 @@ Hardware & NVIDIA GeForce RTX 2080 Ti \\
 \end{table}
 
 After a grid search (Table \ref{tab:sae_sweep}) we find that BatchTopK SAEs with $k \in [3,5]$ all achieve similar top performance, so we select $k=3$. We select $d_\text{SAE} = 128$ which achieves similar performance to larger $d_\text{SAE}$. We filter for loss recovered over 0.999 and use the checkpoint with the fewest dead latents ($3.1\%$). Table \ref{tab:sae_config} shows the final configuration.
-% This checkpoint selection introduces selection bias toward high-performing models. We address this by confirming across 1,630 diverse SAEs that special latents (identifiable by $\Delta\alpha$ correlation) emerge reliably regardless of configuration, establishing that our findings are not specific to this checkpoint.
+% This checkpoint selection introduces selection bias toward high-performing models. We partially address this by checking whether special latents (identified by $\Delta\alpha$ correlation) appear across the broader SAE sweep, while reserving steering for selected high-performing checkpoints.
 
 We inspect 
 
@@ -56,9 +56,9 @@ For analysis, we begin by inspecting max activating examples for each latent.
 
 
 \citet{brien2025steering} steer model activations at inference time by amplifying SAE latent activations mediating refusal. 
-We apply this principle to test if a latent has graded activations, expecting that the model output will change at different activation graduations. This works by linearly scaling the SAE latent's activation for a given input, patch the SAE reconstruction back into the model downstream and compare the new output to the original output. 
+We apply this principle to test if a latent has graded activations, expecting that the model output will change at different activation graduations. We linearly scale the SAE latent activation for a given input. We then patch the SAE reconstruction back into the model downstream and compare the new output to the original output. 
 
 % If the output changes predictably according to the hypothesis for what that latent represents, then that supports the hypothesis (Section \ref{s:related-work}).
 % Since the entire input space is small (10,000 possible input bigrams), we can feasibly record SAE activations for every single input, which is more robust than sampling activations and inferring to other inputs.
 
-We test generalisation of our results on 1,630 different SAE configurations and seeds (Table \ref{tab:sae_sweep_configs}) where feasible. Otherwise, we use cherry-picked SAE checkpoints (Table \ref{tab:cherry-picked-saes}) with strong performance and varying $d_\text{SAE}$ and $L_0$ to provide a diverse test sample, although we note that this small set is insufficient for statistical significance.
+We use the evaluated checkpoints in Table \ref{tab:sae_sweep_configs} to test whether special latents appear across architectures and hyperparameters. The correlation analysis in Figure \ref{fig:special_latents_vs_performance} covers all of our trained SAEs. Because steering is much more expensive, we run it on six selected high-performing checkpoints (Table \ref{tab:selected-saes}) chosen to span architecture, dictionary size and sparsity settings. Though we note this selected set is insufficient for statistical significance.

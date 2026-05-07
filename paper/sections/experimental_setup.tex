@@ -41,8 +41,8 @@ Weight decay & 0.01 \\
 \centering
 \caption{
 SAE hyperparameter sweep configurations. Braces denote swept values; fixed values are listed directly.
-Fixed parameters across all runs: 50{,}000 training steps, 1{,}000 warmup steps, 4{,}096 batch size.
-Total run counts are the product of all swept values and seeds. Note that $n_\text{groups}=1$ in a Matryoshka SAE reduces it to a standard BatchTopK SAE, so this serves as an internal consistency check.
+Fixed parameters across all runs: 50,000 training steps, 1,000 warmup steps, 4,096 batch size.
+The sweeps are ongoing, so the counts below report evaluated checkpoints rather than completed grid sizes. Note that $n_\text{groups}=1$ in a Matryoshka SAE reduces it to a standard BatchTopK SAE, so this serves as an internal consistency check.
 }
 \label{tab:sae_sweep_configs}
 \begin{tabular}{llc}
@@ -50,19 +50,18 @@ Total run counts are the product of all swept values and seeds. Note that $n_\te
 \textbf{Parameter} & \textbf{Architecture} & \textbf{Values} \\
 \midrule
 $d_{\mathrm{SAE}}$        & All         & \{128, 192, 256, 320\} \\
-$k$ / Target $L_0$        & All         & \{3, 4, 5\} \\
-                           & BatchTopK   & $+$\{1, 2\} \\
-                           & JumpReLU    & $+$\{2\} \\
+$k$ / Target $L_0$        & BatchTopK, Matryoshka & \{1, 2, 3, 4, 5\} \\
+Target $L_0$              & JumpReLU    & \{1, 2, 3, 4, 5\} \\
 Learning rate              & BatchTopK, Matryoshka & $3\!\times\!10^{-4}$ \\
                            & JumpReLU    & \{$7\!\times\!10^{-5}$, $3\!\times\!10^{-4}$\} \\
 Sparsity penalty           & JumpReLU    & \{0.1, 0.5, 1.0, 5.0\} \\
-$n_{\text{groups}}$        & Matryoshka  & \{1, 2, 4\} \\
+$n_{\text{groups}}$        & Matryoshka  & \{1, 2, 3, 4\} \\
 \midrule
 \textbf{Architecture} & \textbf{Seeds} & \textbf{Total runs} \\
 \midrule
-BatchTopK   & 15 & 450 \\
-JumpReLU    & 5  & 640 \\
-Matryoshka  & 15 & 540 \\
+BatchTopK   & 18 & 312 \\
+JumpReLU    & 15 & 1{,}201 \\
+Matryoshka  & 15 & 926 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -108,8 +107,8 @@ $L_0$ & $d_\text{SAE}$ & Runs & Loss Recovered ($\uparrow$) & Dead \% ($\downarr
 
 \begin{table*}[htbp]
 \centering
-\caption{Comparison of cherry-picked SAE architecture types across configuration and performance metrics. These SAEs are used to support generalisation claims when a large testing sample is not computationally feasible. Dashes indicate parameters not applicable to a given architecture. $L_0$ (actual) is the mean number of active latents measured at eval time. \textbf{Bold}: best value per performance metric.}
-\label{tab:cherry-picked-saes}
+\caption{Comparison of selected high-performing SAE checkpoints across configuration and performance metrics. These checkpoints were chosen for the steering analysis to span architecture, dictionary size and sparsity settings while keeping reconstruction performance high. Dashes indicate parameters not applicable to a given architecture. $L_0$ (actual) is the mean number of active latents measured at eval time. \textbf{Bold}: best value per performance metric.}
+\label{tab:selected-saes}
 \small
 \setlength{\tabcolsep}{3pt}
 \begin{tabular}{l rr rrr rrrr}

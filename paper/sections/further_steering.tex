@@ -106,14 +106,14 @@ Figures \ref{fig:41_49_a}, \ref{fig:41_49_b} and \ref{fig:41_49_c} show an examp
 \end{table}
 
 We do not attempt steering on all latents due to computational constraints, but we attempt it on five randomly selected latents (0, 55, 63, 82, 117) and latent 96 (non-special latent with highest $\Delta \alpha$ correlation, $r=0.0036$) and latent 5 (which is shown in Figure \ref{fig:sae-heatmap}). Results are shown in Table \ref{tab:latent_swap_metrics}. 
-We find that every single successful swap using a non-special latent has a co-activating special latent, which suggests that these non-special latents are unlikely to be graded, otherwise they could singlehandedly swap more outputs, and instead alter the logit distribution such that the graded special latents can successfully swap outputs.
+Every successful swap using a non-special latent has a co-activating special latent. This suggests that these non-special latents are unlikely to be graded. Instead, they may alter the logit distribution so that graded special latents can successfully swap outputs.
 
 \subsection{Steering Across Multiple SAEs}
 
 % TODO table with \% success etc (CHECK IT WAS GEMINI)
 \begin{table*}[t]
 \centering
-\caption{Generalisation of special latent steering to other SAE configurations from Table \ref{tab:cherry-picked-saes}. For each identified special latent ($|r| > 0.3$), we report its bias, Pearson correlation $r$ with $\Delta \alpha$, and the percentage of inputs where the latent was successfully steered to swap outputs (Success), did not activate (No Act.), or activated but could not be swapped (Active \& No Swap).}
+\caption{Generalisation of special latent steering to the selected SAE checkpoints from Table \ref{tab:selected-saes}. For each identified special latent ($|r| > 0.3$), we report its bias, Pearson correlation $r$ with $\Delta \alpha$, and the percentage of inputs where the latent was successfully steered to swap outputs (Success), did not activate (No Act.), or activated but could not be swapped (Active \& No Swap).}
 \label{tab:steering_generalisation}
 \begin{tabular}{l c c c l c rrr}
 \toprule

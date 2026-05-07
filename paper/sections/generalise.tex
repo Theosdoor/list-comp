@@ -3,7 +3,7 @@
 \begin{figure*}[htbp]
     \centering
     \includegraphics[width=\linewidth]{figures/special_latents_vs_performance.pdf}
-    \caption{These strip plots show how the number of special latents (identified by the latent's activation's correlation with $\Delta \alpha$ using threshold $|r| > 0.3$,
+    \caption{These strip plots show how the number of special latents (identified by the latent activation's correlation with $\Delta \alpha$ using threshold $|r| > 0.3$,
     as in Section \ref{ss:sae_feat_analysis}) differs across SAEs with different sparsities and performance. This includes all SAEs from the sweep in Table \ref{tab:sae_sweep_configs}.
     \textbf{Left}: A large majority of the SAEs achieve $L0 \approxeq 3$. However, only those with special latents achieve high performance.
     \textbf{Right}: SAEs with no special latents tend to perform much worse than those with them. Most SAEs learn two special latents.
@@ -56,7 +56,7 @@ To test whether special latents can be steered to swap outputs in other SAEs, we
     \item Report the fraction of bigrams for which a valid swap zone was found and 
     the swap verified, along with a breakdown of failure reasons for the remainder.
 \end{enumerate}
-Steps 3-5 of the pipeline are very computationally expensive, so we test generalisation using a varied sample of six high performing SAEs (Table \ref{tab:cherry-picked-saes}) rather than running the pipeline on all trained SAEs (as in Figure \ref{fig:special_latents_vs_performance}).
+Steps 3-5 of the pipeline are very computationally expensive, so we run the steering analysis on six selected high-performing SAEs (Table \ref{tab:selected-saes}) rather than on all SAEs in Figure \ref{fig:special_latents_vs_performance}. These checkpoints were chosen to include two BatchTopK, two JumpReLU and two Matryoshka SAEs while varying dictionary size and sparsity.
 The results are shown in Table \ref{tab:steering_generalisation}.
 
 In future work, this study should be extended to further configurations for robust statistical significance.

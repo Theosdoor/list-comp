@@ -15,8 +15,8 @@ In this paper, we verify this prediction across a suite of BatchTopK \cite{bussm
 
 Our paper is structured as follows. Section \ref{s:method} introduces the base transformer and the task it is trained on, our SAE training setup and the steering protocol used to test for graded activations.
 In Section \ref{s:results}, we analyse a specific BatchTopK SAE and find two latents with graded activations that can be steered to swap the model output from $(x,y)$ to $(y,x)$. They can be identified using their activation magnitudes, which correlate with the difference between transformer attention weights, $\Delta \alpha$.
-We check for generalisation to JumpReLU and Matryoshka SAEs with an automated pipeline that identifies latents of interest by $\Delta \alpha$ correlation, and steers them to swap outputs.
-Across several SAEs, we find we can reliably swap between 25-70\% of the transformer's original outputs by steering a single SAE latent in this way.
+Across a broad SAE sweep, high-performing SAEs tend to contain latents whose activations correlate with $\Delta \alpha$.
+For a selected set of six high-performing SAEs across BatchTopK, JumpReLU and Matryoshka architectures, steering these latents swaps between 25-73\% of the transformer's original outputs.
 
 Our paper is intended to provide a foundation for further research into graded latent activations in real-world pretrained SAEs such as the Gemma Scope releases \cite{lieberum2024gemma, mcdougall2025gemmascope2}, which use JumpReLU and Matryoshka SAEs.
 By providing a case study with automatic detection, we aim to foster this work.

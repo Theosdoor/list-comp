@@ -27,8 +27,7 @@ Moreover, \citet{farrell2025order} find that $\boldsymbol r_{s}^{L_1}$ is a line
 \Delta \alpha = \alpha_{s \to d_1} - 
 \alpha_{s \to d_2}
 \), as shown in Appendix \ref{app:further_analysis}, Figure \ref{fig:alpha_diff_correlation_plot}.
-Latent 11 strongly positively correlates with $\Delta \alpha$ (Pearson correlation coefficient $r=0.807$), and latent 56 negatively correlates with $\Delta \alpha$ ($r=-0.3213$). We compute correlations over the whole dataset, and all other latents have correlation $|r| < 0.004$ with $\Delta \alpha$, suggesting that these two features are indeed special relative to the others.
-% Since latent 11 strongly positively correlates with $\Delta \alpha$ we refer to it as strongly $d_1$-favouring, and we similarly refer to latent 56 as weakly $d_2$-favouring. 
+Latent 11 strongly positively correlates with $\Delta \alpha$ (Pearson correlation coefficient $r=0.807$) so we refer to it as strongly $d_1$-favouring. Latent 56 negatively correlates with $\Delta \alpha$ ($r=-0.3213$) so we refer to it as weakly $d_2$-favouring. All other latents have correlation $|r| < 0.004$ with $\Delta \alpha$, computed over the whole dataset. This suggests that these two features are indeed special relative to the others.
 Latent 11 has a much stronger correlation than 56, so we refer to it as the primary special feature.
 
 \subsection{Steering Experiments}\label{ss:steering_exp}
@@ -62,18 +61,17 @@ Moreover, Figure \ref{fig:steering_feat_success} suggests that logits at $o_1$ s
 
 \subsection{Generalisation to other SAEs}\label{ss:sae_generalisation}
 
-We test for similar behaviours in other SAEs to support generalisation of our results, albeit limited at this experimental scale.
-We automatically identify special latents by checking each latent's correlation with $\Delta \alpha$ is over threshold $|r| > 0.3$. This threshold was chosen empirically because it reliably selected latents that could be steered to swap  \dots TODO
+We test for similar behaviours in other SAEs in two stages. First, we use the current set of evaluated SAE checkpoints to test whether high-performing SAEs tend to contain latents whose activations correlate with $\Delta \alpha$. Second, we run the expensive steering analysis on a selected set of six high-performing checkpoints.
+We automatically identify special latents by checking whether each latent's correlation with $\Delta \alpha$ is above threshold $|r| > 0.3$.
 % TODO need to run steering on ALL latents in studied model, and show table of %success AND % of successes that contained a co-acitvating 'special latent' for given thresh.
 
 
-We find that SAEs with strong performance reliably learn special latents (Appendix \ref{app:further_generalise}, Figure \ref{fig:special_latents_vs_performance})
-This strongly suggests that the behaviour described so far in this section generalises to various SAE configurations. 
+Across the 2,440 checkpoints, SAEs with strong reconstruction performance tend to contain special latents (Appendix \ref{app:further_generalise}, Figure \ref{fig:special_latents_vs_performance}).
 
 % TODO Moreover, we test if $k$-symbol detectors appear in other SAEs
 
 % ------- steering ---
 
-We provide a pipeline in Appendix \ref{app:further_generalise} that identifies special latents in a given SAE and attempts steering on all input bigrams. Since this is computationally expensive, we only test on our selected subset of SAEs (see Appendix \ref{app:exp_setup}, Table \ref{tab:cherry-picked-saes}).
-We find that all six sampled SAEs learned at least one special latent ($|r| > 0.3$), and five learned a pair of opposing special latents (one $d_1$-favouring and one $d_2$-favouring). In every tested SAE, steering at least one of these special latents successfully swapped the predicted outputs for a substantial portion of the input space, ranging from $26.6\%$ to $72.5\%$ of all inputs. When the output swap failed, the inputs typically either did not activate the latent at all or encountered constraints similar to those detailed in Section \ref{ss:steering_exp}, such as requiring negative activation scaling. This suggests that the relative magnitude-based mechanism, and the emergence of steerable, graded latent activations, generalises consistently across varying SAE architectures and hyperparameter configurations.
+We provide a pipeline in Appendix \ref{app:further_generalise} that identifies special latents in a given SAE and attempts steering on all input bigrams. Since this is computationally expensive, we only test it on the six selected high-performing checkpoints (see Appendix \ref{app:exp_setup}, Table \ref{tab:selected-saes}).
+All six selected SAEs learned at least one special latent ($|r| > 0.3$). Five learned a pair of opposing special latents, one $d_1$-favouring and one $d_2$-favouring. In every tested SAE, steering at least one special latent swapped a substantial portion of outputs, ranging from $26.6\%$ to $72.5\%$ of inputs. When the output swap failed, the inputs typically either did not activate the latent at all or encountered constraints similar to those detailed in Section \ref{ss:steering_exp}, such as requiring negative activation scaling. This provides evidence that steerable, graded latent activations occur in selected high-performing examples from each tested SAE architecture, but it does not establish their prevalence across the full sweep.
 Further results are in Appendix \ref{app:further_generalise}.
