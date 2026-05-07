@@ -1,8 +1,11 @@
 \begin{abstract}
   % Abstracts must be a single paragraph, ideally between 4--6 sentences long. Gross violations will trigger corrections at the camera-ready phase.
-
-  Transformers trained on ordered bigram copying tasks can learn a mechanism that represents multiple features using a single set of basis vectors and differentiates them using relative magnitudes. The impact on sparse autoencoders (SAEs) has not been studied, but relational composition might collide with the assumption that features are independently interpretable TODO
-  In this paper, we find that SAEs reliably learn graded latent activations which represent different list orderings at different magnitudes. We additionally find that we can steer the transformer using these latents to change the order of model outputs.
-  In future work, we will search for graded latent activations in popular pretrained SAEs such as Gemma Scope.
+  Transformers trained on an ordered bigram copying task can represent multiple features using one set of basis vectors, with meaning carried partly by differences in attention-weight magnitudes.
+  This challenges the assumption that transformer features, and sparse autoencoder (SAE) latents trained on them, are independently interpretable.
+  We train SAEs on a transformer known to use this mechanism and find that they reliably learn graded latent activations, where different magnitudes correspond to different list orderings.
+  Steering these latents changes the order of model outputs, suggesting that their magnitudes are causally meaningful.
+  This case study motivates closer attention to activation magnitude when interpreting SAE latents, including in larger pretrained SAEs such as Gemma Scope.
   Anonymised code is available here: \url{https://anonymous.4open.science/r/graded-latents-70FA}.
 \end{abstract}
+
+

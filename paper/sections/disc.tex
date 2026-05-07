@@ -1,23 +1,27 @@
 \section{Discussion}\label{s:disc}
 
-Our SAEs reliably learn latents with graded activations that can be steered to swap model outputs.
+Our results suggest a failure mode for interpreting SAE latents as binary feature presence indicators. The $k$-symbol detectors in Figure \ref{fig:sae-heatmap} behave as binary indicators. In contrast, the special latents are difficult to interpret from support alone. Latent 11 activates on a broad subset of inputs, and its activation magnitude tracks $\Delta \alpha$, a continuous variable in the transformer's attention pattern. Different magnitudes then correspond to different downstream ordering behavior. Thus, the latent is not merely `on' for an ordering feature; its scalar value participates in the ordering computation. This suggests that SAE interpretability tools should not only ask which latents activate, but also whether activation magnitudes encode causal computational variables.
 
-However, our SAE experiments demonstrate robust findings across diverse configurations: special latents (characterised by $\Delta\alpha$ correlation) emerge across three distinct SAE architectures (BatchTopK, JumpReLU, Matryoshka) with varying sparsity and dictionary size settings \ref{tab:sae_sweep_configs}. 
+However, this toy transformer is limited \dots
+
+% Our SAEs reliably learn latents with graded activations that can be steered to swap model outputs.
+
+% However, our SAE experiments demonstrate robust findings across diverse configurations: special latents (characterised by $\Delta\alpha$ correlation) emerge across three distinct SAE architectures (BatchTopK, JumpReLU, Matryoshka) with varying sparsity and dictionary size settings \ref{tab:sae_sweep_configs}. 
 
 
-TODO
+% TODO
 
-  B. Expand the Discussion (disc.tex)
-  The current discussion is quite thin and contains many commented-out sections. For a
-  high-quality workshop submission:
-   * The Binary View: Elaborate on why "graded latents" challenge the "binary" assumption
-     (features are either on or off).
-   * Linear Representation Hypothesis: Discuss if your findings support or contradict the
-     hypothesis that features are represented linearly in model activations.
-   * Safety Implications: Briefly mention how magnitude-coded logic might be harder to detect
-     with standard "feature dashboard" tools.
+%   B. Expand the Discussion (disc.tex)
+%   The current discussion is quite thin and contains many commented-out sections. For a
+%   high-quality workshop submission:
+%    * The Binary View: Elaborate on why "graded latents" challenge the "binary" assumption
+%      (features are either on or off).
+%    * Linear Representation Hypothesis: Discuss if your findings support or contradict the
+%      hypothesis that features are represented linearly in model activations.
+%    * Safety Implications: Briefly mention how magnitude-coded logic might be harder to detect
+%      with standard "feature dashboard" tools.
 
-Are the k-symb detectors just basis-aligned features? as predicted in farrell?
+% Are the k-symb detectors just basis-aligned features? as predicted in farrell?
 
 % Consider training an $L_1$-regularised SAE on the residual at \texttt{SEP} after layer 1,
 % \begin{equation*}

@@ -3,9 +3,11 @@
 \begin{figure*}[htbp]
     \centering
     \includegraphics[width=\linewidth]{figures/special_latents_vs_performance.pdf}
-    \caption{These strip plots show how the number of special latents (identified by the latent's activation's correlation with $\Delta \alpha$ using threshold $|r| > 0.3$, % TODO note that these plots actually use 0.5 so i'm lying here (can fix for actual paper but okay for now)
-    as in Section \ref{ss:sae_feat_analysis}) differs across SAEs with different performance.
-    It shows that SAEs with strong performance, measured by explained variance and patched cross-entropy loss, tend to have 2 special latents (spearman $r=-0.460$ for patched cross-entropy loss and $r=0.506$ for explained variance).}
+    \caption{These strip plots show how the number of special latents (identified by the latent's activation's correlation with $\Delta \alpha$ using threshold $|r| > 0.3$,
+    as in Section \ref{ss:sae_feat_analysis}) differs across SAEs with different sparsities and performance. This includes all SAEs from the sweep in Table \ref{tab:sae_sweep_configs}.
+    \textbf{Left}: A large majority of the SAEs achieve $L0 \approxeq 3$. However, only those with special latents achieve high performance.
+    \textbf{Right}: SAEs with no special latents tend to perform much worse than those with them. Most SAEs learn two special latents.
+    }
     \label{fig:special_latents_vs_performance}
 \end{figure*}
 

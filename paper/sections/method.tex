@@ -13,7 +13,7 @@ We train BatchTopK \cite{bussmann2024batchtopk}, JumpReLU \cite{rajamanoharan202
 SAEs are trained on residual activations on the full finite input space of the toy task (10,000 inputs). 
 Because our goal is not out-of-distribution generalisation, we do not need a train/test split. Instead, we evaluate SAEs on sparsity ($L_0$) and loss recovered \cite{karvonen2025saebench,ferrando2024primer} over the complete activation distribution.
 
-\begin{table}[htbp]
+\begin{table}[h]
 \caption{Selected SAE configuration. The optimiser, betas, schedule and auxiliary loss are fixed in the implementation \cite{marks2024dictionary_learning} and excluded here for brevity.}
 \label{tab:sae_config}
 \centering
@@ -28,9 +28,9 @@ Input dimension ($d_{\text{model}}$) & 64 \\
 Dictionary size ($d_{\text{SAE}}$) & 128 \\
 $k$ & 3 \\
 Actual sparsity ($L_0$) & 3.00 \\
-% Activation centring & Mean-centred (pre-training) \\
-% Encoder init & $W_{\text{enc}} = W_{\text{dec}}^\top$ \\
-% Decoder normalisation & Unit-norm columns \\
+Activation centring & Mean-centred (pre-training) \\
+Encoder init & $W_{\text{enc}} = W_{\text{dec}}^\top$ \\
+Decoder normalisation & Unit-norm columns \\
 \midrule
 Learning rate & $3 \times 10^{-4}$ \\
 % Optimiser & \texttt{Adam} \\
