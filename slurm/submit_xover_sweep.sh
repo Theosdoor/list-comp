@@ -18,6 +18,13 @@ echo "------------------------------------------------------"
 python3 -c "import torch; print(f'[slurm] CUDA Available: {torch.cuda.is_available()}'); print(f'[slurm] Device: {torch.cuda.get_device_name(0)}')"
 echo "------------------------------------------------------"
 
+python3 scripts/run_crossover_analysis.py \
+   --model 2layer_100dig_64d \
+   --sae sae_checkpoints/sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt \
+   --feature auto \
+   --threshold 0.3 \
+   --report
+
 # jumprelu 256/4 - features 195, 175, 211
 python3 scripts/run_crossover_analysis.py \
    --model 2layer_100dig_64d \
@@ -66,12 +73,5 @@ python3 scripts/run_crossover_analysis.py \
    --threshold 0.3 \
    --report
 
-# (better) btk 128/3 - feats 29, 102
-# python3 scripts/run_crossover_analysis.py \
-#    --model 2layer_100dig_64d \
-#    --sae sae_checkpoints/sweep_k2bsjr0n/btk_sae_d128_k3_lr0.0003_seed3 \
-#    --feature auto \
-#    --threshold 0.5 \
-#    --report
 
 echo "[slurm] Finished at $(date)"
