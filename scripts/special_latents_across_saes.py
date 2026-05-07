@@ -27,11 +27,11 @@ Metrics:
   explained_var   = 1 - MSE(recon) / Var(orig)   [higher = better]
 
 Examples:
-    python scripts/plot_sae_analysis.py \\
+    python scripts/special_latents_across_saes.py \\
         --sae_dirs sae_checkpoints/ \\
         --model_path models/2layer_100dig_64d.pt
 
-    python scripts/plot_sae_analysis.py \\
+    python scripts/special_latents_across_saes.py \\
         --sae_dirs sae_checkpoints/btk sae_checkpoints/jumprelu \\
         --model_path models/2layer_100dig_64d.pt \\
         --alpha_diff_thresh 0.3 \\
@@ -46,8 +46,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import os
-import re
-from collections import defaultdict
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -205,6 +203,8 @@ def evaluate_sae(model, sae, act_mean, val_dl, sep_idx, list_len,
 # ---------------------------------------------------------------------------
 
 def bin_special(n: int) -> str:
+    if n < 0:
+        raise ValueError(f"n_special must be >= 0, got {n}")
     return {0: "0", 1: "1", 2: "2"}.get(n, ">2")
 
 
@@ -269,11 +269,6 @@ def plot_per_type_scatter(df_type, sae_type, metric_key, thresh, output_dir):
 
 
 # ── Per-type box + strip ──────────────────────────────────────────────────────
-
-def _integer_l0_bins(df):
-    """Return a sorted list of integer L0 labels present in the data."""
-    return sorted(df["l0_bin"].dropna().unique())
-
 
 def plot_per_type_boxplot(df_type, sae_type, metric_key, thresh, output_dir):
     """Create a single 1x2 box+strip plot for one metric."""
@@ -514,6 +509,131 @@ def plot_all_types_boxplot(df, metric_key, thresh, output_dir):
 
 
 # ---------------------------------------------------------------------------
+# Markdown Report Generation
+# ---------------------------------------------------------------------------
+
+def _define_l0_ranges(df: pd.DataFrame):
+    """
+    Define L0 ranges corresponding to integer bins.
+    E.g., [0, 1.5), [1.5, 2.5), [2.5, 3.5), etc.
+    First bin is clamped to 0 (not -0.5); rest are integer bins.
+    Returns list of (min_val, max_val, label) tuples.
+    """
+    l0_max = df["actual_l0"].max()
+    max_bin = int(np.ceil(l0_max))
+    
+    ranges = []
+    # First bin: 0 to 1.5 (clamped to 0)
+    ranges.append((0.0, 1.5, "0<L0<1.5"))
+    
+    # Subsequent bins: 1.5 to 2.5, 2.5 to 3.5, etc.
+    for bin_idx in range(2, max_bin + 2):
+        min_val = bin_idx - 0.5
+        max_val = bin_idx + 0.5
+        label = f"{min_val}<L0<{max_val}"
+        ranges.append((min_val, max_val, label))
+    
+    return ranges
+
+
+def _assign_l0_range(l0_val: float, ranges: list) -> str:
+    """Assign a single L0 value to its range label."""
+    for min_val, max_val, label in ranges:
+        if min_val <= l0_val < max_val:
+            return label
+    # If value exceeds all ranges, check if it's beyond the last range's upper bound
+    if ranges and l0_val >= ranges[-1][1]:
+        return ranges[-1][2]
+    raise ValueError(f"L0 value {l0_val} does not fall within any defined range: {ranges}")
+
+
+def _format_cell(count: int, mean_val: float, std_err: float) -> str:
+    """Format a cell with count | mean ± error."""
+    if count == 0:
+        return "—"
+    if pd.isna(mean_val) or pd.isna(std_err):
+        return f"{count} | {mean_val:.3f}±N/A"
+    return f"{count} | {mean_val:.3f}±{std_err:.3f}"
+
+
+def generate_markdown_report(df: pd.DataFrame, thresh: float, output_dir: Path,
+                             metric_key: str = "loss_recovered"):
+    """
+    Generate a markdown report with L0 ranges vs n_special_bin.
+    Each cell shows: count / mean_metric ± std_err
+    """
+    metric_name = "Loss Recovered" if metric_key == "loss_recovered" else "Explained Variance"
+    
+    # Define L0 ranges
+    ranges = _define_l0_ranges(df)
+    
+    # Add L0 range label to dataframe
+    df = df.copy()
+    df["l0_range"] = df["actual_l0"].apply(lambda x: _assign_l0_range(x, ranges))
+    
+    # Create markdown
+    md_lines = [
+        f"## {metric_name} vs L0 and Special Latent Count",
+        "",
+    ]
+    
+    # Table header
+    md_lines.append("| L0 Range | All SAEs | 0 Special | 1 Special | 2 Special | >2 Special |")
+    md_lines.append("|----------|----------|-----------|-----------|-----------|------------|")
+    
+    # Determine format based on metric
+    sig_figs = 4 if metric_key == "loss_recovered" else 3
+    
+    # Table rows
+    for min_val, max_val, l0_label in ranges:
+        df_range = df[df["l0_range"] == l0_label]
+        if df_range.empty:
+            continue
+        
+        all_count = len(df_range)
+        row_cells = [l0_label, str(all_count)]
+        
+        for n_special_cat in CATEGORY_ORDER:
+            df_cell = df_range[df_range["n_special_bin"] == n_special_cat]
+            count = len(df_cell)
+            
+            if count == 0:
+                row_cells.append("—")
+            else:
+                mean_val = df_cell[metric_key].mean()
+                std_err = df_cell[metric_key].sem()  # Standard error of the mean
+                if pd.isna(mean_val) or pd.isna(std_err) or std_err == 0.0:
+                    # Format with sig figs: use g format
+                    formatted_mean = f"{mean_val:.{sig_figs-1}g}"
+                    row_cells.append(f"{count} / {formatted_mean}")
+                else:
+                    # Format both mean and std_err with sig figs
+                    formatted_mean = f"{mean_val:.{sig_figs-1}g}"
+                    formatted_err = f"{std_err:.{sig_figs-1}g}"
+                    row_cells.append(f"{count} / {formatted_mean}±{formatted_err}")
+        
+        md_lines.append("| " + " | ".join(row_cells) + " |")
+    
+    md_lines.append("")
+    
+    return "\n".join(md_lines)
+
+
+def save_markdown_report(df: pd.DataFrame, thresh: float, output_dir: Path):
+    """Save markdown reports for both metrics."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    md_content = f"# SAE Analysis Report (|r| > {thresh})\n\n"
+    md_content += generate_markdown_report(df, thresh, output_dir, "loss_recovered")
+    md_content += "\n---\n\n"
+    md_content += generate_markdown_report(df, thresh, output_dir, "explained_var")
+    
+    report_path = output_dir / f"analysis_report_r{thresh}.md"
+    report_path.write_text(md_content)
+    print(f"✓ Markdown report saved to {report_path}")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -586,8 +706,10 @@ def main():
     # Filter to final checkpoints only (skip _best_ variants by default)
     checkpoints, using_best = select_checkpoints(all_checkpoints, use_best=False)
     if using_best:
-        print(f"Found {len(all_checkpoints)} total checkpoints; {len(using_best)} are 'best' variants only (final not available)\n")
-    print(f"Using {len(checkpoints)} final checkpoint(s)\n")
+        print(f"Found {len(all_checkpoints)} total checkpoints; using {len(checkpoints)} final "
+              f"+ {len(using_best)} 'best'-only variants where no final available\n")
+    else:
+        print(f"Using {len(checkpoints)} final checkpoint(s)\n")
 
     # --- Evaluate ---
     records = []
@@ -693,6 +815,10 @@ def main():
     for metric_key in METRICS:
         plot_all_types_scatter(df_plot, metric_key, thresh, plot_dir)
         plot_all_types_boxplot(df_plot, metric_key, thresh, plot_dir)
+
+    # --- Generate markdown report ---
+    print("\nGenerating markdown report...")
+    save_markdown_report(df_plot, thresh, plot_dir)
 
     print("\nDone.")
 
