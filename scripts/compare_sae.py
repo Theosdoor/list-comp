@@ -21,6 +21,7 @@ from src.models.transformer import parse_model_name_safe
 from src.data.datasets import get_dataset
 from src.sae import identify_special_features
 from src.sae.metrics import compute_sae_downstream_metrics
+from src.sae.loading import select_checkpoints
 
 #%%
 # --- Configuration ---
@@ -65,36 +66,6 @@ def parse_d_sae_from_path(path):
     """Extract d_sae from a filename like btk_sae_d128_k3_lr... → 128."""
     m = re.search(r'_d(\d+)_', os.path.basename(path))
     return int(m.group(1)) if m else None
-
-
-def select_checkpoints(paths, use_best=False):
-    """Filter to avoid duplicating final/best pairs.
-
-    Default: keep only paths without '_best_' in the stem.
-    --best:  prefer the '_best_' variant when it exists, fall back to final.
-    Returns (selected_paths, using_best_set).
-    """
-    def _canonical(p):
-        return re.sub(r'_best(?=_)', '', Path(p).stem)
-
-    groups = defaultdict(dict)
-    for p in paths:
-        key = _canonical(p)
-        tag = 'best' if '_best_' in Path(p).stem else 'final'
-        groups[key][tag] = p
-
-    selected, using_best_set = [], set()
-    for key in sorted(groups):
-        variants = groups[key]
-        if use_best and 'best' in variants:
-            selected.append(variants['best'])
-            using_best_set.add(variants['best'])
-        elif 'final' in variants:
-            selected.append(variants['final'])
-        else:  # only best variant exists
-            selected.append(variants['best'])
-            using_best_set.add(variants['best'])
-    return selected, using_best_set
 
 
 #%%

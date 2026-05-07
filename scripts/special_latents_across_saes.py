@@ -62,7 +62,7 @@ from src.models.transformer import make_model
 from src.models.utils import infer_model_config
 from src.utils.runtime import configure_runtime
 from src.data.datasets import get_dataset
-from src.sae.loading import instantiate_sae_from_cfg
+from src.sae.loading import instantiate_sae_from_cfg, select_checkpoints
 from src.sae.activation_collection import (
     collect_sae_activations,
     collect_attention_patterns,
@@ -98,36 +98,6 @@ def find_checkpoints(dirs: list[str]) -> list:
         else:
             print(f"  Warning: {d} is not a .pt file or directory — skipping.")
     return checkpoints
-
-
-def select_checkpoints(paths, use_best=False):
-    """Filter to avoid duplicating final/best pairs.
-
-    Default: keep only paths without '_best_' in the stem (final checkpoints only).
-    --best:  prefer the '_best_' variant when it exists, fall back to final.
-    Returns (selected_paths, using_best_set).
-    """
-    def _canonical(p):
-        return re.sub(r'_best(?=_)', '', Path(p).stem)
-
-    groups = defaultdict(dict)
-    for p in paths:
-        key = _canonical(p)
-        tag = 'best' if '_best_' in Path(p).stem else 'final'
-        groups[key][tag] = p
-
-    selected, using_best_set = [], set()
-    for key in sorted(groups):
-        variants = groups[key]
-        if use_best and 'best' in variants:
-            selected.append(variants['best'])
-            using_best_set.add(variants['best'])
-        elif 'final' in variants:
-            selected.append(variants['final'])
-        else:  # only best variant exists
-            selected.append(variants['best'])
-            using_best_set.add(variants['best'])
-    return selected, using_best_set
 
 
 # ---------------------------------------------------------------------------
