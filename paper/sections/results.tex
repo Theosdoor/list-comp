@@ -62,6 +62,8 @@ For inputs that are not swapped, it is sometimes possible to scale a co-activati
 We additionally steer latent 56 and successfully swap 2.0\% of outputs, which is part of the 36\% of inputs that do not activate latent 11 since the two special latents never coactivate. 
 Although we don't steer on all latents due to computational constraints, in Appendix \ref{app:further_steering} we attempt it on several `non-special' latents to confirm the swapping behaviour is unique to latents 11 and 56.
 
+Moreover, Figure \ref{fig:steering_feat_success} suggests that logits at $o_1$ scale linearly with $p$. We confirm this by fitting a linear regression model to each logit for every input, which achieves coefficient of determination of 0.999. Hence, we use this linearity to find the exact latent scale at which the $d_1$ and $d_2$ logits swap (i.e. intersection between the logits).
+
 \subsection{Generalisation to other SAEs}\label{ss:sae_generalisation}
 
 We test for similar behaviours in other SAEs to support generalisation of our results, albeit limited at this experimental scale.

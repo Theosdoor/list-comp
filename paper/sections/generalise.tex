@@ -17,7 +17,7 @@
 To test whether special latents can be steered to swap outputs in other SAEs, we provide the following pipeline that works given any SAE, which is available in our public codebase:
 \begin{enumerate}
     \item Store the SAE activations for all input bigrams by running a single 
-    forward pass as in Figure \ref{fig:rq2_pipeline} over the full dataset and recording each SAE latent's activation 
+    forward pass over the full dataset and recording each SAE latent's activation 
     magnitude.
     \item Identify special latents using $\Delta \alpha$ correlation $|r|>0.3$ as a heuristic, 
     as described previously.

@@ -1,15 +1,15 @@
 \section{Experimental Setup}\label{app:exp_setup}
 
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=0.5\linewidth]{figures/rq2_pipeline.pdf}
-    \caption{
-      This diagram shows the structure of the two-layer attention-only transformer and how the SAE is used to extract and analyse the learned representations. $v$ denotes the residual stream, which is read from and written to after each layer and has shape $(5,d_\text{model})$. $t$ is the vector of input tokens $[d_1, d_2, \texttt{SEP}, \texttt{MASK}, \texttt{MASK}]$, $E$ and $P$ are the token and position embedding matrices respectively, $U$ is the unembedding matrix, and each attention layer has key and query matrices, $\boldsymbol K^i$ and $\boldsymbol Q^i$ respectively, for $i \in [1,2,3]$. The value and output matrices for each layer are fixed to the identity, and $d_\text{head}=64$.
-      The SAE takes the residual vector at \texttt{SEP}, $v_\texttt{SEP}$, as input and patches reconstruction $\hat{v}_\texttt{SEP}$ back into the stream.
-      Accuracy is calculated on the final two output logits only, represented by $(o_1, o_2)$.
-    }
-    \label{fig:rq2_pipeline}
-\end{figure}
+% \begin{figure}[htbp]
+%     \centering
+%     \includegraphics[width=0.5\linewidth]{figures/rq2_pipeline.pdf}
+%     \caption{
+%       This diagram shows the structure of the two-layer attention-only transformer and how the SAE is used to extract and analyse the learned representations. $v$ denotes the residual stream, which is read from and written to after each layer and has shape $(5,d_\text{model})$. $t$ is the vector of input tokens $[d_1, d_2, \texttt{SEP}, \texttt{MASK}, \texttt{MASK}]$, $E$ and $P$ are the token and position embedding matrices respectively, $U$ is the unembedding matrix, and each attention layer has key and query matrices, $\boldsymbol K^i$ and $\boldsymbol Q^i$ respectively, for $i \in [1,2,3]$. The value and output matrices for each layer are fixed to the identity, and $d_\text{head}=64$.
+%       The SAE takes the residual vector at \texttt{SEP}, $v_\texttt{SEP}$, as input and patches reconstruction $\hat{v}_\texttt{SEP}$ back into the stream.
+%       Accuracy is calculated on the final two output logits only, represented by $(o_1, o_2)$.
+%     }
+%     \label{fig:rq2_pipeline}
+% \end{figure}
 
 \begin{table}[htbp]
 \centering
