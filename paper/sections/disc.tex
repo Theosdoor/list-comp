@@ -4,6 +4,14 @@ Our results suggest a failure mode for interpreting SAE latents as binary featur
 
 However, this toy transformer is limited \dots
 
+TODO:
+
+Explain the asymmetry between paired special latents
+
+In the primary SAE, latent 11 has r=0.807 and swaps about 50% of inputs, while latent 56 has r=−0.321 and swaps only about 2%. Similar asymmetries appear in Table 7, where one special latent often carries much more steering power than its opposing counterpart.
+
+This is interesting and currently under-discussed. Possible explanations include top-k competition, asymmetric transformer attention patterns, uneven activation support, or SAE training artifacts. Even a short paragraph saying “we do not yet understand this asymmetry” would be useful.
+
 % Our SAEs reliably learn latents with graded activations that can be steered to swap model outputs.
 
 % However, our SAE experiments demonstrate robust findings across diverse configurations: special latents (characterised by $\Delta\alpha$ correlation) emerge across three distinct SAE architectures (BatchTopK, JumpReLU, Matryoshka) with varying sparsity and dictionary size settings \ref{tab:sae_sweep_configs}. 

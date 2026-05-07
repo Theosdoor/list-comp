@@ -8,7 +8,7 @@
 
 \begin{figure*}[htbp]
     \centering
-    \includegraphics[width=\linewidth]{figures/steering_feat11_o1_negative_scale.pdf}
+    \includegraphics[width=0.95\linewidth]{figures/steering_feat11_o1_negative_scale.pdf}
     \caption{
         For 9.2\% of inputs, latent 11 (in the BatchTopK SAE from Section \ref{s:method}) must be negatively scaled to swap the predicted symbol at one of the output positions.
     }
@@ -20,7 +20,7 @@ Figure \ref{fig:steering_feat11_o1_negative_scale} shows an example where swappi
 
 \begin{figure*}[htbp]
     \centering
-    \includegraphics[width=\linewidth]{figures/steering_feat11_no_o2_crossover_in_bounds.pdf}
+    \includegraphics[width=0.95\linewidth]{figures/steering_feat11_no_o2_crossover_in_bounds.pdf}
     \caption{
         For 2.3\% of inputs, it is possible to scale latent 11 (in the BatchTopK SAE from Section \ref{s:method}) to swap the symbol at each output position individually but not simultaneously.
     }
@@ -31,7 +31,7 @@ Figure \ref{fig:steering_feat11_no_o2_crossover_in_bounds} shows an example wher
 
 \begin{figure*}[htbp]
     \centering
-    \includegraphics[width=\linewidth]{figures/steering_feat11_o1_never_predicts_d2.pdf}
+    \includegraphics[width=0.95\linewidth]{figures/steering_feat11_o1_never_predicts_d2.pdf}
     \caption{
         For 1.6\% of inputs, the logit for the symbol at $d_2$ is always dominant at $o_2$ in the observed latent scale range (in the BatchTopK SAE from Section \ref{s:method}), so there is no scale where the the symbol at $d_1$ is predicted instead.
     }
@@ -40,7 +40,7 @@ Figure \ref{fig:steering_feat11_no_o2_crossover_in_bounds} shows an example wher
 
 \begin{figure*}[htbp]
     \centering
-    \includegraphics[width=\linewidth]{figures/steering_feat11_o2_never_predicts_d1.pdf}
+    \includegraphics[width=0.95\linewidth]{figures/steering_feat11_o2_never_predicts_d1.pdf}
     \caption{
         For 0.2\% of inputs, the logit for the symbol at $d_1$ is always dominant at $o_1$ in the observed latent scale range (in the BatchTopK SAE from Section \ref{s:method}), so there is no scale where the the symbol at $d_2$ is predicted instead.
     }
