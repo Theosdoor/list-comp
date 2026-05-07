@@ -1,8 +1,0 @@
-\begin{abstract}
-Language models and other transformers learn relational composition mechanisms to solve tasks such as tracking information about subjects (``green car'') to answer questions, or parallelising precomputing subpaths in graph-based pathfinding problems. There is a deep theoretical literature on vector composition methods, yet we lack empirical studies of what mechanisms transformers learn in practice. In particular, different composition methods affect sparse autoencoders (SAEs), a popular method for decomposing model activations, in different ways.
-We present empirical evidence in a controlled attention-only transformer that ordered relational information can be encoded via a relative magnitude-based mechanism (by a weighted sum of vectors) rather than predicted direction-based mechanisms such as additive matrix binding. While absolute magnitude-based mechanisms have been reported for other architectures, to our knowledge this is the first controlled demonstration of a relative magnitude mechanism in attention-only transformers.
-This result challenges the prevailing view in mechanistic interpretability research that transformer features can be viewed as binary and independent, and motivates a re-examination of these methods with respect to feature activation value and interactions between features at different values.
-In future work, we will move beyond the toy setting and attempt to find evidence of these mechanisms in real-world transformers.
-% avoid self-plagiarism with this disclosure:
-Note that part of this work was previously published in a workshop setting.
-\end{abstract}

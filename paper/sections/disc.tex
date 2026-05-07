@@ -2,7 +2,22 @@
 
 Our SAEs reliably learn latents with graded activations that can be steered to swap model outputs.
 
+However, our SAE experiments demonstrate robust findings across diverse configurations: special latents (characterised by $\Delta\alpha$ correlation) emerge across three distinct SAE architectures (BatchTopK, JumpReLU, Matryoshka) with varying sparsity and dictionary size settings \ref{tab:sae_sweep_configs}. 
+
+
 TODO
+
+  B. Expand the Discussion (disc.tex)
+  The current discussion is quite thin and contains many commented-out sections. For a
+  high-quality workshop submission:
+   * The Binary View: Elaborate on why "graded latents" challenge the "binary" assumption
+     (features are either on or off).
+   * Linear Representation Hypothesis: Discuss if your findings support or contradict the
+     hypothesis that features are represented linearly in model activations.
+   * Safety Implications: Briefly mention how magnitude-coded logic might be harder to detect
+     with standard "feature dashboard" tools.
+
+Are the k-symb detectors just basis-aligned features? as predicted in farrell?
 
 % Consider training an $L_1$-regularised SAE on the residual at \texttt{SEP} after layer 1,
 % \begin{equation*}

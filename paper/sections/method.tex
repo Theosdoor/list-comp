@@ -1,18 +1,23 @@
 \section{Methodology}\label{s:method}
 
-\citet{farrell2025order} demonstrate the relative magnitude-based composition at the separator's residual activation after the first layer. We refer to this vector as $\boldsymbol r_{s}^{L_1}$, where $s$ is the separator token position, and train SAEs on this.
-We consider BatchTopK \cite{bussmann2024batchtopk}, JumpReLU \cite{rajamanoharan2024jumping} and Matryoshka \cite{bussmann2025learning} SAEs with implementations from \citet{marks2024dictionary_learning}.
-% We select a single BatchTopK SAE for in-depth study but validate key findings across 1,630 different SAE configurations, architectures and seeds (Table \ref{tab:sae_sweep_configs}), to evidence that our results are not simply an artefact of this specific checkpoint. 
-% TODO why select BTK (rel work?)
-We run a grid-search over $k \in [1,5]$ and SAE expansion factors $i \in [2,5]$, such that $d_\text{sae} = i \times d_\text{model}$ (Table \ref{tab:sae_sweep}).
-We evaluate them on sparsity ($L_0$) and loss recovered, in line with previous work \cite{karvonen2025saebench,ferrando2024primer}.
+We study a two-layer attention-only transformer trained on an ordered bigram copying task introduced by \citet{farrell2025order} (Table \ref{tab:model_config}), in which the model must encode bigram $(d_1,d_2)$ into a single separator token, $s$, and reconstruct the bigram as output, $(o_1, o_2)$ where $(o_1, o_2) = (d_1,d_2)$. The 5-token input is represented as $[d_1, d_2, s, o_1, o_2]$ where $d_1$ and $d_2$ are uniformly sampled from $[0,99]$ and $s, o_1, o_2$ are special tokens, giving 10,000 possible ordered bigrams.
+\citet{farrell2025order} find that the residual at $s$ after the first layer, $\boldsymbol r_{s}^{L_1}$, is:
+\begin{equation*}
+    \boldsymbol r^{L_1}_s = \alpha_{s\to d_1} (\boldsymbol E_{d_1} + \boldsymbol P_{d_1}) + \alpha_{s \to d_2}(\boldsymbol E_{d_2} + \boldsymbol P_{d_2}) + \boldsymbol E_s + \boldsymbol P_s
+\end{equation*}
+where $\alpha_{s\to d_i}$ is the attention weight in the first layer for query $s$ (separator token) and key $d_i$ (element of input bigram), and $\boldsymbol E_{x}$ and $\boldsymbol P_{x}$ are the token and positional embeddings for the token at $x$ respectively.
+Thus, the model represents bigram orderings at $s$ using a linear combination of basis vectors, $(\boldsymbol E_{b} + \boldsymbol P_{d_2})$ and $(\boldsymbol E_{b} + \boldsymbol P_{d_2})$, with coefficients defined by the attention probabilities.
+% the relative magnitude of scalar attention weights, rather than representing each possible ordering as a different direction in activation space (which other composition methods do \citep{wattenberg2024relational}).
 
-% \citet{farrell2025order} train the transformer using a dataset of 10,000 bigrams: $(d_1, d_2)$ where both elements are uniformly sampled from the range $[0, 99]$. We cache the activations at $\boldsymbol r_{s}^{L_1}$ for all bigrams.
+We train BatchTopK \cite{bussmann2024batchtopk}, JumpReLU \cite{rajamanoharan2024jumping} and Matryoshka \cite{bussmann2025learning} SAEs on $\boldsymbol r_{s}^{L_1}$ using implementations from \citet{marks2024dictionary_learning}. 
+SAEs are trained on residual activations on the full finite input space of the toy task (10,000 inputs). 
+Because our goal is not out-of-distribution generalisation, we do not need a train/test split. Instead, we evaluate SAEs on sparsity ($L_0$) and loss recovered \cite{karvonen2025saebench,ferrando2024primer} over the complete activation distribution.
 
 \begin{table}[htbp]
-\caption{Selected SAE configuration. The optimiser, betas, schedule and auxiliary loss are fixed in the implementation \cite{marks2024dictionary_learning}, and so are excluded here for brevity.}
+\caption{Selected SAE configuration. The optimiser, betas, schedule and auxiliary loss are fixed in the implementation \cite{marks2024dictionary_learning} and excluded here for brevity.}
 \label{tab:sae_config}
 \centering
+\setlength{\tabcolsep}{2pt}
 \begin{tabular}{ll}
 \toprule
 \textbf{Parameter} & \textbf{Value} \\
@@ -23,7 +28,7 @@ Input dimension ($d_{\text{model}}$) & 64 \\
 Dictionary size ($d_{\text{SAE}}$) & 128 \\
 $k$ & 3 \\
 Actual sparsity ($L_0$) & 3.00 \\
-% Activation centering & Mean-centred (pre-training) \\
+% Activation centring & Mean-centred (pre-training) \\
 % Encoder init & $W_{\text{enc}} = W_{\text{dec}}^\top$ \\
 % Decoder normalisation & Unit-norm columns \\
 \midrule
@@ -41,13 +46,19 @@ Hardware & NVIDIA GeForce RTX 2080 Ti \\
 \end{tabular}
 \end{table}
 
-After a hyperparameter grid search (Table \ref{tab:sae_sweep}) we find that BatchTopK SAEs with $k \in [3,5]$ all achieve similar top performance so we take $k=3$ for sparsity. We select $d_\text{sae} = 128$ which is the smallest dimensionality that achieves top average performance. We select the checkpoint with fewest dead latents ($3.1\%$) out of BatchTopK SAEs with $k = 3, d_\text{SAE} = 128$ and loss recovered over 0.999. Table \ref{tab:sae_config} shows the final configuration.
+After a grid search (Table \ref{tab:sae_sweep}) we find that BatchTopK SAEs with $k \in [3,5]$ all achieve similar top performance, so we select $k=3$. We select $d_\text{SAE} = 128$ which achieves similar performance to larger $d_\text{SAE}$. We filter for loss recovered over 0.999 and use the checkpoint with the fewest dead latents ($3.1\%$). Table \ref{tab:sae_config} shows the final configuration.
 % This checkpoint selection introduces selection bias toward high-performing models. We address this by confirming across 1,630 diverse SAEs that special latents (identifiable by $\Delta\alpha$ correlation) emerge reliably regardless of configuration, establishing that our findings are not specific to this checkpoint.
 
-% \subsubsection{Analysis}
+We inspect 
+
 For analysis, we begin by inspecting max activating examples for each latent.
-To test if a latent has graded activations, we use steer by linearly scaling the SAE latent's activation for a given input, patch the SAE reconstruction back into the model downstream and compare the new output to the original output. 
+
+
+
+\citet{brien2025steering} steer model activations at inference time by amplifying SAE latent activations mediating refusal. 
+We apply this principle to test if a latent has graded activations, expecting that the model output will change at different activation graduations. This works by linearly scaling the SAE latent's activation for a given input, patch the SAE reconstruction back into the model downstream and compare the new output to the original output. 
+
 % If the output changes predictably according to the hypothesis for what that latent represents, then that supports the hypothesis (Section \ref{s:related-work}).
 % Since the entire input space is small (10,000 possible input bigrams), we can feasibly record SAE activations for every single input, which is more robust than sampling activations and inferring to other inputs.
 
-We test generalisation of our results on 1630 different SAE configurations and seeds (Table \ref{tab:sae_sweep_configs}) where feasible. Otherwise, we use cherry-picked SAE checkpoints (Table \ref{tab:cherry-picked-saes}) with strong performance and varying $d_\text{SAE}$ and $L_0$ to provide a diverse test sample, although we note that this small set is insufficient for statistical significance.
+We test generalisation of our results on 1,630 different SAE configurations and seeds (Table \ref{tab:sae_sweep_configs}) where feasible. Otherwise, we use cherry-picked SAE checkpoints (Table \ref{tab:cherry-picked-saes}) with strong performance and varying $d_\text{SAE}$ and $L_0$ to provide a diverse test sample, although we note that this small set is insufficient for statistical significance.
