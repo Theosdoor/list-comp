@@ -169,7 +169,7 @@ def aggregate(df: pd.DataFrame) -> pd.DataFrame:
 
 def fmt(mean, std, decimals=4, no_errors=False):
     """Format as 'mean ± std' (or just 'mean' when no_errors=True)."""
-    if no_errors or std == 0 or np.isnan(std):
+    if no_errors or np.isnan(std):
         return f"{mean:.{decimals}f}"
     return f"{mean:.{decimals}f} ± {std:.{decimals}f}"
 
@@ -220,19 +220,26 @@ def write_latex_table(agg: pd.DataFrame, output_dir: Path,
     path = output_dir / "sae_sweep_table.tex"
     
     # ── pre-compute bests ─────────────────────────────────────────────────────
-    # (col, higher_is_better)
+    # (col, higher_is_better, display_decimals)
     scored_cols = [
-        ("loss_recovered_mean", True),
-        ("dead_pct_mean",   False),
+        ("loss_recovered_mean", True, 4),
+        ("dead_pct_mean", False, 1),
     ]
+    rounded_scores = pd.DataFrame(index=agg.index)
+    for col, _, dec in scored_cols:
+        rounded_scores[col] = agg[col].round(dec)
     global_best = {
-        col: (agg[col].max() if hi else agg[col].min())
-        for col, hi in scored_cols
+        col: (rounded_scores[col].max() if hi else rounded_scores[col].min())
+        for col, hi, _ in scored_cols
     }
     section_best = {
         l0: {
-            col: (grp[col].max() if hi else grp[col].min())
-            for col, hi in scored_cols
+            col: (
+                rounded_scores.loc[grp.index, col].max()
+                if hi
+                else rounded_scores.loc[grp.index, col].min()
+            )
+            for col, hi, _ in scored_cols
         }
         for l0, grp in agg.groupby("l0")
     }
@@ -243,19 +250,20 @@ def write_latex_table(agg: pd.DataFrame, output_dir: Path,
         Math-mode cells use \\mathbf{} on entire value (mean, ±, std).
         Plain-text cells (dead %) use \\textbf{}.
         """
-        is_global  = np.isclose(mean, global_best[col], rtol=1e-6)
-        is_section = np.isclose(mean, section_best[l0][col], rtol=1e-6)
+        rounded_mean = round(mean, dec)
+        is_global = rounded_mean == global_best[col]
+        is_section = rounded_mean == section_best[l0][col]
         bold = is_global or is_section
 
         if plain:
             mean_str = f"{mean:.{dec}f}"
-            if not no_errors and std > 0 and not np.isnan(std):
+            if not no_errors and not np.isnan(std):
                 mean_str = rf"{mean_str} $\pm$ {std:.{dec}f}"
             mean_str = rf"\textbf{{{mean_str}}}" if bold else mean_str
             return rf"\underline{{{mean_str}}}" if is_global else mean_str
 
         # Math-mode: bold the entire value including ± and std
-        if no_errors or std == 0 or np.isnan(std):
+        if no_errors or np.isnan(std):
             content = f"{mean:.{dec}f}"
         else:
             content = f"{mean:.{dec}f} \\pm {std:.{dec}f}"
@@ -268,7 +276,7 @@ def write_latex_table(agg: pd.DataFrame, output_dir: Path,
 
     def lf(mean, std, dec=4):
         """Format as math-mode without bold/underline (for unscored columns)."""
-        if no_errors or std == 0 or np.isnan(std):
+        if no_errors or np.isnan(std):
             return f"{mean:.{dec}f}"
         return f"${mean:.{dec}f} \\pm {std:.{dec}f}$"
 
