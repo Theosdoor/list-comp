@@ -64,81 +64,18 @@ Although we don't steer on all latents due to computational constraints, in Appe
 
 \subsection{Generalisation to other SAEs}\label{ss:sae_generalisation}
 
-\begin{figure*}[t]
-    \centering
-    \includegraphics[width=\linewidth]{figures/special_latents_vs_performance.pdf}
-    \caption{These strip plots show how the number of special latents (identified by the latent's activation's correlation with $\Delta \alpha$ using threshold $|r| > 0.3$, % TODO note that these plots actually use 0.5 so i'm lying here (can fix for actual paper but okay for now)
-    as in Section \ref{ss:sae_feat_analysis}) differs across SAEs with different performance.
-    It shows that SAEs with strong performance, measured by explained variance and patched cross-entropy loss, tend to have 2 special latents (spearman $r=-0.460$ for patched cross-entropy loss and $r=0.506$ for explained variance).}
-    \label{fig:special_latents_vs_performance}
-\end{figure*}
-
 We test for similar behaviours in other SAEs to support generalisation of our results, albeit limited at this experimental scale.
-We automatically identify special latents by checking each latent's correlation with $\Delta \alpha$ is over threshold $|r| > 0.3$. This threshold was chosen empirically because it reliably selected latents that could be steered to swap  \dots
+We automatically identify special latents by checking each latent's correlation with $\Delta \alpha$ is over threshold $|r| > 0.3$. This threshold was chosen empirically because it reliably selected latents that could be steered to swap  \dots TODO
 % TODO need to run steering on ALL latents in studied model, and show table of %success AND % of successes that contained a co-acitvating 'special latent' for given thresh.
 
 
-Figure \ref{fig:special_latents_vs_performance} shows that SAEs with strong performance reliably learn special latents.
-This strongly suggests that the behaviour described so far in this section generalises to various SAE configurations. However, this generalisation is limited because we only tested three SAE types (BatchTopK, Matryoshka, JumpReLU) over 15 seeds. Future work should check for generalisation to more SAE variants such as those in Table \ref{tab:sae_types}, and over more training seeds for more robust statistical significance testing.
-% TODO add table of different SAE sweep configs (could add to method)
+We find that SAEs with strong performance reliably learn special latents (Appendix \ref{app:further_generalise}, Figure \ref{fig:special_latents_vs_performance})
+This strongly suggests that the behaviour described so far in this section generalises to various SAE configurations. 
 
-% TODO could add table showing % of saes with 2 special have 1 d1 favouring the other d2 favouring (+ average corrs?). and saes with 1 special % d1 favouring and % d2 favouring + avg corrs
-
-% NOTE currently the stats on wandb use r=0.5! not 0.3, should be consistent really
-
-% Moreover, we test if $k$-symbol detectors appear in other SAEs
-% NOTe do i need this?
-
-% Specifically, we check the distribution of latent firing rates and identify symbol detector and special latents. We identify the latter .
-
-
-
+% TODO Moreover, we test if $k$-symbol detectors appear in other SAEs
 
 % ------- steering ---
 
-To test whether special latents can be steered to swap outputs in other SAEs, we provide the following pipeline that works given any SAE, which is available in our code repo:
-\begin{enumerate}
-    \item Store the SAE activations for all input bigrams by running a single 
-    forward pass as in Figure \ref{fig:rq2_pipeline} over the full dataset and recording each SAE latent's activation 
-    magnitude.
-    \item Identify special latents using $\Delta \alpha$ correlation $|r|>0.3$ as a heuristic, 
-    as described previously.
-    \item For each identified special latent, run a batched steering grid search 
-    over all input bigrams. For each bigram and each scale factor 
-    $p \in [0,10]$ with step size 0.05 (201 values), record the logits at 
-    output positions $o_1$ and $o_2$ under the steered reconstruction 
-    $\hat{\boldsymbol{r}}_{s}^{L_1}$. Bigrams for which the latent does not 
-    activate ($m = 0$) are skipped immediately since scaling has no effect.
-    
-    \item Find crossover scales for each bigram:
-    \begin{itemize}
-        \item For $o_1$: since $o_1$ logits are empirically linear in $p$, fit 
-        lines to $\ell_{d_1}(p)$ and $\ell_{d_2}(p)$ and compute the analytical 
-        intersection. Inputs for which either logit series fails an $R^2 \geq 0.999$ 
-        linearity check, or for which the intersection falls on a negative scale, are flagged and excluded.
-        \item For $o_2$: detect sign changes in $\ell_{d_1}(p) - \ell_{d_2}(p)$ 
-        on the coarse $[0, 10]$ grid, then refine each crossing to three decimal places using 
-        bisection search. All bisection tasks across the batch are executed in parallel to 
-        avoid sequential per-input forward passes.
-    \end{itemize}
-    
-    \item Determine a valid swap zone $[p_{\mathrm{lo}}, p_{\mathrm{hi}}]$ per 
-    bigram by intersecting the $o_1$ and $o_2$ crossover constraints with the 
-    scale ranges over which $\mathrm{argmax}(o_1) = d_2$ and 
-    $\mathrm{argmax}(o_2) = d_1$ hold simultaneously. If no contiguous window 
-    satisfying both conditions exists, the bigram is recorded as a failure with a 
-    specific reason (see Section \ref{ss:steering_exp}).
-    
-    \item Verify each swap zone by running the model at the midpoint 
-    $p^* = (p_{\mathrm{lo}} + p_{\mathrm{hi}})/2$ and confirming that the model 
-    output is $(d_2, d_1)$.
-    
-    \item Report the fraction of bigrams for which a valid swap zone was found and 
-    the swap verified, along with a breakdown of failure reasons for the remainder.
-\end{enumerate}
-
-
-
-Steps 3-5 of the pipeline are very computationally expensive, so we test generalisation using a varied sample of six high performing SAEs (Table \ref{tab:cherry-picked-saes}) rather than running the pipeline on all trained SAEs (as in Figure \ref{fig:special_latents_vs_performance}).
-The results are shown in Table \ref{tab:steering_generalisation}.
-We find that all six sampled SAEs learned at least one special latent ($|r| > 0.3$), and five learned a pair of opposing special latents (one $d_1$-favouring and one $d_2$-favouring). In every tested SAE, steering at least one of these special latents successfully swapped the predicted outputs for a substantial portion of the input space, ranging from $26.6\%$ to $72.5\%$ of all inputs. When the output swap failed, the inputs typically either did not activate the latent at all or encountered constraints similar to those detailed in Section \ref{ss:steering_exp}, such as requiring negative activation scaling. This suggests that the relative magnitude-based mechanism, and the emergence of steerable, graded latent activations, generalizes consistently across varying SAE architectures and hyperparameter configurations. In future work, this study should be extended to further configurations for robust statistical significance.
+We provide a pipeline in Appendix \ref{app:further_generalise} that identifies special latents in a given SAE and attempts steering on all input bigrams. Since this is computationally expensive, we only test on our selected subset of SAEs (see Appendix \ref{app:exp_setup}, Table \ref{tab:cherry-picked-saes}).
+We find that all six sampled SAEs learned at least one special latent ($|r| > 0.3$), and five learned a pair of opposing special latents (one $d_1$-favouring and one $d_2$-favouring). In every tested SAE, steering at least one of these special latents successfully swapped the predicted outputs for a substantial portion of the input space, ranging from $26.6\%$ to $72.5\%$ of all inputs. When the output swap failed, the inputs typically either did not activate the latent at all or encountered constraints similar to those detailed in Section \ref{ss:steering_exp}, such as requiring negative activation scaling. This suggests that the relative magnitude-based mechanism, and the emergence of steerable, graded latent activations, generalizes consistently across varying SAE architectures and hyperparameter configurations.
+Further results are in Appendix \ref{app:further_generalise}.

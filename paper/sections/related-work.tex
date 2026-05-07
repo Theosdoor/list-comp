@@ -1,7 +1,7 @@
 \section{Related Work}\label{s:related-work}
 
 \textbf{Sparse Autoencoders.} 
-Models can represent more than $n$ features in $n$-dimensional activations through superposition which complicates interpretability \citep{elhage2022toy}.
+Models can represent more than $n$ features in $n$-dimensional activations through superposition, which complicates interpretability \citep{elhage2022toy}.
 Sparse autoencoders (SAEs) \citep{bricken2023monosemanticity, huben2024sparse} and their variants \citep{gao2024scaling, bussmann2024batchtopk, rajamanoharan2024jumping, bussmann2025learning, karvonen2025saebench, leask2025inference} decompose dense activations into sparse feature representations in an attempt to address this.
 An SAE consists of a single hidden layer trained to reconstruct model activations subject to a sparsity penalty on the latent activations (typically $L_1$ or top-$k$ regularisation) \citep{huben2024sparse, bricken2023monosemanticity}.
 

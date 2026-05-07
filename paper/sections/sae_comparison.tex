@@ -15,13 +15,13 @@ Gated \cite{rajamanoharan2024improving}
   & Decouples feature detection from magnitude estimation using a gated mechanism to prevent the shrinkage issues caused by standard $L_1$ penalties. \\
 \addlinespace
 JumpReLU \cite{rajamanoharan2024jumping}
-  & Uses a discontinuous step function at a learned per-feature threshold, approximating an $L_0$ penalty through straight-through estimation. Notably used in \cite{lieberum2024gemma}. \\
+  & Uses a discontinuous step function at a learned per-feature threshold, approximating an $L_0$ penalty through straight-through estimation. Notably used in \citet{lieberum2024gemma}. \\
 \addlinespace
 BatchTopK \cite{bussmann2024batchtopk}
-  & Retains top $n \times k$ activations over a batch of $n$ inputs and sets the rest to zero, where $k$ is a tuned hyperparameter. This forces an average of $k$ latent activations per input, so the actual $L_0$ sparsity is approximately $k$. Notably used in \cite{Brixi2026, karvonen2025saebench}. \\
+  & Retains top $n \times k$ activations over a batch of $n$ inputs and sets the rest to zero, where $k$ is a tuned hyperparameter. This forces an average of $k$ latent activations per input, so the actual $L_0$ sparsity is approximately $k$. Notably used in \citet{Brixi2026, karvonen2025saebench}. \\
 \addlinespace
 Matryoshka \cite{bussmann2025learning}
-  & Trains nested sub-dictionaries of increasing size that share a single encoder/decoder, producing multiple resolutions of feature granularity in one run. Notably used in \cite{mcdougall2025gemmascope2}. \\
+  & Trains nested sub-dictionaries of increasing size that share a single encoder/decoder, producing multiple resolutions of feature granularity in one run. Notably used in \citet{mcdougall2025gemmascope2}. \\
 \bottomrule
 \end{tabular}
 \end{table*}
