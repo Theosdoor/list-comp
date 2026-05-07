@@ -25,8 +25,8 @@ echo "------------------------------------------------------"
 #     --output_dir results/sae_plots \
 #     # --exclude_l0 1 2
 
-python scripts/compare_sae.py --sae-folders sae_checkpoints/ --special-threshold 0.3 --exclude-d-sae 64 100 384 448 512
-python scripts/plot_sae_sweep.py --exclude-d-sae 64 100 384 448 512 --exclude-special-col # --exclude-runs-col
+# python scripts/compare_sae.py --sae-folders sae_checkpoints/ --special-threshold 0.3 --exclude-d-sae 64 100 384 448 512
+# python scripts/plot_sae_sweep.py --exclude-d-sae 64 100 384 448 512 --exclude-special-col # --exclude-runs-col
 
 
 echo "[slurm] Finished at $(date)"

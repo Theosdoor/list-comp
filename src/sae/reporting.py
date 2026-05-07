@@ -18,7 +18,7 @@ import torch
 
 STEERING_SCALE_RANGE = [-1.0, 5.0]
 STEERING_STEP = 0.05
-N_EXAMPLES = 5
+N_EXAMPLES = 4
 
 FAILURE_DESCRIPTIONS = {
     "success": (
@@ -295,7 +295,7 @@ def _fmt_example(row) -> str:
     )
 
 
-def _examples_table(group: pd.DataFrame, n: int = 5) -> str:
+def _examples_table(group: pd.DataFrame, n: int = N_EXAMPLES) -> str:
     sample = group.head(n)
     lines = [
         "| d1 | d2 | feat_orig | o1_crossovers | o2_crossovers | lower_bound | upper_bound | correctness |",
