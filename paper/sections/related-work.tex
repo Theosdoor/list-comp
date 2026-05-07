@@ -19,9 +19,9 @@ SAEs have been successfully used in the past \citep{marks2025auditing, movva2025
 \cite{farrell2025order} train a two-layer attention-only transformer to solve an ordered bigram copying task, in which the model must encode bigram $(d_1,d_2)$ into a single separator token and then reconstruct the bigram in the same order as output.
 They find that the model learns to represent the ordered bigram at the separator token using the relative magnitude of scalar attention weights, rather than representing each possible ordering as a different direction in activation space.
 Specifically, they calculate the residual activation at the separator token $\boldsymbol r^{L_1}_s$ as:
-\begin{equation}
+\begin{equation*}
     \boldsymbol r^{L_1}_s = \alpha_{s\to d_1} (\boldsymbol E_{d_1} + \boldsymbol P_{d_1}) + \alpha_{s \to d_2}(\boldsymbol E_{d_2} + \boldsymbol P_{d_2}) + \boldsymbol E_s + \boldsymbol P_s
-\end{equation}
+\end{equation*}
 where $\alpha_{s\to d_i}$ is the attention weight in the first layer for query $s$ (separator token) and key $d_i$ (element of input bigram), and $\boldsymbol E_{x}$ and $\boldsymbol P_{x}$ are the token and positional embeddings for token $x$ respectively.
 They predict that an SAE trained on $\boldsymbol r^{L_1}_s$ will learn latents corresponding to $(\boldsymbol E_{a} + \boldsymbol P_{d_1})$ and $(\boldsymbol E_{b} + \boldsymbol P_{d_2})$ with activations equal to the attention probabilities $\alpha$, and that this results in graded latent activations.
 
@@ -51,7 +51,6 @@ TODO
 % \centering
 % \caption{Comparison of relational composition mechanisms and their implications for interpretability.}
 % \label{tab:composition_mechanisms}
-% \resizebox{\linewidth}{!}{%
 % \begin{tabular}{p{3.5cm}p{4cm}p{4cm}p{4cm}}
 % \toprule
 % \textbf{Composition} & \textbf{Description} & \textbf{Example} & \textbf{Implications} \\
@@ -76,7 +75,6 @@ TODO
 % \\
 % \bottomrule
 % \end{tabular}
-% }
 % \end{table*}
 
 % Classic work in distributed representations show how single vectors can encode structured data. Tensor Product Representations (TRPs) and Vector Symbolic Architectures (VSAs) bind and additively superpose vectors, enabling ordered structures in fixed width vectors \citep{smolensky1990tpr, plate1995hrr, kanerva2009hdc}.

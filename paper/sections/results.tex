@@ -14,106 +14,55 @@
     \label{fig:sae-heatmap}
 \end{figure*} 
 
-For the selected SAE checkpoint (Table \ref{tab:sae_config}) we inspect the learned latents and their activations for different inputs by plotting activation heatmaps (Figure \ref{fig:sae-heatmap}).
-We identify two distinct types of latents that this SAE has learned (we exclude 8\% of latents, which activate on fewer than 0.1\% of inputs): $k$-symbol detectors and special latents.
+We plot which the activating examples for each latent on a heatmap over all inputs (Figure \ref{fig:sae-heatmap}).
+We identify two latent types, excluding 8\% of latents which activate on fewer than 0.1\% of inputs: $k$-symbol detectors and special latents.
 
 \textbf{$k$-symbol detectors (91\% of latents):} 88\% of latents are $1$-symbol detectors: they activate only if one specific symbol is present in the input at either $d_1$ or $d_2$, shown by the `plus-sign' pattern in Figure \ref{fig:sae-heatmap}. They activate most strongly where $d_1=d_2$ (the intersection), and otherwise their activation magnitude varies only with symbol presence, not position.
 3\% of latents detect multiple symbols ($k>1$) and sometimes activate with different magnitudes for different symbols (e.g., latent 5 activates stronger for symbol 7 than symbol 58), suggesting magnitude carries information.
 
-\textbf{Special latents (2 latents, 9\% of activations):} Only two latents (11 and 56) do not follow the above pattern. Latent 11 activates on 64\% of inputs and latent 56 on 9.9\%, compared to <4.5\% for all other latents (Appendix \ref{app:further_analysis}). Because they activate across most inputs, their activation cannot indicate whether a specific symbol is present.
+\textbf{Special latents (2 latents, 9\% of activations):} Only two latents (11 and 56) do not follow the above pattern. Latent 11 activates on 64\% of inputs and latent 56 on 9.9\%, compared to fewer than 4.5\% for all other latents (Appendix \ref{app:further_analysis}). Because they activate across most inputs, their activation cannot indicate whether a specific symbol is present, hence they are put into a `special' category.
 
-\begin{figure*}[htbp]
-    \centering
-    \includegraphics[width=\linewidth]{figures/alpha_diff_correlation_plot.pdf}
-    \caption{
-        \textbf{Left}: This plot shows the (Pearson) correlation of each latent with \(\Delta \alpha = \alpha_{s \to d_1} - \alpha_{s \to d_2}\), which is intuitively the emphasis given to $d_1$ over $d_2$ by \texttt{SEP} in the transformer model's first layer's attention pattern. The y-axis uses a symmetric logarithmic scale with a linear scale between $[-0.05,0.05]$. $d_1$-favouring latents are highlighted red and $d_2$-favouring latents are highlighted blue. The top three strongest correlations are: latent 11 with $r=0.807$, latent 56 with $r=-0.3213$, and latent 96 with $r=0.0036$.
-        \textbf{Right}: This plot shows the correlation of latent 11 with $\Delta \alpha$ in more detail, as this latent has the strongest correlation. All 10,000 possible input bigrams are plotted, and highlighted blue if they activate latent 11 and grey otherwise. We see that the latent activates with greater magnitude for larger $\Delta \alpha$.
-        }
-    \label{fig:alpha_diff_correlation_plot}
-\end{figure*} 
-
-Moreover, \citet{farrell2025order} find that $\boldsymbol r_{s}^{L_1}$ is a linear combination of input embeddings with attention weights as coefficients, so we compare correlations with
+Moreover, \citet{farrell2025order} find that $\boldsymbol r_{s}^{L_1}$ is a linear combination of input embeddings with attention weights as coefficients, so we compare correlations between activation magnitude and
 \( 
 \Delta \alpha = \alpha_{s \to d_1} - 
 \alpha_{s \to d_2}
-\), as shown in Figure \ref{fig:alpha_diff_correlation_plot}.
-Latent 11's activation magnitude strongly positively correlates with $\Delta \alpha$ (Pearson correlation coefficient $r=0.807$), and latent 56 weakly negatively correlates with $\Delta \alpha$ ($r=-0.3213$). We compute correlations over the whole dataset, and all latents have correlation $|r| < 0.004$ with $\Delta \alpha$, suggesting that these two features are indeed special relative to the others.
-Since latent 11 strongly positively correlates with $\Delta \alpha$ we refer to it as strongly $d_1$-favouring, and we similarly refer to latent 56 as weakly $d_2$-favouring. Latent 11 has a much stronger correlation than 56, so we refer to it as the primary special feature.
+\), as shown in Appendix \ref{app:further_analysis}, Figure \ref{fig:alpha_diff_correlation_plot}.
+Latent 11 positively correlates with $\Delta \alpha$ (Pearson correlation coefficient $r=0.807$), and latent 56 negatively correlates with $\Delta \alpha$ ($r=-0.3213$). We compute correlations over the whole dataset, and all other latents have correlation $|r| < 0.004$ with $\Delta \alpha$, suggesting that these two features are indeed special relative to the others.
+% Since latent 11 strongly positively correlates with $\Delta \alpha$ we refer to it as strongly $d_1$-favouring, and we similarly refer to latent 56 as weakly $d_2$-favouring. 
+Latent 11 has a much stronger correlation than 56, so we refer to it as the primary special feature.
 
 \subsection{Steering Experiments}\label{ss:steering_exp}
 
-We hypothesise that special latents could have graded activations. Specifically, we hypothesise that these special latents have meaningful activation ranges corresponding to different bigram orderings. To test this hypothesis, we use steering vectors \cite{ferrando2024primer,arditi2024refusal} to perform a causal linear intervention: we scale special latent activations and observe whether the model's outputs change predictably.
+We hypothesise that special latents have graded activations. Specifically, we hypothesise that they have activation ranges corresponding to different bigram orderings. To test this hypothesis, we use steering vectors \cite{ferrando2024primer,arditi2024refusal} to perform a causal linear intervention: we scale special latent activations and observe whether the model's outputs change predictably.
 
-We:
-\begin{enumerate}
-    \item Input bigram $(d_1, d_2)$ into the transformer model (Figure \ref{fig:rq2_pipeline}) and record the special latent's activation magnitude $m$ for that input, using the SAE trained on $\boldsymbol r_{s}^{L_1}$.
-    \item Scale $m$ by some factor $p$ and reconstruct $\boldsymbol r_{s}^{L_1}$ as $\hat{\boldsymbol r}_{s}^{L_1}$ using the modified SAE activations.
-    \item Replace $\boldsymbol r_{s}^{L_1}$ with $\hat{\boldsymbol r}_{s}^{L_1}$ in the model, and compute the logits at positions $(o_1, o_2)$ as normal.
-    \item Repeat for all factors $p \in [0,10]$ with step size 0.05 across all input bigrams. Predictable and consistent shifts in the output logits under this intervention provide evidence that the special latent is graded.
-\end{enumerate}
+We: \textbf{1.} Run the transformer on bigram $(d_1, d_2)$ and record the special latent's activation magnitude $m$ from the SAE trained on $\boldsymbol r_{s}^{L_1}$.
+\textbf{2.} Scale $m$ by factor $p$, reconstruct $\hat{\boldsymbol r}_{s}^{L_1}$, and compute logits at $(o_1, o_2)$.
+\textbf{3.} Repeat across all $p \in [0,20]$ (step $0.05$) and all input bigrams.
+Systematic output logit shifts across this sweep would imply that the special latent is graded.
 
 % The binary view \cite{quirke2025binary} expects SAE latents to activate when a feature is present and remain inactive otherwise, with magnitude being irrelevant to the feature represented. If this were true for special latents, scaling their activation (step 2 above) would either keep outputs unchanged (same latents remain active) or produce nonsense. However, based on the circuits analysis in \citet{farrell2025order} showing that output order depends on $\Delta \alpha$, and the observation that special latents correlate with $\Delta \alpha$ (Section \ref{ss:sae_feat_analysis}), we predict that scaling these latents will cause systematic output swaps: for input $(a,b)$ where the model correctly outputs $(a,b)$, scaling the special latent may produce output $(b,a)$ at appropriate scaling factors.
 
 
-Figure \ref{fig:steering_feat_success} shows a specific example input for which the predicted behaviour occurs using latent 11. When no latent scaling is applied ($p=1$) we see that the argmax at $o_1$ matches the input token at $d_1$ as expected, and similarly $o_2$ matches $d_2$. However, for $p \in [0.16, 2.20]$ we have the opposite: $o_1$ has argmax $d_2$ and $o_2$ has argmax $d_1$. In this way, latent 11 behaves as a graded latent for this input. 
-We define a successful output swap as follows: the symbol from $d_1$ is predicted at position $o_2$ and the symbol from $d_2$ is predicted at position $o_1$. The `swap range' is the set of scaling factors $p$ for which this condition holds.
-% For a successful swap, there must be a positve range 
+Steering latent 11 produces output swaps for 5,002/10,000 bigrams (50.0\%) and an example is shown in Figure \ref{fig:steering_feat_success}. The remaining 50\% are not swapped: 3,600 inputs (36\%) where latent 11 does not activate ($m=0$), and 1,424 inputs (14.2\%) where it activates but no scaling produces a swap. The latter fail for the following reasons (see Appendix \ref{app:further_steering} for visualisations):
 
-We test all 10,000 input bigrams and find that steering latent 11 produces output swaps for 5,002 out of 10,000 input bigrams (50.0\%). For 3,600 inputs (36\%), latent 11 does not activate, so steering has no effect ($m=0$). For the remaining 1,424 inputs (14.2\%), latent 11 activates but no scaling produces a swap. This occurs for several reasons (visual examples in Appendix \ref{app:further_steering}):
+\textbf{Negative scaling required (9.2\%):} Swapping $o_1$ requires negative $p$, which we reject as BatchTopK activations are non-negative by construction, so negative scaling introduces an out-of-distribution anti-feature rather than representing learned graded behaviour.
 
-\textbf{No positive overlapping scale ranges}: for 9.2\% of inputs, latent 11 must be negatively scaled to swap the output at one of the output positions (Figure \ref{fig:steering_feat11_o1_negative_scale}).
-BatchTopK SAE latent activations are strictly non-negative, where zero indicates feature absence and positive values indicate feature presence. Scaling a latent negatively does not represent absence, but rather introduces an out-of-distribution 'anti-feature' by subtracting its vector from the residual stream. We reject these cases because they force the SAE to behave in a way that is mathematically impossible during training, meaning they cannot be used as evidence for a naturally learned graded latent.
+\textbf{Mutually exclusive swap ranges (2.3\%):} Each output position can be individually swapped but not simultaneously.
 
-\textbf{Positive but mutually exclusive scale ranges}: for 2.3\% of inputs, it is possible to scale the latent to swap the symbol at each output position individually but not simultaneously (Figure \ref{fig:steering_feat11_no_o2_crossover_in_bounds}).
+\textbf{No swap in observed range (1.8\%):} One logit remains dominant across all $p \in [0, 20]$.
 
-\textbf{No swap occurs in observed ranges}: for 1.6\% of inputs, the logit for the symbol at $d_2$ is always dominant at $o_2$ in the observed scale range, so there is no scale where the the symbol at $d_1$ is predicted instead (Figure \ref{fig:steering_feat11_o2_never_predicts_d1}).
-For 0.2\% of inputs a similar situation occurs at $o_1$ (Figure \ref{fig:steering_feat11_o1_never_predicts_d2}).
-
-\textbf{Matching bigram elements}: 0.8\% of the inputs both activate the latent and 
-have identical input symbols, so swapping the outputs is degenerate. The 
-remaining 0.2\% of same-symbol inputs do not activate the latent.
+\textbf{Matching bigram elements (0.8\%):} $d_1 = d_2$, making the swap degenerate.
 % NOTE
 % 1) negative o1
 % 2) no o2 in bounds
 % 3) never predicts 2x & no o2 xover (looks same to never prdeict d1 at o2)
 % 4) d1=d2
 
-% MOST significant is 10% - maybe explain that a bit and leave the rest, could even move to appdx cos its < 2% of inputs (200 inputs) incl d1=d2 
-
-In limited experiments with inputs that fail for the first three causes, it is sometimes possible to scale a co-activating (non-special) latent to successfully swap outputs. For example, input $(41,49)$ activates latents 11 (magnitude 3.1), 0 (magnitude 3.1) and 55 (magnitude 2.5). The swap fails with latent 11 because there are no positive overlapping scale ranges; however, scaling latent 55 by $p \in [1.1, 1.15]$ successfully produces a swap. This does not necessarily indicate that latent 55 is graded; rather, scaling it alters the logit distribution, which opens a valid swap zone for latent 11. Similarly, running the steering pipeline on latent 55 alone swaps only 4 inputs, all of which co-activate latent 11, suggesting a similar mechanism. We note this preliminary experiment is insufficient for statistical significance, but it suggests that scaling multiple latents together may enable more output swaps than steering special latents alone. Detailed visualisations are provided in the appendices.
-
-\begin{table}[ht]
-\centering
-\caption{We perform steering experiments on several chosen and randomly sampled SAE latents to demonstrate how steering with special latents (\textbf{bold}) compares to non-special latents. We record how many outputs are successfully swapped by steering only that latent, how many do not activate the latent, and how many activate the latent but cannot be swapped.}
-\label{tab:latent_swap_metrics}
-\vspace{0.5em}
-\setlength{\tabcolsep}{3pt}
-\resizebox{\linewidth}{!}{%
-\begin{tabular}{@{}cccc@{}}
-\toprule
-\textbf{Latent} & \textbf{Swapped} & \textbf{No Activation} & \textbf{Active \& No Swap} \\
-\midrule
-0   & 6 (0.1\%)  & 9786 (97.9\%) & 208 (2.1\%)  \\
-5   & 23 (0.2\%)  & 9594 (95.9\%) & 383 (3.8\%)  \\
-\textbf{11}  & \textbf{4976 (49.8\%)} & \textbf{3600 (36.0\%)} & \textbf{1424 (14.2\%)} \\
-55  & 4 (0.0\%)  & 9787 (97.9\%) & 209 (2.1\%)  \\
-\textbf{56}  & \textbf{196 (2.0\%)}  & \textbf{9009 (90.1\%)} & \textbf{795 (7.9\%)}  \\
-63  & 4 (0.0\%)  & 9801 (98.0\%) & 195 (2.0\%)  \\
-82  & 4 (0.0\%)  & 9787 (97.9\%) & 209 (2.1\%)  \\
-117 & 37 (0.4\%)  & 9782 (97.8\%) & 181 (1.8\%)  \\
-\bottomrule
-\end{tabular}
-}
-\end{table}
-
+For inputs that are not swapped, it is sometimes possible to scale a co-activating (non-special) latent to successfully swap outputs (see example in Appendix \ref{app:further_steering}). 
 We additionally steer latent 56 and successfully swap 2.0\% of outputs, which is part of the 36\% of inputs that do not activate latent 11 since the two special latents never coactivate. 
-
-We do not attempt steering on all latents due to computational constraints, but we attempt it on five randomly selected latents (0, 55, 63, 82, 117) and latent 96 (non-special latent with highest $\Delta \alpha$ correlation, $r=0.0036$). Results are shown in Table \ref{tab:latent_swap_metrics}. 
-We find that every single successful swap using a non-special latent has a co-activating special latent, which suggests that these non-special latents are unlikely to be graded, otherwise they could singlehandedly swap more outputs, and instead alter the logit distribution such that the graded special latents can successfully swap outputs.
+Although we don't steer on all latents due to computational constraints, in Appendix \ref{app:further_steering} we attempt it on several `non-special' latents to confirm the swapping behaviour is unique to latents 11 and 56.
 
 \subsection{Generalisation to other SAEs}\label{ss:sae_generalisation}
-
-To confirm these findings are not a quirk of this specific SAE, we observe whether they occur across other SAEs. 
 
 \begin{figure*}[t]
     \centering
@@ -124,7 +73,11 @@ To confirm these findings are not a quirk of this specific SAE, we observe wheth
     \label{fig:special_latents_vs_performance}
 \end{figure*}
 
-To achieve this at scale, we automatically identify special latents by checking each latent's correlation with $\Delta \alpha$ is over threshold $|r| > 0.3$ (Figure \ref{fig:alpha_diff_correlation_plot}).
+We test for similar behaviours in other SAEs to support generalisation of our results, albeit limited at this experimental scale.
+We automatically identify special latents by checking each latent's correlation with $\Delta \alpha$ is over threshold $|r| > 0.3$. This threshold was chosen empirically because it reliably selected latents that could be steered to swap  \dots
+% TODO need to run steering on ALL latents in studied model, and show table of %success AND % of successes that contained a co-acitvating 'special latent' for given thresh.
+
+
 Figure \ref{fig:special_latents_vs_performance} shows that SAEs with strong performance reliably learn special latents.
 This strongly suggests that the behaviour described so far in this section generalises to various SAE configurations. However, this generalisation is limited because we only tested three SAE types (BatchTopK, Matryoshka, JumpReLU) over 15 seeds. Future work should check for generalisation to more SAE variants such as those in Table \ref{tab:sae_types}, and over more training seeds for more robust statistical significance testing.
 % TODO add table of different SAE sweep configs (could add to method)
@@ -184,41 +137,7 @@ To test whether special latents can be steered to swap outputs in other SAEs, we
     the swap verified, along with a breakdown of failure reasons for the remainder.
 \end{enumerate}
 
-% TODO table with \% success etc (CHECK IT WAS GEMINI)
-\begin{table*}[t]
-\centering
-\caption{Generalisation of special latent steering to other SAE configurations from Table \ref{tab:cherry-picked-saes}. For each identified special latent ($|r| > 0.3$), we report its bias, Pearson correlation $r$ with $\Delta \alpha$, and the percentage of inputs where the latent was successfully steered to swap outputs (Success), did not activate (No Act.), or activated but could not be swapped (Active \& No Swap).}
-\label{tab:steering_generalisation}
-\resizebox{\linewidth}{!}{%
-\begin{tabular}{l c c c l c rrr}
-\toprule
-\multirow{2}{*}{\textbf{SAE Type}} & \multirow{2}{*}{$\boldsymbol{d_{\text{SAE}}}$} & \multirow{2}{*}{$\boldsymbol{L_0}$} & \multirow{2}{*}{\textbf{Latent}} & \multirow{2}{*}{\textbf{Type}} & \multirow{2}{*}{$\boldsymbol{r}$} & \multicolumn{3}{c}{\textbf{Steering Outcomes (\%)}} \\
-\cmidrule(lr){7-9}
-& & & & & & \textbf{Success} & \textbf{No Act.} & \textbf{Active \& No Swap} \\
-\midrule
-\multirow{2}{*}{BatchTopK (Studied)} & \multirow{2}{*}{128} & \multirow{2}{*}{3.00} & 11 & $d_1$-favouring & $+0.807$ & $49.8\%$ & $36.0\%$ & $14.2\%$ \\
-& & & 56 & $d_2$-favouring & $-0.321$ & $2.0\%$ & $90.1\%$ & $7.9\%$ \\
-\midrule
-\multirow{2}{*}{BatchTopK} & \multirow{2}{*}{192} & \multirow{2}{*}{3.36} & 47 & $d_2$-favouring & $-0.836$ & $52.9\%$ & $34.4\%$ & $12.7\%$ \\
-& & & 116 & $d_1$-favouring & $+0.365$ & $0.5\%$ & $91.7\%$ & $7.8\%$ \\
-\addlinespace
-& \multirow{2}{*}{128} & \multirow{2}{*}{4.90} & 68 & $d_1$-favouring & $+0.845$ & $32.9\%$ & $44.7\%$ & $22.4\%$ \\
-& & & 64 & $d_2$-favouring & $-0.730$ & $6.0\%$ & $62.0\%$ & $32.0\%$ \\
-\midrule
-\multirow{2}{*}{JumpReLU} & \multirow{2}{*}{256} & \multirow{2}{*}{4.03} & 195 & $d_1$-favouring & $+0.849$ & $38.8\%$ & $39.8\%$ & $21.4\%$ \\
-& & & 179 & $d_2$-favouring & $-0.721$ & $5.8\%$ & $60.2\%$ & $34.0\%$ \\
-\addlinespace
-& \multirow{2}{*}{128} & \multirow{2}{*}{3.24} & 105 & $d_2$-favouring & $-0.816$ & $28.6\%$ & $37.8\%$ & $33.6\%$ \\
-& & & 4 & $d_1$-favouring & $+0.756$ & $6.9\%$ & $62.3\%$ & $30.8\%$ \\
-\midrule
-\multirow{3}{*}{Matryoshka} & \multirow{2}{*}{256} & \multirow{2}{*}{3.32} & 48 & $d_2$-favouring & $-0.796$ & $26.6\%$ & $50.6\%$ & $22.8\%$ \\
-& & & 62 & $d_1$-favouring & $+0.591$ & $6.0\%$ & $71.2\%$ & $22.8\%$ \\
-\addlinespace
-& 192 & 3.98 & 30 & $d_1$-favouring & $+0.866$ & $72.5\%$ & $16.5\%$ & $11.0\%$ \\
-\bottomrule
-\end{tabular}
-}
-\end{table*}
+
 
 Steps 3-5 of the pipeline are very computationally expensive, so we test generalisation using a varied sample of six high performing SAEs (Table \ref{tab:cherry-picked-saes}) rather than running the pipeline on all trained SAEs (as in Figure \ref{fig:special_latents_vs_performance}).
 The results are shown in Table \ref{tab:steering_generalisation}.

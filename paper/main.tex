@@ -125,7 +125,7 @@
 % top of page 2
 \begin{figure*}[th]
     \centering
-    \includegraphics[width=0.8\linewidth]{figures/steering_feat_success.pdf}
+    \includegraphics[width=0.7\linewidth]{figures/steering_feat_success.pdf}
     \caption{
         This graph shows for input $(20,49)$ how the logits at the two output positions change as latent 11's activation magnitude is scaled. Each line shows the logit for some $i \in [0, 99]$ (100 lines total), such that if the top line at some latent scale represents symbol $i$, then $i$ is predicted at that output position when the latent's activation magnitude is scaled by that factor. The line corresponding to the symbol in position $d_1$ is blue, and the symbol in position $d_2$ is red. For the outputs to swap from $(20, 49)$ (correct) to $(49, 20)$ by scaling the latent's activation magnitude, there must be a range of scales where the red line is on top on the left plot and the blue line is on top on the right plot. For this example, this range is $[0.16, 2.20]$.
     }
@@ -177,9 +177,13 @@
 % %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \input{sections/sae_comparison.tex}
+\newpage
+
 \input{sections/experimental_setup.tex}
 \newpage
 \input{sections/further_sae_feat_analy.tex}
+\newpage
+
 \input{sections/further_steering.tex}
 
 
