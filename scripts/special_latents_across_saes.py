@@ -2,7 +2,7 @@
 """
 SAE analysis plots: loss recovered and explained variance vs L0.
 
-Produces 12 files per run (suffix includes r threshold):
+Produces plots and markdown reports per run (suffix includes r threshold):
 
   Per-type scatters (4):
     {type}_{metric}_r{thresh}.pdf
@@ -22,6 +22,10 @@ Produces 12 files per run (suffix includes r threshold):
       2x2 grid: col0=x:L0(integer-binned) hue:n_special,
                 col1=x:n_special_bin hue:n_special
 
+  Markdown reports:
+    analysis_report_all_r{thresh}.md
+    analysis_report_{type}_r{thresh}.md (one per SAE type present)
+
 Metrics:
   loss_recovered  = (H* - H0) / (H_orig - H0)   [higher = better]
   explained_var   = 1 - MSE(recon) / Var(orig)   [higher = better]
@@ -40,6 +44,7 @@ Examples:
 """
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -556,8 +561,7 @@ def _format_cell(count: int, mean_val: float, std_err: float) -> str:
     return f"{count} | {mean_val:.3f}±{std_err:.3f}"
 
 
-def generate_markdown_report(df: pd.DataFrame, thresh: float, output_dir: Path,
-                             metric_key: str = "loss_recovered"):
+def generate_markdown_report(df: pd.DataFrame, thresh: float, metric_key: str = "loss_recovered"):
     """
     Generate a markdown report with L0 ranges vs n_special_bin.
     Each cell shows: count / mean_metric ± std_err
@@ -619,18 +623,34 @@ def generate_markdown_report(df: pd.DataFrame, thresh: float, output_dir: Path,
     return "\n".join(md_lines)
 
 
-def save_markdown_report(df: pd.DataFrame, thresh: float, output_dir: Path):
-    """Save markdown reports for both metrics."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    md_content = f"# SAE Analysis Report (|r| > {thresh})\n\n"
-    md_content += generate_markdown_report(df, thresh, output_dir, "loss_recovered")
+def _slugify_sae_type(sae_type: str) -> str:
+    """Convert SAE type to a filesystem-safe slug."""
+    slug = re.sub(r"[^a-zA-Z0-9_-]+", "_", sae_type.strip())
+    return slug.strip("_") or "unknown"
+
+
+def _build_markdown_report(df: pd.DataFrame, thresh: float, scope_label: str) -> str:
+    """Build the full markdown report content for a dataframe subset."""
+    md_content = f"# SAE Analysis Report ({scope_label}, |r| > {thresh})\n\n"
+    md_content += generate_markdown_report(df, thresh, "loss_recovered")
     md_content += "\n---\n\n"
-    md_content += generate_markdown_report(df, thresh, output_dir, "explained_var")
-    
-    report_path = output_dir / f"analysis_report_r{thresh}.md"
-    report_path.write_text(md_content)
-    print(f"✓ Markdown report saved to {report_path}")
+    md_content += generate_markdown_report(df, thresh, "explained_var")
+    return md_content
+
+
+def save_markdown_report(df: pd.DataFrame, thresh: float, output_dir: Path):
+    """Save one all-types markdown report and one report per SAE type."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    all_report_path = output_dir / f"analysis_report_all_r{thresh}.md"
+    all_report_path.write_text(_build_markdown_report(df, thresh, "all SAE types"))
+    print(f"✓ Markdown report saved to {all_report_path}")
+
+    for sae_type, df_type in df.groupby("sae_type", sort=True):
+        type_slug = _slugify_sae_type(sae_type)
+        type_report_path = output_dir / f"analysis_report_{type_slug}_r{thresh}.md"
+        type_report_path.write_text(_build_markdown_report(df_type, thresh, f"sae_type={sae_type}"))
+        print(f"✓ Markdown report saved to {type_report_path}")
 
 
 # ---------------------------------------------------------------------------
