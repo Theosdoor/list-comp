@@ -11,20 +11,19 @@ In this paper, we focus on BatchTopK SAEs \citep{bussmann2024batchtopk} since th
 SAEs have been successfully used in the past \citep{marks2025auditing, movva2025sparse} but there are uncertainties over whether they learn robust dictionaries \citep{chanin2024absorption,leask2025sparse}. In our paper, we show that even a correct dictionary may be insufficient for complete model understanding using SAEs.
 
 
-\textbf{Relative Magnitude-based Composition.}
-\cite{farrell2025order} train a two-layer attention-only transformer on an ordered bigram copying task, in which the model must encode bigram $(d_1,d_2)$ into a single separator token, $s$, and reconstruct the bigram as output, $(o_1, o_2)$ where $(o_1, o_2) = (d_1,d_2)$.
-They find that the model represents the bigram at $s$ using the relative magnitude of scalar attention weights, rather than representing each possible ordering as a different direction in activation space (which other composition methods do \citep{wattenberg2024relational}).
-Specifically,
-\begin{equation*}
-    \boldsymbol r^{L_1}_s = \alpha_{s\to d_1} (\boldsymbol E_{d_1} + \boldsymbol P_{d_1}) + \alpha_{s \to d_2}(\boldsymbol E_{d_2} + \boldsymbol P_{d_2}) + \boldsymbol E_s + \boldsymbol P_s
-\end{equation*}
-where $\alpha_{s\to d_i}$ is the attention weight in the first layer for query $s$ (separator token) and key $d_i$ (element of input bigram), and $\boldsymbol E_{x}$ and $\boldsymbol P_{x}$ are the token and positional embeddings for the token at $x$ respectively.
-They predict that an SAE trained on $\boldsymbol r^{L_1}_s$ will learn latents corresponding to $(\boldsymbol E_{a} + \boldsymbol P_{d_1})$ and $(\boldsymbol E_{b} + \boldsymbol P_{d_2})$ with activations equal to the attention probabilities $\alpha$, and that this results in graded latent activations. 
-In our paper, we verify this behaviour across various SAE configurations.
+% \textbf{Relative Magnitude-based Composition.}
+% \cite{farrell2025order} train a two-layer attention-only transformer on an ordered bigram copying task, in which the model must encode bigram $(d_1,d_2)$ into a single separator token, $s$, and reconstruct the bigram as output, $(o_1, o_2)$ where $(o_1, o_2) = (d_1,d_2)$. The inputs 
+% They find that the model represents the bigram at $s$ using the relative magnitude of scalar attention weights, rather than representing each possible ordering as a different direction in activation space (which other composition methods do \citep{wattenberg2024relational}).
+% Specifically,
+% \begin{equation*}
+%     \boldsymbol r^{L_1}_s = \alpha_{s\to d_1} (\boldsymbol E_{d_1} + \boldsymbol P_{d_1}) + \alpha_{s \to d_2}(\boldsymbol E_{d_2} + \boldsymbol P_{d_2}) + \boldsymbol E_s + \boldsymbol P_s
+% \end{equation*}
+% where $\alpha_{s\to d_i}$ is the attention weight in the first layer for query $s$ (separator token) and key $d_i$ (element of input bigram), and $\boldsymbol E_{x}$ and $\boldsymbol P_{x}$ are the token and positional embeddings for the token at $x$ respectively.
+% They predict that an SAE trained on $\boldsymbol r^{L_1}_s$ will learn latents corresponding to $(\boldsymbol E_{a} + \boldsymbol P_{d_1})$ and $(\boldsymbol E_{b} + \boldsymbol P_{d_2})$ with activations equal to the attention probabilities $\alpha$, and that this results in graded latent activations. 
+% In our paper, we verify this behaviour across various SAE configurations.
 
 % Graded latent activations undermine the assumption that SAE latents are independent and binary \cite{} because ...
 % which would mean latents exhibit different behaviour at different activation magnitudes, rather than simply being on/off
 
-\textbf{Steering.}
-Steering vectors are directions in the residual stream that can be linearly scaled and patched downstream to predictably alter model behaviour \citep{ferrando2024primer}. For example, \citet{arditi2024refusal} identify a single refusal direction via difference-in-means and use it to suppress or amplify refusal in safety-tuned LMs.
-We apply this principle to SAE latent activations, patching the altered SAE reconstructions rather than a raw residual stream direction.
+\textbf{Steering with SAE Latents.}
+\citet{brien2025steering} steer model activations at inference time by amplifying SAE latent activations mediating refusal. We apply this principle in our paper to observe the effect of steering using latents that have graded activations.

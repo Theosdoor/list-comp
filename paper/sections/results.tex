@@ -27,7 +27,7 @@ Moreover, \citet{farrell2025order} find that $\boldsymbol r_{s}^{L_1}$ is a line
 \Delta \alpha = \alpha_{s \to d_1} - 
 \alpha_{s \to d_2}
 \), as shown in Appendix \ref{app:further_analysis}, Figure \ref{fig:alpha_diff_correlation_plot}.
-Latent 11 positively correlates with $\Delta \alpha$ (Pearson correlation coefficient $r=0.807$), and latent 56 negatively correlates with $\Delta \alpha$ ($r=-0.3213$). We compute correlations over the whole dataset, and all other latents have correlation $|r| < 0.004$ with $\Delta \alpha$, suggesting that these two features are indeed special relative to the others.
+Latent 11 strongly positively correlates with $\Delta \alpha$ (Pearson correlation coefficient $r=0.807$), and latent 56 negatively correlates with $\Delta \alpha$ ($r=-0.3213$). We compute correlations over the whole dataset, and all other latents have correlation $|r| < 0.004$ with $\Delta \alpha$, suggesting that these two features are indeed special relative to the others.
 % Since latent 11 strongly positively correlates with $\Delta \alpha$ we refer to it as strongly $d_1$-favouring, and we similarly refer to latent 56 as weakly $d_2$-favouring. 
 Latent 11 has a much stronger correlation than 56, so we refer to it as the primary special feature.
 
@@ -45,7 +45,7 @@ Systematic output logit shifts across this sweep would imply that the special la
 
 Steering latent 11 produces output swaps for 5,002/10,000 bigrams (50.0\%) and an example is shown in Figure \ref{fig:steering_feat_success}. The remaining 50\% are not swapped: 3,600 inputs (36\%) where latent 11 does not activate ($m=0$), and 1,424 inputs (14.2\%) where it activates but no scaling produces a swap. The latter fail for the following reasons (see Appendix \ref{app:further_steering} for visualisations):
 
-\textbf{Negative scaling required (9.2\%):} Swapping $o_1$ requires negative $p$, which we reject as BatchTopK activations are non-negative by construction, so negative scaling introduces an out-of-distribution anti-feature rather than representing learned graded behaviour.
+\textbf{Negative scaling required (9.2\%):} Swapping $o_1$ requires negative $p$, which we reject as BatchTopK activations are non-negative by construction.
 
 \textbf{Mutually exclusive swap ranges (2.3\%):} Each output position can be individually swapped but not simultaneously.
 

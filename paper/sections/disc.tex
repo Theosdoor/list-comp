@@ -7,6 +7,18 @@ However, our SAE experiments demonstrate robust findings across diverse configur
 
 TODO
 
+  B. Expand the Discussion (disc.tex)
+  The current discussion is quite thin and contains many commented-out sections. For a
+  high-quality workshop submission:
+   * The Binary View: Elaborate on why "graded latents" challenge the "binary" assumption
+     (features are either on or off).
+   * Linear Representation Hypothesis: Discuss if your findings support or contradict the
+     hypothesis that features are represented linearly in model activations.
+   * Safety Implications: Briefly mention how magnitude-coded logic might be harder to detect
+     with standard "feature dashboard" tools.
+
+Are the k-symb detectors just basis-aligned features? as predicted in farrell?
+
 % Consider training an $L_1$-regularised SAE on the residual at \texttt{SEP} after layer 1,
 % \begin{equation*}
 %     \boldsymbol r^{L_1}_s = \alpha_{s\to d_1} (\boldsymbol E_{a} + \boldsymbol P_{d_1}) + \alpha_{s \to d_2}(\boldsymbol E_{b} + \boldsymbol P_{d_2}) + \boldsymbol E_s + \boldsymbol P_s
