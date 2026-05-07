@@ -48,6 +48,7 @@ source .venv/bin/activate
 
 ## Development Conventions
 - **SAE Loading:** Use `load_sae(sae_name, d_model)` from `src/utils/nb_utils.py`. It handles multiple state-dict formats.
+- **Checkpoint Selection:** Use `select_checkpoints(paths, use_best=False)` from `src/sae/loading` to filter final/best checkpoint pairs without duplication.
 - **Activation Collection:** Always retrieve and pass `act_mean` when collecting/patching activations.
 - **Inference:** Use `src/models/utils.py::infer_model_config(path)` to auto-detect architecture from checkpoints.
 - **Reporting:** Crossover results are saved in `results/xover/<sae_name>/`. `src/sae/reporting.py` handles failure-reason classification.

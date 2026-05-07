@@ -298,7 +298,8 @@ def select_checkpoints(paths, use_best=False):
             using_best_set.add(variants['best'])
         elif 'final' in variants:
             selected.append(variants['final'])
-        else:  # only best variant exists
+        elif 'best' in variants:  # only best variant exists
             selected.append(variants['best'])
+            using_best_set.add(variants['best'])
     
     return selected, using_best_set

@@ -21,6 +21,7 @@ Key - don't forget to use the .venv for python execution. Also ensure all subage
 - Always load and pass `act_mean` when collecting/patching activations (see `scripts/run_crossover_analysis.py`).
 - For feature steering/crossover work, main entry points are in `src/sae/steering.py`: `get_xovers_df`, `get_output_swap_bounds`, `swap_outputs`.
 - "Special" features are identified via `identify_special_features` in `src/sae/activation_collection.py`: features whose activation correlates strongly (|r| > threshold) with the SEP attention difference `alpha_d1 − alpha_d2`. Requires `collect_attention_patterns` to obtain `alpha_d1_all`/`alpha_d2_all` first.
+- **Checkpoint selection:** Use `select_checkpoints(paths, use_best=False)` from `src/sae/loading` to filter final/best checkpoint pairs. Default keeps only final; use `use_best=True` to prefer best-val-loss variants when available. Returns `(selected_paths, using_best_set)`.
 
 ## Canonical Workflows
 - Environment: `uv sync` then `source .venv/bin/activate`.
@@ -43,7 +44,7 @@ Key - don't forget to use the .venv for python execution. Also ensure all subage
 ## Current Baselines and Files
 - Common base model: `models/2layer_100dig_64d.pt`.
 - Common SAE: `sae_checkpoints/sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt` (feature-30 was the manually-identified special feature; auto-detection now finds this automatically).
-- Key reference files: `src/data/datasets.py`, `src/models/transformer.py`, `src/models/utils.py`, `src/utils/nb_utils.py`, `src/sae/steering.py`, `src/sae/reporting.py` (failure-reason classification and markdown report generation).
+- Key reference files: `src/data/datasets.py`, `src/models/transformer.py`, `src/models/utils.py`, `src/utils/nb_utils.py`, `src/sae/loading.py` (SAE loading and checkpoint selection), `src/sae/steering.py`, `src/sae/reporting.py` (failure-reason classification and markdown report generation).
 
 ## Reproducibility Requirement
 - When running experiments, append a concise entry to `EXPERIMENTS.md` with command, output paths, and headline metrics.
