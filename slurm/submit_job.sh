@@ -18,15 +18,15 @@ echo "------------------------------------------------------"
 python3 -c "import torch; print(f'[slurm] CUDA Available: {torch.cuda.is_available()}'); print(f'[slurm] Device: {torch.cuda.get_device_name(0)}')"
 echo "------------------------------------------------------"
 
-python scripts/special_latents_across_saes.py \
-    --sae_dirs sae_checkpoints/ \
-    --model_path models/2layer_100dig_64d.pt \
-    --alpha_diff_thresh 0.5 \
-    --output_dir results/sae_plots \
-    --exclude_l0 1 2
+# python scripts/special_latents_across_saes.py \
+#     --sae_dirs sae_checkpoints/ \
+#     --model_path models/2layer_100dig_64d.pt \
+#     --alpha_diff_thresh 0.5 \
+#     --output_dir results/sae_plots \
+#     # --exclude_l0 1 2
 
-# python scripts/compare_sae.py --sae-folders sae_checkpoints/ --exclude-d-sae 64 100 384 448 512
-# python scripts/plot_sae_sweep.py --exclude-d-sae 64 100 384 448 512 --exclude-special-col # --exclude-runs-col
+python scripts/compare_sae.py --sae-folders sae_checkpoints/ --special-threshold 0.3 --exclude-d-sae 64 100 384 448 512
+python scripts/plot_sae_sweep.py --exclude-d-sae 64 100 384 448 512 --exclude-special-col # --exclude-runs-col
 
 
 echo "[slurm] Finished at $(date)"

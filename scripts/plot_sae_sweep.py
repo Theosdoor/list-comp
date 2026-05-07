@@ -17,6 +17,8 @@ Usage:
 import argparse
 from pathlib import Path
 
+import matplotlib
+matplotlib.use("Agg")  # Non-interactive backend for headless environments
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -49,6 +51,24 @@ def parse_args():
 
 # ── Parsing ───────────────────────────────────────────────────────────────────
 
+def extract_sae_type(model_name: str) -> str:
+    """Extract SAE type from model name prefix.
+    
+    Examples:
+        'btk_d100_k3_...' -> 'btk'
+        'jumprelu_d100_...' -> 'jumprelu'
+        'matryoshka_d100_...' -> 'matryoshka'
+    
+    Returns None if prefix is unknown (instead of silently defaulting to 'btk').
+    TODO: Parse from checkpoint config for robustness (see special_latents_across_saes.py).
+    """
+    model_name = model_name.lower()
+    for sae_type in ["btk", "jumprelu", "matryoshka"]:
+        if model_name.startswith(sae_type + "_"):
+            return sae_type
+    return None
+
+
 def find_latest_report(root: Path) -> Path:
     report_dir = root / "results" / "compare_sae"
     candidates = sorted(report_dir.glob("sae_comparison_*.md"), reverse=True)
@@ -69,29 +89,43 @@ def parse_report(path: Path) -> pd.DataFrame:
     # N Special cell may be "3 (0.742)" — parse only the integer count.
     rows = []
     in_summary = False
+    n_special_col = None
     for line in text.splitlines():
         if "## Summary Table" in line:
             in_summary = True
             continue
         if in_summary and line.startswith("##"):
             break
-        if in_summary and line.startswith("| ") and not line.startswith("|---") and "| Model |" not in line:
+        if in_summary and line.startswith("| ") and not line.startswith("|---"):
             cols = [c.strip() for c in line.split("|")]
-            # Support both old (7-col) and new (10-col) table formats
-            n_cols = len(cols) - 2  # subtract leading/trailing empty strings from split
-            n_special_col = 10 if n_cols >= 10 else 7
+            
+            # Parse header row to find n_special column
+            if "Model" in cols[1]:
+                for idx, col in enumerate(cols):
+                    if "N Special" in col or "special" in col.lower():
+                        n_special_col = idx
+                        break
+                continue
+            
+            # If we couldn't find n_special column in header, fall back to position-based guess
+            if n_special_col is None:
+                n_cols = len(cols) - 2  # subtract leading/trailing empty strings from split
+                n_special_col = 10 if n_cols >= 10 else 7
+            
             try:
+                model_name = cols[1]
                 rows.append({
-                    "model":          cols[1],
+                    "model":          model_name,
+                    "sae_type":       extract_sae_type(model_name),
                     "d_sae":          int(cols[2]),
                     "l0":             int(round(float(cols[3]))),
                     "dead_pct":       float(cols[4].rstrip("%")),
                     "loss_recovered": float(cols[5]) if cols[5] != "—" else None,
                     # Cell may be "3 (0.742)" — take only the leading integer count
-                    "n_special":      int(cols[n_special_col].split()[0]) if cols[n_special_col] not in ("—", "") else 0,
+                    "n_special":      int(cols[n_special_col].split()[0]) if n_special_col < len(cols) and cols[n_special_col] not in ("—", "") else None,
                 })
-            except (IndexError, ValueError):
-                pass
+            except (IndexError, ValueError) as e:
+                print(f"Warning: skipped row (parse error): {line}")
 
     return pd.DataFrame(rows)
 
@@ -112,36 +146,41 @@ def filter_df(df: pd.DataFrame, l0_values, d_sae_values,
 
 
 def aggregate(df: pd.DataFrame) -> pd.DataFrame:
-    """Group by (l0, d_sae), compute mean ± std over seeds/lr runs."""
+    """Group by (sae_type, l0, d_sae), compute mean ± std over seeds/lr runs."""
     rows = []
-    for (l0, d_sae), g in df.groupby(["l0", "d_sae"]):
+    for (sae_type, l0, d_sae), g in df.groupby(["sae_type", "l0", "d_sae"]):
         n = len(g)
         rows.append({
+            "sae_type":              sae_type,
             "l0":                    l0,
             "d_sae":                 d_sae,
             "n_runs":                n,
             "loss_recovered_mean":   g["loss_recovered"].dropna().mean(),
-            "loss_recovered_std":    g["loss_recovered"].dropna().std(ddof=1) if len(g["loss_recovered"].dropna()) > 1 else 0.0,
+            "loss_recovered_std":    g["loss_recovered"].dropna().std(ddof=1) if len(g["loss_recovered"].dropna()) > 1 else np.nan,
             "dead_pct_mean":         g["dead_pct"].mean(),
-            "dead_pct_std":          g["dead_pct"].std(ddof=1) if n > 1 else 0.0,
-            "n_special_mean":        g["n_special"].mean(),
-            "n_special_std":         g["n_special"].std(ddof=1) if n > 1 else 0.0,
+            "dead_pct_std":          g["dead_pct"].std(ddof=1) if n > 1 else np.nan,
+            "n_special_mean":        g["n_special"].dropna().mean(),
+            "n_special_std":         g["n_special"].dropna().std(ddof=1) if len(g["n_special"].dropna()) > 1 else np.nan,
         })
-    return pd.DataFrame(rows).sort_values(["l0", "d_sae"]).reset_index(drop=True)
+    return pd.DataFrame(rows).sort_values(["sae_type", "l0", "d_sae"]).reset_index(drop=True)
 
 
 # ── Table output ──────────────────────────────────────────────────────────────
 
 def fmt(mean, std, decimals=4, no_errors=False):
     """Format as 'mean ± std' (or just 'mean' when no_errors=True)."""
-    if no_errors or std == 0 or np.isnan(std):
+    if no_errors or np.isnan(std):
         return f"{mean:.{decimals}f}"
     return f"{mean:.{decimals}f} ± {std:.{decimals}f}"
 
 
-def write_markdown_table(agg: pd.DataFrame, path: Path,
+def write_markdown_table(agg: pd.DataFrame, output_dir: Path,
                          no_errors: bool = False, exclude_runs_col: bool = False,
                          exclude_special_col: bool = False):
+    """Write markdown table to output_dir/sae_sweep_table.md"""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / "sae_sweep_table.md"
+    
     runs_hdr = "" if exclude_runs_col else " N runs |"
     special_hdr = "" if exclude_special_col else " N Special Feats |"
     runs_sep = "" if exclude_runs_col else "--------|"
@@ -167,7 +206,7 @@ def write_markdown_table(agg: pd.DataFrame, path: Path,
     print(f"  Markdown table → {path}")
 
 
-def write_latex_table(agg: pd.DataFrame, path: Path,
+def write_latex_table(agg: pd.DataFrame, output_dir: Path,
                       no_errors: bool = False, exclude_runs_col: bool = False,
                       exclude_special_col: bool = False):
     """LaTeX booktabs table suitable for a dissertation.
@@ -175,21 +214,32 @@ def write_latex_table(agg: pd.DataFrame, path: Path,
     Within each L0 section the best cell per column is bolded.
     The single best cell in the entire column is also underlined.
     Higher is better for Loss Recovered; lower is better for Patched CE and Dead %.
+    Writes to output_dir/sae_sweep_table.tex
     """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / "sae_sweep_table.tex"
+    
     # ── pre-compute bests ─────────────────────────────────────────────────────
-    # (col, higher_is_better)
+    # (col, higher_is_better, display_decimals)
     scored_cols = [
-        ("loss_recovered_mean", True),
-        ("dead_pct_mean",   False),
+        ("loss_recovered_mean", True, 4),
+        ("dead_pct_mean", False, 1),
     ]
+    rounded_scores = pd.DataFrame(index=agg.index)
+    for col, _, dec in scored_cols:
+        rounded_scores[col] = agg[col].round(dec)
     global_best = {
-        col: (agg[col].max() if hi else agg[col].min())
-        for col, hi in scored_cols
+        col: (rounded_scores[col].max() if hi else rounded_scores[col].min())
+        for col, hi, _ in scored_cols
     }
     section_best = {
         l0: {
-            col: (grp[col].max() if hi else grp[col].min())
-            for col, hi in scored_cols
+            col: (
+                rounded_scores.loc[grp.index, col].max()
+                if hi
+                else rounded_scores.loc[grp.index, col].min()
+            )
+            for col, hi, _ in scored_cols
         }
         for l0, grp in agg.groupby("l0")
     }
@@ -200,19 +250,20 @@ def write_latex_table(agg: pd.DataFrame, path: Path,
         Math-mode cells use \\mathbf{} on entire value (mean, ±, std).
         Plain-text cells (dead %) use \\textbf{}.
         """
-        is_global  = np.isclose(mean, global_best[col], rtol=1e-6)
-        is_section = np.isclose(mean, section_best[l0][col], rtol=1e-6)
+        rounded_mean = round(mean, dec)
+        is_global = rounded_mean == global_best[col]
+        is_section = rounded_mean == section_best[l0][col]
         bold = is_global or is_section
 
         if plain:
             mean_str = f"{mean:.{dec}f}"
-            if not no_errors and std > 0 and not np.isnan(std):
+            if not no_errors and not np.isnan(std):
                 mean_str = rf"{mean_str} $\pm$ {std:.{dec}f}"
             mean_str = rf"\textbf{{{mean_str}}}" if bold else mean_str
             return rf"\underline{{{mean_str}}}" if is_global else mean_str
 
         # Math-mode: bold the entire value including ± and std
-        if no_errors or std == 0 or np.isnan(std):
+        if no_errors or np.isnan(std):
             content = f"{mean:.{dec}f}"
         else:
             content = f"{mean:.{dec}f} \\pm {std:.{dec}f}"
@@ -224,7 +275,8 @@ def write_latex_table(agg: pd.DataFrame, path: Path,
         return rf"\underline{{{text}}}" if is_global else text
 
     def lf(mean, std, dec=4):
-        if no_errors or std == 0 or np.isnan(std):
+        """Format as math-mode without bold/underline (for unscored columns)."""
+        if no_errors or np.isnan(std):
             return f"{mean:.{dec}f}"
         return f"${mean:.{dec}f} \\pm {std:.{dec}f}$"
 
@@ -302,28 +354,29 @@ def _sequential_palette(values, cmap_name: str) -> dict:
     return {v: cmap(0.15 + 0.7 * i / (len(vals) - 1)) for i, v in enumerate(vals)}
 
 
-def plot_sweep(df: pd.DataFrame, path: Path):
+def plot_sweep(df: pd.DataFrame, output_dir: Path):
+    """Save seaborn pointplots to output_dir/sae_sweep_figure.{pdf,png}
+    
+    2 panels:
+      x = L0    (hue = d_sae, plasma sequential)  — y = Loss Recovered
+      x = d_sae (hue = L0,    tab10 qualitative) — y = Loss Recovered
     """
-    2×2 grid of seaborn pointplots (±1 std over seeds/lr runs):
-      Row 0  — x = L0    (hue = d_sae, plasma sequential)
-      Row 1  — x = d_sae (hue = L0,    tab10 qualitative)
-      Col 0  — y = Loss Recovered
-      Col 1  — y = Patched CE Loss
-    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
     sns.set_theme(style="whitegrid", font_scale=1.05)
 
     l0_pal   = _qualitative_palette(df["l0"])
     dsae_pal = _sequential_palette(df["d_sae"], "plasma")
 
-    # (x, y, hue, palette, xlabel, ylabel, ylim_top)
+    # (x, y, hue, palette, xlabel, ylabel, ylim_top, show_legend)
     panels = [
-        ("l0",    "loss_recovered", "d_sae", dsae_pal, "← L0 (Lower is sparser)",    "↑ Loss Recovered", 1.0),
-        ("d_sae", "loss_recovered", "l0",    l0_pal,   "d_sae",                       "↑ Loss Recovered", 1.0),
+        ("l0",    "loss_recovered", "d_sae", dsae_pal, "← L0 (Lower is sparser)",    "↑ Loss Recovered", 1.0, False),
+        ("d_sae", "loss_recovered", "l0",    l0_pal,   "d_sae",                       "↑ Loss Recovered", 1.0, True),
     ]
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
 
-    for i, (ax, (x, y, hue, palette, xlabel, ylabel, ylim_top)) in enumerate(zip(axes.flat, panels)):
+    for ax, (x, y, hue, palette, xlabel, ylabel, ylim_top, show_legend) in zip(axes.flat, panels):
         sns.pointplot(
             data=df, x=x, y=y, hue=hue, palette=palette,
             errorbar="sd", markers="o", linestyles="-",
@@ -333,16 +386,22 @@ def plot_sweep(df: pd.DataFrame, path: Path):
         ax.set_xlabel(xlabel, fontsize=11)
         ax.set_ylabel(ylabel, fontsize=11)
         ax.set_ylim(bottom=0, top=ylim_top)
-        if i % 2 == 0:  # left panels
+        if not show_legend:
             ax.get_legend().remove()
         else:
             ax.legend(fontsize=8, framealpha=0.9, loc="upper right",
                       ncol=2 if hue == "d_sae" else 1)
 
     fig.tight_layout()
-    fig.savefig(path, dpi=150, bbox_inches="tight")
+    
+    # Save both PDF and PNG
+    pdf_path = output_dir / "sae_sweep_figure.pdf"
+    png_path = output_dir / "sae_sweep_figure.png"
+    fig.savefig(pdf_path, dpi=150, bbox_inches="tight")
+    fig.savefig(png_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Figure          → {path}")
+    print(f"  Figure          → {pdf_path}")
+    print(f"  Figure          → {png_path}")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -355,7 +414,6 @@ def main():
     print(f"Reading: {report_path}")
 
     output_dir = root / args.output_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     df = parse_report(report_path)
     print(f"Parsed {len(df)} SAE rows")
@@ -367,16 +425,44 @@ def main():
     df = filter_df(df, args.l0_values, args.d_sae_values,
                    exclude_l0=args.exclude_l0, exclude_d_sae=args.exclude_d_sae)
     agg = aggregate(df)
-    print(f"Aggregated to {len(agg)} (L0, d_sae) groups")
+    print(f"Aggregated to {len(agg)} (L0, d_sae) groups\n")
 
-    write_markdown_table(agg, output_dir / "sae_sweep_table.md",
+    # Get unique SAE types and sort for consistent output
+    sae_types = sorted(agg["sae_type"].unique())
+    print(f"SAE types found: {sae_types}\n")
+
+    # ── Save per-type outputs ──────────────────────────────────────────────────
+    for sae_type in sae_types:
+        print(f"Saving {sae_type}:")
+        type_dir = output_dir / sae_type
+        
+        # Filter data for this type
+        agg_type = agg[agg["sae_type"] == sae_type].drop(columns=["sae_type"])
+        df_type = df[df["sae_type"] == sae_type]
+        
+        write_markdown_table(agg_type, type_dir,
+                             no_errors=args.no_table_errors, exclude_runs_col=args.exclude_runs_col,
+                             exclude_special_col=args.exclude_special_col)
+        write_latex_table(agg_type, type_dir,
+                          no_errors=args.no_table_errors, exclude_runs_col=args.exclude_runs_col,
+                          exclude_special_col=args.exclude_special_col)
+        plot_sweep(df_type, type_dir)
+
+    # ── Save aggregate outputs (all types combined) ────────────────────────────
+    print("\nSaving aggregate (all types):")
+    agg_dir = output_dir / "aggregate"
+    agg_all = agg.drop(columns=["sae_type"])
+    
+    write_markdown_table(agg_all, agg_dir,
                          no_errors=args.no_table_errors, exclude_runs_col=args.exclude_runs_col,
                          exclude_special_col=args.exclude_special_col)
-    write_latex_table(agg, output_dir / "sae_sweep_table.tex",
+    write_latex_table(agg_all, agg_dir,
                       no_errors=args.no_table_errors, exclude_runs_col=args.exclude_runs_col,
                       exclude_special_col=args.exclude_special_col)
-    plot_sweep(df, output_dir / "sae_sweep_figure.pdf")
-    plot_sweep(df, output_dir / "sae_sweep_figure.png")
+    plot_sweep(df, agg_dir)
+    
+    print(f"\n✓ All outputs saved to {output_dir}")
+
 
 
 if __name__ == "__main__":

@@ -37,14 +37,10 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAVE_DIR = os.path.join(REPO_ROOT, "results/sae_feat_analysis")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
-SAE_NAME   = "sweep_runs_v2/sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt" 
-# SAE_NAME   = "sweep_k2bsjr0n/btk_sae_d128_k3_lr0.0003_seed3_2layer_100dig_64d.pt"
-# ^ better k=3,128 sae! with 2 special feats
+SAE_NAME   = "../sae_checkpoints/sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt" 
+# SAE_NAME = "../sae_checkpoints/sweep_k2bsjr0n/btk_sae_d128_k3_lr0.0003_seed5/btk_sae_d128_k3_lr0.0003_seed5_2layer_100dig_64d.pt"
 
-# SAE_NAME   = "sweep_xliz4f19/jumprelu_sae_d256_tl05_sp5_lr7e-05_seed1_2layer_100dig_64d.pt"
-# SAE_NAME   = "sweep_tbxyl1y7/matryoshka_sae_d128_k3_ng1_lr0.0003_seed12_2layer_100dig_64d.pt"
-
-# TODO - could infer model name from sae config or name
+# TODO - could infer model name from sae config?
 MODEL_NAME = "2layer_100dig_64d"
 # MODEL_NAME = "2_layer_sweep/d64_h1_lnF_biasF_wvF_woF_mlpF_s3_acc0.9405"
 

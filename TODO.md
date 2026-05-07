@@ -1,7 +1,8 @@
 # TODO
 
 ## Tidy up before sub
-
+- merge plotsae_sweep & compare_sae scripts
+- clean up src - remove unused scripts / fns
 
 ## Extensions
 

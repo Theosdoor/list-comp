@@ -5,9 +5,12 @@ Functions for loading SAE models from local checkpoints or Weights & Biases.
 """
 
 import os
+import re
 import torch
 import pandas as pd
 import wandb
+from pathlib import Path
+from collections import defaultdict
 
 from dictionary_learning.trainers.batch_top_k import BatchTopKSAE
 from dictionary_learning.dictionary import JumpReluAutoEncoder
@@ -247,3 +250,56 @@ def compare_sweep_runs(project="theo-farrell99-durham-university/list-comp",
     
     df = pd.DataFrame(runs_data)
     return df.sort_values("explained_variance", ascending=False)
+
+
+def select_checkpoints(paths, use_best=False):
+    """
+    Filter checkpoint paths to avoid duplicating final/best pairs.
+    
+    When multiple checkpoints exist for the same configuration (e.g., one final
+    checkpoint and one best-validation-loss checkpoint), this function selects
+    which variant(s) to keep based on the use_best flag.
+    
+    Args:
+        paths: List of checkpoint paths to filter
+        use_best: If True, prefer best-val-loss checkpoints over final.
+                 If False (default), keep only final checkpoints.
+    
+    Returns:
+        tuple: (selected_paths, using_best_set)
+            - selected_paths: Filtered list of checkpoint paths
+            - using_best_set: Set of paths that are "best" variants
+                             (empty if use_best=False)
+    
+    Examples:
+        >>> paths = ['sae_d128_k3_lr0.0003_seed44_2layer_100dig_64d.pt',
+        ...          'sae_d128_k3_lr0.0003_seed44_2layer_100dig_64d_best_0.9.pt']
+        >>> selected, using_best = select_checkpoints(paths, use_best=False)
+        >>> selected  # Only the final checkpoint
+        ['sae_d128_k3_lr0.0003_seed44_2layer_100dig_64d.pt']
+        >>> selected, using_best = select_checkpoints(paths, use_best=True)
+        >>> selected  # Prefers the best variant
+        ['sae_d128_k3_lr0.0003_seed44_2layer_100dig_64d_best_0.9.pt']
+    """
+    def _canonical(p):
+        return re.sub(r'_best(?=_)', '', Path(p).stem)
+
+    groups = defaultdict(dict)
+    for p in paths:
+        key = _canonical(p)
+        tag = 'best' if '_best_' in Path(p).stem else 'final'
+        groups[key][tag] = p
+
+    selected, using_best_set = [], set()
+    for key in sorted(groups):
+        variants = groups[key]
+        if use_best and 'best' in variants:
+            selected.append(variants['best'])
+            using_best_set.add(variants['best'])
+        elif 'final' in variants:
+            selected.append(variants['final'])
+        elif 'best' in variants:  # only best variant exists
+            selected.append(variants['best'])
+            using_best_set.add(variants['best'])
+    
+    return selected, using_best_set
