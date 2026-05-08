@@ -3,7 +3,7 @@ wandb/
 results/*
 .claude/*
 .worktrees/*
-# slurm/*
+slurm/*
 sae_checkpoints/
 
 # Byte-compiled / optimized / DLL files
