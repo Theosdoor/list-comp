@@ -3,6 +3,7 @@
 ## Tidy up before sub
 - merge plotsae_sweep & compare_sae scripts
 - clean up src - remove unused scripts / fns
+- find steering success correlation with original model correctness
 
 ## Extensions
 
