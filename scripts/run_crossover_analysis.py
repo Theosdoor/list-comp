@@ -103,7 +103,7 @@ def run_pipeline(args):
     print(f"Results directory: {sae_results_dir}")
     print("=" * 60)
 
-    _ = setup_notebook(seed=42)  # TODO nb_utils shouldnt be used in gpu scripts, so make this into a broader util or create a seperate thing for non-nbs. Keep it DRY
+    _ = setup_notebook(seed=42)
 
     # [1/7] Load models
     print("\n[1/7] Loading models...")

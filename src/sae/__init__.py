@@ -25,7 +25,6 @@ from .visualization import (
 from .metrics import (
     compute_reconstruction_metrics,
     compute_sae_downstream_metrics,
-    compute_sae_patched_accuracy,
 )
 
 # SAE loading
@@ -78,7 +77,6 @@ __all__ = [
     # Metrics
     "compute_reconstruction_metrics",
     "compute_sae_downstream_metrics",
-    "compute_sae_patched_accuracy",
     # SAE loading
     "load_sae_checkpoint",
     "load_sae_from_checkpoint",

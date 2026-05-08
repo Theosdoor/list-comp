@@ -59,8 +59,7 @@ def extract_sae_type(model_name: str) -> str:
         'jumprelu_d100_...' -> 'jumprelu'
         'matryoshka_d100_...' -> 'matryoshka'
     
-    Returns None if prefix is unknown (instead of silently defaulting to 'btk').
-    TODO: Parse from checkpoint config for robustness (see special_latents_across_saes.py).
+    Returns None if prefix is unknown instead of silently defaulting to 'btk'.
     """
     model_name = model_name.lower()
     for sae_type in ["btk", "jumprelu", "matryoshka"]:

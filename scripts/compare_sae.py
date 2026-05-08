@@ -33,7 +33,6 @@ COMPUTE_RECON_ACC = True
 
 DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 
-# TODO - use parse_args
 def parse_args():
     p = argparse.ArgumentParser(description="Compare SAE checkpoints")
     p.add_argument("--sae-folders", type=str, nargs="+", default=None,
