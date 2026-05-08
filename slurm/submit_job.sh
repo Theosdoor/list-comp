@@ -27,5 +27,6 @@ python scripts/plot_sae_sweep.py --exclude-d-sae 64 100 384 448 512 --exclude-sp
 #     --alpha_diff_thresh 0.3 \
 #     --output_dir results/sae_plots \
 #     --exclude_d_sae 64 100 384 448 512 \
+#     --exclude_l0 6
 
 echo "[slurm] Finished at $(date)"
