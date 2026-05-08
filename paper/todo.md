@@ -1,4 +1,5 @@
 # todo
+!new! https://chatgpt.com/share/69fe2732-b3f4-83e8-8b9a-7cc986c905ad
 
 
 ## for workshop sub
