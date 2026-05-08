@@ -126,7 +126,8 @@
     \centering
     \includegraphics[width=0.7\linewidth]{figures/steering_feat_success.pdf}
     \caption{
-        This plot shows the logits at output positions $o_1$ (left) and $o_2$ (right) for input $(20, 49)$ as latent 11's activation is scaled by factor $p$ (x-axes). Each line shows the logit for one symbol; blue = $d_1$, red = $d_2$ and all others are grey. A valid swap requires the red line to lead at $o_1$ and the blue line to lead at $o_2$ simultaneously. Here, this holds for $p \in [0.16, 2.20]$.
+        This plot shows the logits at output positions $o_1$ (left) and $o_2$ (right) for input $(20, 49)$ as latent 11's activation is scaled by factor $p$ (x-axes). The original activation magnitude $m$ for this input is 1.403, which corresponds to $p=1$ on the x-axis.
+        Each line shows the logit for one symbol; blue = $d_1$, red = $d_2$ and all others are grey. A valid swap requires the red line to lead at $o_1$ and the blue line to lead at $o_2$ simultaneously. Here, this holds for $p \in [0.16, 2.20]$.
     }
     \label{fig:steering_feat_success}
 \end{figure*} 
