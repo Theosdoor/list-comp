@@ -1,10 +1,10 @@
 """
-Extension work for 'Order by Scale' paper.
+Extension work for a prior list-comparison transformer study.
 
 Implements attention-only transformers for list compression tasks,
 studying relative-magnitude relational composition through mechanistic interpretability
 and sparse autoencoders (SAEs).
 
-Based on: Farrell, Leask, Al Moubayed. "Order by Scale: Relative-Magnitude Relational 
-Composition in Attention-Only Transformers." NeurIPS 2025.
+Based on a prior attention-only transformer setup for relative-magnitude
+relational composition.
 """

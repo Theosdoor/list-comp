@@ -2,12 +2,9 @@
 Notebook utilities for loading models and SAEs with consistent configuration.
 """
 
-import os
-import sys
 import torch
 from pathlib import Path
-from src.sae.loading import instantiate_sae_from_cfg
-
+from src.sae.loading import load_sae_checkpoint
 from ..models.utils import load_model as _load_model
 from ..models.transformer import parse_model_name_safe
 from ..utils.runtime import configure_runtime
@@ -19,33 +16,25 @@ def get_device():
         return "cuda"
     elif torch.backends.mps.is_available():
         return "mps"
-    else:
-        return "cpu"
+    return "cpu"
 
 
 def setup_notebook(seed=42, disable_grad=True):
     """
     Common notebook setup: set device, seed, and gradient settings.
-    
-    Args:
-        seed: Random seed for reproducibility
-        disable_grad: Whether to disable gradients (default True for analysis)
-    
-    Returns:
-        device: The device string ('cuda', 'mps', or 'cpu')
+    Returns the device string ('cuda', 'mps', or 'cpu').
     """
     import numpy as np
-    
+
     device = get_device()
     print(f"Using device: {device}")
-    
+
     if disable_grad:
         torch.set_grad_enabled(False)
-    
-    # Set seeds
+
     np.random.seed(seed)
     torch.manual_seed(seed)
-    
+
     return device
 
 
@@ -57,56 +46,41 @@ def load_transformer_model(
     ln=False,
     use_bias=False,
     use_wv=False,
-    use_wo=False
+    use_wo=False,
 ):
     """
     Load a transformer model with standard configuration.
-    
+
     Args:
         model_name: Name of the model file (e.g., '2layer_100dig_64d')
         device: Device to load model on (auto-detected if None)
         models_dir: Directory containing model files (defaults to project root/models)
-        n_heads: Number of attention heads
-        ln: Whether to use layer normalization
-        use_bias: Whether to use bias terms
-        use_wv: Whether to use separate value weights
-        use_wo: Whether to use output weights
-    
+        n_heads, ln, use_bias, use_wv, use_wo: Architecture flags
+
     Returns:
-        tuple: (model, model_config) where model_config contains:
-            - d_model: Model dimension
-            - n_layers: Number of layers
-            - n_digits: Vocabulary size (digits)
-            - list_len: List length for the task
-            - sep_token_index: Position of separator token
+        (model, config) where config has: d_model, n_layers, n_digits,
+        list_len, sep_token_index, n_heads
     """
     if device is None:
         device = get_device()
-    
-    # Determine models directory
+
     if models_dir is None:
-        project_root = Path(__file__).parent.parent.parent  # src/utils/ -> project root
+        project_root = Path(__file__).parent.parent.parent
         models_dir = project_root / "models"
     else:
         models_dir = Path(models_dir)
-    
-    # Parse model configuration
+
     model_cfg = parse_model_name_safe(model_name)
-    
-    # Derive task configuration
-    list_len = 2  # Default for current tasks
+    list_len = model_cfg.list_len
     n_digits = model_cfg.n_digits
-    sep_token_index = list_len  # SEP at position list_len
-    
-    # Setup runtime
+
     configure_runtime(
         list_len=list_len,
-        seq_len=2 * list_len + 1,  # [d1, d2, SEP, o1, o2]
-        vocab=n_digits + 2,  # digits + MASK + SEP
-        device=device
+        seq_len=2 * list_len + 1,
+        vocab=n_digits + 2,
+        device=device,
     )
-    
-    # Load model
+
     model_path = models_dir / (model_name + ".pt")
     model = _load_model(
         str(model_path),
@@ -116,81 +90,52 @@ def load_transformer_model(
         ln=ln,
         use_bias=use_bias,
         use_wv=use_wv,
-        use_wo=use_wo
+        use_wo=use_wo,
     )
-    
+
     print(f"✓ Loaded model from {model_path}")
-    
-    # Return model and config dict
+
     config = {
-        'd_model': model_cfg.d_model,
-        'n_layers': model_cfg.n_layers,
-        'n_digits': n_digits,
-        'list_len': list_len,
-        'sep_token_index': sep_token_index,
-        'n_heads': n_heads,
+        "d_model": model_cfg.d_model,
+        "n_layers": model_cfg.n_layers,
+        "n_digits": n_digits,
+        "list_len": list_len,
+        "sep_token_index": list_len,
+        "n_heads": n_heads,
     }
-    
+
     return model, config
 
 
-def load_sae(
-    sae_name,
-    d_model,
-    device=None,
-    sae_dir=None
-):
+def load_sae(sae_path, d_model, device=None):
     """
-    Load a Sparse Autoencoder (SAE) from checkpoint.
-    
+    Load a Sparse Autoencoder from a .pt checkpoint.
+
     Args:
-        sae_name: Name of the SAE file (e.g., 'sae_d100_k4_50ksteps_2layer_100dig_64d.pt')
+        sae_path: Relative path from project root to a .pt file
         d_model: Dimension of model activations
-        device: Device to load SAE on (auto-detected if None)
-        sae_dir: Directory containing SAE checkpoints (defaults to project root/results/sae_models)
-    
+        device: Device to load on (auto-detected if None)
+
     Returns:
-        tuple: (sae, sae_config) where sae_config contains:
-            - dict_size (d_sae): SAE dictionary size
-            - k (top_k): Number of active features
-            - Additional fields from checkpoint config
+        (sae, config) where config contains dict_size, d_sae, act_mean,
+        and any other fields from the checkpoint config
     """
     if device is None:
         device = get_device()
-    
-    # Determine SAE directory
-    if sae_dir is None:
-        project_root = Path(__file__).parent.parent.parent  # src/utils/ -> project root
-        sae_dir = project_root / "results" / "sae_models"
-    else:
-        sae_dir = Path(sae_dir)
-    
-    # Load checkpoint
-    sae_path = sae_dir / sae_name
-    checkpoint = torch.load(str(sae_path), map_location=device, weights_only=False)
-    
-    # Extract config
-    sae_cfg = checkpoint.get("cfg", {})
-    d_sae = sae_cfg.get("dict_size", sae_cfg.get("d_sae", 256))
-    sae_type = sae_cfg.get("sae_type", "btk")
 
-    # Create SAE instance using shared dispatch
-    sae = instantiate_sae_from_cfg(sae_cfg, d_model, device)
+    sae_path = Path(sae_path)
 
-    # Load state dict (handle legacy BTK format)
-    state_dict = checkpoint["state_dict"]
-    if sae_type == "btk" and "W_enc" in state_dict:
-        state_dict = {
-            "encoder.weight": state_dict["W_enc"].T,
-            "encoder.bias": state_dict["b_enc"],
-            "decoder.weight": state_dict["W_dec"],
-            "decoder.bias": state_dict["b_dec"],
-        }
-    sae.load_state_dict(state_dict)
+    if sae_path.suffix != ".pt":
+        raise ValueError(f"Expected a .pt file, got: {sae_path}")
+    if not sae_path.exists():
+        raise FileNotFoundError(f"No SAE checkpoint found at {sae_path}")
 
-    act_mean = checkpoint.get("act_mean", torch.zeros(d_model))
+    result = load_sae_checkpoint(sae_path, d_model=d_model, device=device)
+    sae = result["sae"]
+    config = result["config"]
+    d_sae = config["d_sae"]
+    sae_type = config.get("sae_type", "btk")
 
-    print(f"✓ Loaded {sae_type} SAE from {sae_path}")
-    print(f"  - Dictionary size: {d_sae}")
+    print(f"✓ Loaded {sae_type} SAE from {sae_path} (dict_size={d_sae})")
 
-    return sae, {'dict_size': d_sae, 'd_sae': d_sae, 'act_mean': act_mean, **sae_cfg}
+    return sae, config

@@ -204,14 +204,10 @@ def _log_wandb_eval_metrics(model, sae, act_mean, d_sae):
                 model, sae, analysis_dl, act_mean,
                 layer_idx=0, sep_idx=SEP_TOKEN_INDEX, device=DEVICE,
             )
-            wandb.summary["baseline_ce"] = downstream["baseline_ce"]
-            wandb.summary["patched_ce"] = downstream["patched_ce"]
-            wandb.summary["ce_increase"] = downstream["ce_increase"]
+            wandb.summary["loss_recovered"] = downstream.get("loss_recovered", None)
         except Exception as e:
-            print(f"    ⚠ Downstream CE metrics failed: {e}")
-            wandb.summary["baseline_ce"] = None
-            wandb.summary["patched_ce"] = None
-            wandb.summary["ce_increase"] = None
+            print(f"    ⚠ Downstream metrics failed: {e}")
+            wandb.summary["loss_recovered"] = None
 
         try:
             alpha_d1_all, alpha_d2_all = collect_attention_patterns(
@@ -374,9 +370,10 @@ def _train(cfg, use_wandb: bool, save_folder: str, model_path: str = None):
             _wandb.summary["final/step"] = cfg.n_steps
             _log_wandb_eval_metrics(model, trainer.ae.to(DEVICE), act_mean, cfg.d_sae)
 
-        # Save checkpoints to disk
-        os.makedirs(save_folder, exist_ok=True)
-        final_save_path = os.path.join(save_folder, f"{run_name}_{MODEL_NAME}.pt")
+        # Save checkpoints to disk (in a subfolder named after the run)
+        run_folder = os.path.join(save_folder, run_name)
+        os.makedirs(run_folder, exist_ok=True)
+        final_save_path = os.path.join(run_folder, f"{run_name}_{MODEL_NAME}.pt")
         torch.save({
             "state_dict": trainer.ae.state_dict(),
             "cfg": {
@@ -394,7 +391,7 @@ def _train(cfg, use_wandb: bool, save_folder: str, model_path: str = None):
         
         best_save_path = None
         if best_state_dict is not None and best_step < cfg.n_steps - 1:
-            best_save_path = os.path.join(save_folder, f"{run_name}_best_{MODEL_NAME}.pt")
+            best_save_path = os.path.join(run_folder, f"{run_name}_best_{MODEL_NAME}.pt")
             torch.save({
                 "state_dict": best_state_dict,
                 "cfg": {
@@ -462,7 +459,7 @@ def train_sae_sweep():
     run = wandb.init()
     cfg = wandb.config
     sweep_id = run.sweep_id or "standalone"
-    _train(cfg, use_wandb=True, save_folder=f"results/sae_models/sweep_{sweep_id}")
+    _train(cfg, use_wandb=True, save_folder=f"sae_checkpoints/sweep_{sweep_id}")
 
 
 def main():
@@ -480,7 +477,7 @@ def main():
     parser.add_argument("--warmup_steps", type=int, default=1000)
     parser.add_argument("--batch_size", type=int, default=4096)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--save_folder", type=str, default="results/sae_models")
+    parser.add_argument("--save_folder", type=str, default="sae_checkpoints")
     parser.add_argument("--model_path", type=str, default=None,
                         help="Path to transformer checkpoint (default: models/2layer_100dig_64d.pt)")
     args = parser.parse_args()

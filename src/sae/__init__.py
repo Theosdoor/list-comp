@@ -26,13 +26,15 @@ from .metrics import (
     compute_reconstruction_metrics,
     compute_sae_downstream_metrics,
     compute_sae_patched_accuracy,
-    compute_sae_patched_ce_loss,
 )
 
 # SAE loading
 from .loading import (
+    load_sae_checkpoint,
+    load_sae_from_checkpoint,
     load_sae_from_local,
     load_sae_from_wandb_run,
+    normalize_sae_state_dict,
     compare_sweep_runs,
 )
 
@@ -77,10 +79,12 @@ __all__ = [
     "compute_reconstruction_metrics",
     "compute_sae_downstream_metrics",
     "compute_sae_patched_accuracy",
-    "compute_sae_patched_ce_loss",
     # SAE loading
+    "load_sae_checkpoint",
+    "load_sae_from_checkpoint",
     "load_sae_from_local",
     "load_sae_from_wandb_run",
+    "normalize_sae_state_dict",
     "compare_sweep_runs",
     # Reporting
     "get_original_correctness",

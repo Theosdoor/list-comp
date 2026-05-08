@@ -1,204 +1,98 @@
-# Mechanistic Interpretability of List-Comparison Transformers
+# list-comp
 
-This repository implements and analyzes attention-only transformers trained on a list-comparison task, with sparse autoencoder (SAE) feature analysis and mechanistic interpretation.
+Mechanistic interpretability experiments for small attention-only transformers on a list-copy task.
 
-**Paper:** Farrell, Theo, Patrick Leask, and Noura Al Moubayed. "Order by Scale: Relative‑Magnitude Relational Composition in Attention‑Only Transformers." *Socially Responsible and Trustworthy Foundation Models at NeurIPS 2025.* https://openreview.net/forum?id=vWRVzNtk7W
+The canonical task sequence is `[d1, d2, SEP, o1, o2]`. The model sees masked output tokens and must copy the input digits in order. The project studies the SEP-token bottleneck, SAE features on SEP activations, and feature steering/crossover behavior.
 
-## Overview
+## Setup
 
-The model learns to compress list representations into a SEP token and then decompose them. The task structure `[d1, d2, SEP, o1, o2]` enables clean mechanistic analysis of information flow through attention layers.
-
-A custom attention mask enforces the causal structure: input tokens write to SEP, and output tokens read only from SEP and their causally prior output positions.
-
-This repository includes:
-- **Core training:** Model and SAE training scripts
-- **Mechanistic analysis:** Feature steering, crossover analysis, and attention pattern interpretation
-- **Figure generation:** Scripts to reproduce all paper results
-- **Exploration history:** Archived notebooks and experimental sweeps for reference
-
-## Repository Structure
-
-```
-list-comp-priv/
-├── scripts/                       # Core paper reproducibility scripts
-│   ├── train_model.py             # Train baseline transformer
-│   ├── train_sae.py               # Train sparse autoencoder on SEP activations
-│   └── run_crossover_analysis.py  # Feature steering & crossover analysis
-├── visualization/                 # Figure & table generation scripts
-│   ├── make_2layer_table.py       # Reproduce architecture sweep table
-│   ├── nb_compare_sae.py          # Compare SAE checkpoints
-│   ├── plot_sae_sweep.py          # Plot SAE sweep results
-│   ├── nb_model_interp.py         # Attention flow analysis
-│   ├── nb_sae_feat_analysis.py    # SAE feature analysis & heatmaps
-│   └── special_latents_across_saes.py  # Special feature correlation analysis
-├── src/
-│   ├── models/
-│   │   ├── transformer.py         # Model construction, masking, make_model()
-│   │   ├── utils.py               # save/load model, accuracy helpers
-│   │   └── train.py               # Training loop
-│   ├── data/
-│   │   └── datasets.py            # Dataset generation for the list-comparison task
-│   ├── sae/
-│   │   ├── activation_collection.py  # Hook-based activation extraction
-│   │   ├── hooks.py               # TransformerLens hook utilities
-│   │   ├── loading.py             # Load SAE checkpoints
-│   │   ├── metrics.py             # SAE evaluation metrics (L0, MSE, etc.)
-│   │   ├── steering.py            # Feature steering experiments
-│   │   ├── reporting.py           # Failure-reason classification & reports
-│   │   └── visualization.py       # Activation and feature visualization
-│   ├── interpretability/
-│   │   └── interp_utils.py        # Attention pattern and residual-stream analysis
-│   └── utils/
-│       ├── runtime.py             # Global runtime config (list_len, device, etc.)
-│       └── nb_utils.py            # Notebook/display helpers
-├── models/                        # Saved model checkpoints (.pt)
-├── results/                       # SAE checkpoints and analysis results
-├── archive/                       # Exploration artifacts (see archive/README.md)
-│   ├── notebooks/                 # Rough exploration notebooks
-│   ├── exploratory_scripts/       # Superseded/experimental scripts
-│   └── sweeps/                    # WandB sweep configuration files
-├── EXPERIMENTS.md                 # Log of experimental runs
-├── pyproject.toml
-└── README.md
-```
-
-### Quick Navigation
-
-- **To reproduce paper figures:** See `visualization/README.md`
-- **To train models/SAEs:** See `scripts/`
-- **To understand exploration history:** See `archive/README.md`
-
-
-## Installation
-
-Clone the repository and set up the environment using `uv`:
+Install dependencies with `uv` and use the checked-in virtualenv for local commands:
 
 ```bash
 uv sync
 source .venv/bin/activate
 ```
 
-Copy `.env.example` to `.env` and fill in your credentials (WandB API key, etc.):
+Copy the environment template if you need WandB or other credentials:
 
 ```bash
 cp .env.example .env
 ```
 
-## Usage
+For automated agent work in this repo, shell commands should be prefixed with `rtk`, and Python commands should use `.venv/bin/python` or `.venv/bin/pytest`.
 
-### Train a Transformer Model
+## Repository Layout
 
-```bash
-python3 scripts/train_model.py \
-  --n-layers 2 --n-heads 1 --d-model 64 --n-digits 100 \
-  --lr 1e-3 --max-steps 100000 --min-acc 0.9 \
-  --wandb   # optional: log to Weights & Biases
-```
+- `src/data/` builds list-copy datasets.
+- `src/models/` defines the attention-only transformer, custom attention masks, model loading, and training utilities.
+- `src/sae/` contains SAE loading, activation collection, metrics, steering, and report generation.
+- `src/utils/` contains runtime configuration and notebook/script loading helpers.
+- `scripts/` contains runnable analysis and SAE training scripts.
+- `slurm/` contains cluster job wrappers.
+- `models/` and `sae_checkpoints/` hold local checkpoints.
+- `results/` holds generated analysis outputs.
+- `paper/` contains the paper source and figures.
 
-Key flags:
+## Core Concepts
 
-| Flag | Default | Description |
-|---|---|---|
-| `--n-layers` | 2 | Number of transformer layers |
-| `--d-model` | 64 | Model dimension |
-| `--n-digits` | 100 | Vocabulary size (digits) |
-| `--list-len` | 2 | Input list length |
-| `--wv` / `--wo` | off | Learn W_V / W_O (off = freeze to identity) |
-| `--mlp` | off | Include MLP layers (off = attention-only) |
-| `--ln` | off | Use layer normalisation |
-| `--min-acc` | 0.9 | Minimum val accuracy; retries up to `--max-retries` |
+`src/data/datasets.py::get_dataset()` returns `(train_ds, val_ds)` using an 80/20 split by default. Token IDs conventionally use `MASK = n_digits` and `SEP = n_digits + 1`; the output slice is `[:, list_len + 1:]`.
 
-Saved models are written to `models/` with names like `L2_H1_D64_V100_<timestamp>_acc<val_acc>.pt`.
+The custom attention mask in `src/models/transformer.py` enforces a SEP compression bottleneck:
 
-### Train a Sparse Autoencoder (SAE)
+- Layer 0 lets SEP read input digits while output rows are effectively blocked.
+- Later layers let output tokens read SEP and causally prior outputs.
 
-```bash
-python3 scripts/train_sae.py \
-  --d_sae 150 --top_k 4 --n_steps 50000
-```
+This makes information flow through `inputs -> SEP -> outputs`.
 
-The SAE is trained on SEP-token activations extracted from a pre-trained model. Checkpoints are saved to `results/sae_models/`.
+## Common Workflows
 
-### Interpretability & Analysis
+Train an SAE on the baseline model:
 
 ```bash
-# Full mechanistic interpretability analysis
-python3 scripts/nb_model_interp.py
-
-# Feature steering crossover analysis
-python3 scripts/run_crossover_analysis.py
-
-# Compare SAE reconstructions (specify folders instead of scanning all)
-python3 visualisation/compare_sae.py \
-  --sae_folders sweep_k2bsjr0n results/sae_models/sweep_tbxyl1y7 sweep_xliz4f19
+.venv/bin/python scripts/train_sae.py --sae_type btk --d_sae 150 --top_k 4 --n_steps 50000
 ```
 
-**SAE Comparison Flags:**
-
-| Flag | Description |
-|---|---|
-| `--sae_folders` | One or more folders to search for SAE checkpoints (space-separated). If not provided, defaults to `results/sae_models/` |
-| `--model_path` | Override base model for all SAEs |
-
-### Download Checkpoints from WandB
-
-Download artifacts (models or SAE checkpoints) from WandB projects. The following projects are public:
-- **SAE Sweep:** https://wandb.ai/theo-farrell99-durham-university/orderbyscale_sae_sweep/
-- **Transformer Models:** https://wandb.ai/theo-farrell99-durham-university/order-by-scale/
+Run crossover analysis:
 
 ```bash
-# Download all SAEs from the sweep project
-python3 scripts/download_wandb_checkpoints.py \
-  --entity theo-farrell99-durham-university \
-  --project orderbyscale_sae_sweep \
-  --artifact_type sae_model \
-  --output_dir results/sae_models/wandb/
-
-# Download transformer models
-python3 scripts/download_wandb_checkpoints.py \
-  --entity theo-farrell99-durham-university \
-  --project order-by-scale \
-  --artifact_type model \
-  --output_dir models/wandb/
-
-# Download from specific runs only
-python3 scripts/download_wandb_checkpoints.py \
-  --entity theo-farrell99-durham-university \
-  --project orderbyscale_sae_sweep \
-  --runs run1_id run2_id run3_id \
-  --output_dir results/sae_models/wandb/
-
-# Filter by artifact name
-python3 scripts/download_wandb_checkpoints.py \
-  --entity theo-farrell99-durham-university \
-  --project orderbyscale_sae_sweep \
-  --name_filter final \
-  --output_dir results/sae_models/wandb/
+.venv/bin/python scripts/run_crossover_analysis.py --feature auto --threshold 0.5 --max-features 2 --report
 ```
 
-Make sure you're logged into WandB: `wandb login`
-
-### WandB Hyperparameter Sweeps
+Compare SAE checkpoints:
 
 ```bash
-wandb sweep sweep_configs/<config>.yaml
-wandb agent <sweep_id>
+.venv/bin/python scripts/compare_sae.py --best
 ```
 
-## Model Architecture
+Plot an SAE sweep comparison report:
 
-- **Attention-only transformer** (no MLPs by default)
-- **2–3 layers** with a single attention head per layer
-- **Constrained weights**: W_V and W_O frozen to identity by default (`--wv`/`--wo` to learn them)
-- **No biases** by default, no layer normalisation by default
-- **Custom attention mask** enforcing the task-specific causal structure:
-
-```
-         d1    d2    SEP   o1    o2   ← keys
-d1     [ ·    -∞    -∞    -∞    -∞  ]
-d2     [ 0    -∞    -∞    -∞    -∞  ]  (layer 0 mask)
-SEP    [ 0     0    -∞    -∞    -∞  ]
-o1     [-∞    -∞     0    -∞    -∞  ]
-o2     [-∞    -∞     0     0    -∞  ]
+```bash
+.venv/bin/python scripts/plot_sae_sweep.py --report results/compare_sae/sae_comparison_<timestamp>.md
 ```
 
+Run tests:
+
+```bash
+.venv/bin/pytest tests/
+```
+
+## Baseline Artifacts
+
+- Common base model: `models/2layer_100dig_64d.pt`
+- Common SAE: `sae_checkpoints/sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt`
+- Crossover outputs: `results/xover/<sae_name>/`
+- SAE comparison outputs: `results/compare_sae/`
+
+## Development Notes
+
+Use `src.utils.nb_utils.load_transformer_model()` for standard model loading in notebooks and analysis scripts; it configures runtime globals before returning `(model, model_cfg)`.
+
+When loading SAE checkpoints, preserve and pass `act_mean` into activation collection, patching, and steering functions. SAE loading is centralized through `src/sae/loading.py` and supports `btk`, `jumprelu`, and `matryoshka` checkpoints.
+
+For evaluation, keep dataset usage explicit:
+
+- Transformer model accuracy should use the held-out validation split from `get_dataset()`.
+- SAE evaluation and exhaustive activation scans should use `ConcatDataset([train_ds, val_ds])`.
+- Do not use `train_split=1.0` for model evaluation.
+
+When running experiments, record the command, output paths, and headline metrics in the experiment log. Historical entries currently live in `archive/EXPERIMENTS.md`.

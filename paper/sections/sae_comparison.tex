@@ -1,0 +1,35 @@
+\section{Further comparison of SAE Types}\label{app:sae_types}
+
+\begin{table*}[htbp]
+\centering
+\caption{Comparison of some sparse autoencoder (SAE) variants.}
+\label{tab:sae_types}
+\begin{tabular}{p{2.5cm}p{12.5cm}}
+\toprule
+\textbf{Type} & \textbf{Description} \\
+\midrule
+Standard ReLU \cite{bricken2023monosemanticity}
+  & Applies an $L_1$ penalty to hidden activations using a standard ReLU activation function to encourage sparsity. \\
+\addlinespace
+Gated \cite{rajamanoharan2024improving}
+  & Decouples feature detection from magnitude estimation using a gated mechanism to prevent the shrinkage issues caused by standard $L_1$ penalties. \\
+\addlinespace
+JumpReLU \cite{rajamanoharan2024jumping}
+  & Uses a discontinuous step function at a learned per-feature threshold, approximating an $L_0$ penalty through straight-through estimation. Notably used in \citet{lieberum2024gemma}. \\
+\addlinespace
+BatchTopK \cite{bussmann2024batchtopk}
+  & Retains top $n \times k$ activations over a batch of $n$ inputs and sets the rest to zero, where $k$ is a tuned hyperparameter. This forces an average of $k$ latent activations per input, so the actual $L_0$ sparsity is approximately $k$. Notably used in \citet{Brixi2026, karvonen2025saebench}. \\
+\addlinespace
+Matryoshka \cite{bussmann2025learning}
+  & Trains nested sub-dictionaries of increasing size that share a single encoder/decoder, producing multiple resolutions of feature granularity in one run. Notably used in \citet{mcdougall2025gemmascope2}. \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+An SAE consists of a single hidden layer trained to reconstruct model activations subject to a sparsity penalty on the latent activations (typically $L_1$ or top-$k$ regularisation) \citep{huben2024sparse, bricken2023monosemanticity}.
+Many SAE variants exist in the literature, some of which are shown in Table \ref{tab:sae_types}.
+
+We use 3 types of SAEs in this paper.
+JumpReLU SAEs \citep{rajamanoharan2024jumping} use a discontinuous step function at a learned threshold and optimise an $L_0$ penalty.
+BatchTopK SAEs \citep{bussmann2024batchtopk} keep the top $n \times k$ activations over a batch of $n$ inputs and sets the rest to zero. This forces an average of $k$ latent activations per input, so the actual $L_0$ sparsity is approximately $k$. 
+Matryoshka SAEs \citep{bussmann2025learning} train nested sub-dictionaries of increasing size under a shared encoder and decoder, producing representations at multiple levels of granularity from a single training run.

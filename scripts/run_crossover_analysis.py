@@ -40,7 +40,7 @@ def parse_args():
     p.add_argument("--model_path", default=None,
                    help="Full path to model checkpoint (overrides --model; infers config from weights)")
     p.add_argument("--sae", default="sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt",
-                   help="SAE checkpoint filename (relative to results/sae_models/) or full path")
+                   help="SAE checkpoint filename (relative to sae_checkpoints/) or full path")
     p.add_argument("--feature", type=str, default="auto", dest="feature_idx",
                    help="SAE feature index to analyse ('auto' to detect, or an integer to override)")
     p.add_argument("--threshold", type=float, default=0.5,
@@ -84,7 +84,8 @@ def _build_special_features_table(found_sorted, firing_rates, max_features, thre
 def run_pipeline(args):
     """Run the crossover pipeline and return list of per-feature context dicts."""
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    sae_tag = Path(args.sae).stem
+    sae_name = Path(args.sae).name
+    sae_tag = sae_name[:-3] if sae_name.endswith('.pt') else sae_name
     sae_results_dir = Path(args.results_dir) / sae_tag
     sae_results_dir.mkdir(parents=True, exist_ok=True)
 
@@ -128,15 +129,22 @@ def run_pipeline(args):
         list_len = model_cfg["list_len"]
         sep_idx = model_cfg["sep_token_index"]
 
-    # Resolve SAE path: treat as full path if it contains a separator, else relative to results/sae_models/
+    # Resolve SAE path (can be folder or .pt file)
     sae_path = args.sae if os.path.sep in args.sae or os.path.isabs(args.sae) \
-        else os.path.join("results/sae_models", args.sae)
-
-    sae, sae_cfg = load_sae(os.path.basename(sae_path), d_model, device=device,
-                             sae_dir=os.path.dirname(sae_path))
-
-    sae_checkpoint = torch.load(sae_path, map_location=device, weights_only=False)
-    act_mean = sae_checkpoint["act_mean"].to(device)
+        else os.path.join("sae_checkpoints", args.sae)
+    
+    # load_sae now handles both folder and .pt file paths
+    sae, sae_cfg = load_sae(sae_path, d_model, device=device)
+    
+    # Extract act_mean from config (or load from checkpoint if needed)
+    act_mean = sae_cfg.get("act_mean")
+    if act_mean is None:
+        # Fallback: if act_mean wasn't returned, load directly from checkpoint
+        sae_checkpoint = torch.load(
+            str(Path(sae_path) if Path(sae_path).suffix == ".pt" else list(Path(sae_path).glob("*.pt"))[0]),
+            map_location=device, weights_only=False
+        )
+        act_mean = sae_checkpoint["act_mean"].to(device)
 
     # [2/7] Load dataset
     print("\n[2/7] Loading dataset...")
