@@ -291,7 +291,7 @@ def write_latex_table(agg: pd.DataFrame, output_dir: Path,
         r"\centering",
         r"\caption{SAE sweep results aggregated over seeds and learning rates (mean $\pm$ std). "
         r"$L_0$: mean active features per token. $d_\text{SAE}$: dictionary size. "
-        r"\textbf{LR} (loss recovered): $(H^* - H_0) / (H_\text{orig} - H_0)$ where $H_\text{orig}$ is baseline CE, $H^*$ is SAE-patched CE, and $H_0$ is zero-ablation CE ($\uparrow$ better; 1 = perfect reconstruction). "
+        r"\textbf{Loss recovered}: $(H^* - H_0) / (H_\text{orig} - H_0)$ where $H_\text{orig}$ is baseline CE, $H^*$ is SAE-patched CE, and $H_0$ is zero-ablation CE ($\uparrow$ better; 1 = perfect reconstruction). "
         r"\textbf{Dead\,\%}: percentage of dictionary features with zero activation across the evaluation set ($\downarrow$ better). " +
         (r"$N_\text{special}$: features whose activation strongly correlates with the SEP attention difference $\alpha_{d_1}-\alpha_{d_2}$, as discussed in Section \ref{s:res_rq2}. " if not exclude_special_col else "") +
         r"\textbf{Bold}: best within each $L_0$ block; \underline{\textbf{underlined}}: best overall.}",
@@ -301,13 +301,13 @@ def write_latex_table(agg: pd.DataFrame, output_dir: Path,
     ]
     
     if exclude_special_col:
-        header = (r"$L_0$ & $d_\text{SAE}$ & LR ($\uparrow$) & Dead \% ($\downarrow$) \\"
+        header = (r"$L_0$ & $d_\text{SAE}$ & Loss recovered ($\uparrow$) & Dead \% ($\downarrow$) \\"
                   if exclude_runs_col else
-                  r"$L_0$ & $d_\text{SAE}$ & Runs & LR ($\uparrow$) & Dead \% ($\downarrow$) \\")
+                  r"$L_0$ & $d_\text{SAE}$ & Runs & Loss recovered ($\uparrow$) & Dead \% ($\downarrow$) \\")
     else:
-        header = (r"$L_0$ & $d_\text{SAE}$ & LR ($\uparrow$) & Dead \% ($\downarrow$) & $N_\text{special}$ \\"
+        header = (r"$L_0$ & $d_\text{SAE}$ & Loss recovered ($\uparrow$) & Dead \% ($\downarrow$) & $N_\text{special}$ \\"
                   if exclude_runs_col else
-                  r"$L_0$ & $d_\text{SAE}$ & Runs & LR ($\uparrow$) & Dead \% ($\downarrow$) & $N_\text{special}$ \\")
+                  r"$L_0$ & $d_\text{SAE}$ & Runs & Loss recovered ($\uparrow$) & Dead \% ($\downarrow$) & $N_\text{special}$ \\")
     
     lines.append(header)
     lines.append(r"\midrule")
