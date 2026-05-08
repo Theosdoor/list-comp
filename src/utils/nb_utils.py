@@ -4,7 +4,7 @@ Notebook utilities for loading models and SAEs with consistent configuration.
 
 import torch
 from pathlib import Path
-from src.sae.loading import instantiate_sae_from_cfg
+from src.sae.loading import load_sae_checkpoint
 from ..models.utils import load_model as _load_model
 from ..models.transformer import parse_model_name_safe
 from ..utils.runtime import configure_runtime
@@ -71,7 +71,7 @@ def load_transformer_model(
         models_dir = Path(models_dir)
 
     model_cfg = parse_model_name_safe(model_name)
-    list_len = 2
+    list_len = model_cfg.list_len
     n_digits = model_cfg.n_digits
 
     configure_runtime(
@@ -130,26 +130,12 @@ def load_sae(sae_path, d_model, device=None):
     if not sae_path.exists():
         raise FileNotFoundError(f"No SAE checkpoint found at {sae_path}")
 
-    checkpoint = torch.load(str(sae_path), map_location=device, weights_only=False)
-
-    sae_cfg = checkpoint.get("cfg", {})
-    d_sae = sae_cfg.get("dict_size", sae_cfg.get("d_sae", 256))
-    sae_type = sae_cfg.get("sae_type", "btk")
-
-    sae = instantiate_sae_from_cfg(sae_cfg, d_model, device)
-
-    state_dict = checkpoint["state_dict"]
-    if sae_type == "btk" and "W_enc" in state_dict:
-        state_dict = {
-            "encoder.weight": state_dict["W_enc"].T,
-            "encoder.bias": state_dict["b_enc"],
-            "decoder.weight": state_dict["W_dec"],
-            "decoder.bias": state_dict["b_dec"],
-        }
-    sae.load_state_dict(state_dict)
-
-    act_mean = checkpoint.get("act_mean", torch.zeros(d_model))
+    result = load_sae_checkpoint(sae_path, d_model=d_model, device=device)
+    sae = result["sae"]
+    config = result["config"]
+    d_sae = config["d_sae"]
+    sae_type = config.get("sae_type", "btk")
 
     print(f"✓ Loaded {sae_type} SAE from {sae_path} (dict_size={d_sae})")
 
-    return sae, {"dict_size": d_sae, "d_sae": d_sae, "act_mean": act_mean, **sae_cfg}
+    return sae, config

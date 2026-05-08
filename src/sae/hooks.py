@@ -63,6 +63,24 @@ def _extract_activations(model, inputs, layer_idx, hook_name, stop_at_layer=None
     return cache[hook_name]
 
 
+def _patch_sep_reconstruction(activations, reconstructed_acts, act_mean, sep_idx):
+    """Patch SEP residual activations with mean-shifted SAE reconstructions."""
+    patched = activations.clone()
+    reconstructed_acts = reconstructed_acts.to(activations.device)
+    mean = act_mean.to(activations.device)
+    patched[:, sep_idx, :] = reconstructed_acts + mean
+    return patched
+
+
+def make_zero_sep_hook(sep_idx):
+    """Create a hook that zeroes the SEP token residual position."""
+    def hook_fn(activations, hook):
+        patched = activations.clone()
+        patched[:, sep_idx, :] = 0.0
+        return patched
+    return hook_fn
+
+
 def make_sae_patch_hook(reconstructed_acts, act_mean, sep_idx):
     """
     Create a hook that patches pre-computed SAE-reconstructed activations at the SEP token position.
@@ -76,10 +94,7 @@ def make_sae_patch_hook(reconstructed_acts, act_mean, sep_idx):
         hook_fn: Hook function that can be used with model.run_with_hooks
     """
     def hook_fn(activations, hook):
-        activations = activations.clone()
-        # Add back the activation mean (SAE outputs are mean-centered)
-        activations[:, sep_idx, :] = reconstructed_acts + act_mean.to(activations.device)
-        return activations
+        return _patch_sep_reconstruction(activations, reconstructed_acts, act_mean, sep_idx)
     return hook_fn
 
 
@@ -96,13 +111,10 @@ def make_dynamic_sae_patch_hook(sae, act_mean, sep_idx):
         hook_fn: Hook function that can be used with model.run_with_hooks
     """
     def hook_fn(activations, hook):
-        activations = activations.clone()
         # Get SEP token activations and reconstruct through SAE
         sep_acts = activations[:, sep_idx, :]
         reconstructed = _encode_through_sae(sep_acts, sae, act_mean, decode=True)
-        # Replace with reconstruction (add mean back)
-        activations[:, sep_idx, :] = reconstructed + act_mean.to(reconstructed.device)
-        return activations
+        return _patch_sep_reconstruction(activations, reconstructed, act_mean, sep_idx)
     return hook_fn
 
 
@@ -121,7 +133,5 @@ def make_batched_sae_patch_hook(batch_recon, act_mean, sep_idx):
         hook_fn: Hook function that can be used with model.run_with_hooks
     """
     def hook_fn(activations, hook):
-        activations = activations.clone()
-        activations[:, sep_idx, :] = batch_recon + act_mean.to(activations.device)
-        return activations
+        return _patch_sep_reconstruction(activations, batch_recon, act_mean, sep_idx)
     return hook_fn

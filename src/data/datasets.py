@@ -8,6 +8,27 @@ import itertools
 # keeping multiple epochs of training within a fixed step budget.
 MAX_DATASET_SIZE = 1_000_000
 
+
+def _shuffle_pair(inputs: torch.Tensor, targets: torch.Tensor, seed=None):
+    """Shuffle aligned input/target tensors with the same permutation."""
+    if len(inputs) != len(targets):
+        raise ValueError(f"inputs and targets must have same length, got {len(inputs)} vs {len(targets)}")
+
+    generator = None
+    if seed is not None:
+        generator = torch.Generator(device=inputs.device)
+        generator.manual_seed(seed)
+
+    perm = torch.randperm(len(inputs), generator=generator, device=inputs.device)
+    return inputs[perm], targets[perm]
+
+
+def _split_pair(inputs: torch.Tensor, targets: torch.Tensor, train_split: float):
+    """Split aligned input/target tensors into train and validation portions."""
+    split = int(train_split * len(inputs))
+    return inputs[:split], targets[:split], inputs[split:], targets[split:]
+
+
 def get_dataset(
     list_len=2, # [d1, d2]
     n_digits=100,
@@ -84,37 +105,19 @@ def get_dataset(
     if no_dupes:
         # Use only non-duplicates for both train and val
         all_inputs, all_targets = build_inputs_targets(non_dupes)
-        n_data = len(non_dupes)
-
-        # Shuffle together
-        perm = torch.randperm(n_data)
-        all_inputs = all_inputs[perm]
-        all_targets = all_targets[perm]
-
-        # Split into train/val
-        split = int(train_split * n_data)
-        train_inputs = all_inputs[:split]
-        train_targets = all_targets[:split]
-        val_inputs = all_inputs[split:]
-        val_targets = all_targets[split:]
+        all_inputs, all_targets = _shuffle_pair(all_inputs, all_targets)
+        train_inputs, train_targets, val_inputs, val_targets = _split_pair(
+            all_inputs, all_targets, train_split
+        )
 
     else: # if allowed dupes
         if train_dupes_only:
             # Split non-dupes into train/val, then add dupes only to train and reshuffle
             nd_inputs, nd_targets = build_inputs_targets(non_dupes)
-            n_nd = len(non_dupes)
-
-            # Shuffle non-dupes together
-            perm = torch.randperm(n_nd)
-            nd_inputs = nd_inputs[perm]
-            nd_targets = nd_targets[perm]
-
-            # Split non-dupes into train/val
-            split = int(train_split * n_nd)
-            train_inputs = nd_inputs[:split]
-            train_targets = nd_targets[:split]
-            val_inputs = nd_inputs[split:]
-            val_targets = nd_targets[split:]
+            nd_inputs, nd_targets = _shuffle_pair(nd_inputs, nd_targets)
+            train_inputs, train_targets, val_inputs, val_targets = _split_pair(
+                nd_inputs, nd_targets, train_split
+            )
 
             # Build dupes and append to train only
             d_inputs, d_targets = build_inputs_targets(dupes)
@@ -122,25 +125,14 @@ def get_dataset(
             train_targets = torch.cat([train_targets, d_targets], dim=0)
 
             # Shuffle the augmented training set
-            perm_train = torch.randperm(len(train_inputs))
-            train_inputs = train_inputs[perm_train]
-            train_targets = train_targets[perm_train]
+            train_inputs, train_targets = _shuffle_pair(train_inputs, train_targets)
         else:
             # Use all data (dupes + non-dupes) for both train and val
             all_inputs, all_targets = build_inputs_targets(all_data)
-            n_data = len(all_data)
-
-            # Shuffle together
-            perm = torch.randperm(n_data)
-            all_inputs = all_inputs[perm]
-            all_targets = all_targets[perm]
-
-            # Split into train/val
-            split = int(train_split * n_data)
-            train_inputs = all_inputs[:split]
-            train_targets = all_targets[:split]
-            val_inputs = all_inputs[split:]
-            val_targets = all_targets[split:]
+            all_inputs, all_targets = _shuffle_pair(all_inputs, all_targets)
+            train_inputs, train_targets, val_inputs, val_targets = _split_pair(
+                all_inputs, all_targets, train_split
+            )
 
     train_ds = TensorDataset(train_inputs, train_targets)
     val_ds = TensorDataset(val_inputs, val_targets)
