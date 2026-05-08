@@ -37,13 +37,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAVE_DIR = os.path.join(REPO_ROOT, "results/sae_feat_analysis")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
-SAE_NAME   = "../sae_checkpoints/sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt" 
-# SAE_NAME = "../sae_checkpoints/sweep_k2bsjr0n/btk_sae_d128_k3_lr0.0003_seed5/btk_sae_d128_k3_lr0.0003_seed5_2layer_100dig_64d.pt"
-
-# TODO - could infer model name from sae config?
+SAE_NAME   = "../sae_checkpoints/sae_d128_k3_seed1_2layer_100dig_64d.pt" 
 MODEL_NAME = "2layer_100dig_64d"
-# MODEL_NAME = "2_layer_sweep/d64_h1_lnF_biasF_wvF_woF_mlpF_s3_acc0.9405"
-
 SPECIAL_THRESH = 0.3 # Threshold for identifying special features
 
 model, model_cfg = load_transformer_model(MODEL_NAME, device=DEVICE)
@@ -150,140 +145,6 @@ for idx in top_3_indices:
     fire_pct = firing_freq[idx] * 100
     n_active = (sae_acts_all[:, idx] > 0).sum().item()
     print(f"{idx:<10} {fire_pct:<15.2f} {n_active:<10}")
-
-# %% [markdown]
-# ## Cell 1b — Latent Type Classification via Greedy Symbol Peeling
-
-# %%
-from collections import defaultdict
-
-# ── Hyperparameters ────────────────────────────────────────────────────────
-ACTIVATION_THRESHOLD    = 1e-6   # minimum activation to count as "active"
-MAGNITUDE_STD_THRESHOLD = 1    # drop activations below (mean - N*std) before peeling
-MIN_ACTIVATIONS         = 10     # fewer than this → "near-dead" rather than symbol detector
-MIN_CASES_FOR_DETECTION = 10    # (5% of 199) need at least this many activating examples with a symbol to be considered a detector for that symbol. prevents eg. 8-symb detector because it activates on 8 different bigrams but only 1 example per symbol.
-
-# ── Precompute ─────────────────────────────────────────────────────────────
-n_inputs_total      = len(sae_acts_all)
-special_latent_set  = {f["feature_idx"] for f in special_info["special_features"]}
-dead_latent_set     = set(
-    int(i) for i in (sae_acts_all.sum(dim=0) == 0)
-    .nonzero(as_tuple=False).squeeze(-1).tolist()
-)
-d1_np, d2_np = d1_all.numpy(), d2_all.numpy()
-
-def peel_symbols(active_mask, act_vals_np, verbose=False):
-    """Filter by magnitude then greedily peel symbols. Returns (k, n_filtered, trace)."""
-    indices  = np.where(active_mask)[0]
-    mags     = act_vals_np[indices]
-    keep     = indices[mags >= mags.mean() - MAGNITUDE_STD_THRESHOLD * mags.std()]
-
-    filtered = np.zeros(len(act_vals_np), dtype=bool)
-    filtered[keep] = True
-    remaining = filtered.copy()
-
-    k, trace = 0, []
-    while remaining.any():
-        counts  = np.bincount(
-            np.concatenate([d1_np[remaining], d2_np[remaining]]),
-            minlength=N_DIGITS,
-        )
-        sym       = int(counts.argmax())
-        sym_mask  = (d1_np == sym) | (d2_np == sym)
-        n_removed = int(sym_mask[remaining].sum())
-        if n_removed < MIN_CASES_FOR_DETECTION:
-            break  # stop peeling if no symbol has enough cases left
-        if verbose:
-            trace.append(f"s{sym}(-{n_removed})")
-        remaining &= ~sym_mask
-        k += 1
-        if k > N_DIGITS:
-            break
-
-    return k, int(filtered.sum()), trace
-
-# ── Classify ───────────────────────────────────────────────────────────────
-latent_records = []
-for latent_idx in tqdm(range(D_SAE), desc="Classifying latents"):
-    act_vals    = sae_acts_all[:, latent_idx].numpy()
-    active_mask = act_vals > ACTIVATION_THRESHOLD
-    n_active    = int(active_mask.sum())
-    mean_mag    = float(act_vals[active_mask].mean()) if n_active > 0 else 0.0
-    firing_rate = n_active / n_inputs_total
-
-    if latent_idx in dead_latent_set:
-        latent_type, k, coverage = "Dead", 0, None
-    elif latent_idx in special_latent_set:
-        latent_type, k, coverage = "Special", None, None
-    elif n_active < MIN_ACTIVATIONS:
-        latent_type, k, coverage = "Near-dead", 0, None
-    else:
-        k, n_filtered, _ = peel_symbols(active_mask, act_vals)
-        expected    = k * (2 * N_DIGITS - 1) - k * (k - 1)
-        coverage    = n_filtered / expected if expected > 0 else None
-        latent_type = f"{k}-symbol"
-
-    latent_records.append({
-        "latent_idx": latent_idx, "type": latent_type,
-        "n_active": n_active, "firing_rate": firing_rate,
-        "mean_mag": mean_mag, "coverage": coverage,
-    })
-
-# ── Aggregate and print table ──────────────────────────────────────────────
-def _type_sort_key(t):
-    if t == "Special":   return -1
-    if t == "Near-dead": return 9998
-    if t == "Dead":      return 9999
-    return int(t.split("-")[0])
-
-def _fmt(vals, scale=1.0, decimals=2, suffix=""):
-    if not vals: return "—"
-    mu, sd = np.mean(vals) * scale, np.std(vals) * scale
-    return f"{mu:.{decimals}f} ± {sd:.{decimals}f}{suffix}"
-
-type_groups = defaultdict(list)
-for rec in latent_records:
-    type_groups[rec["type"]].append(rec)
-
-table_data = []
-for latent_type in sorted(type_groups.keys(), key=_type_sort_key):
-    recs = type_groups[latent_type]
-    coverages    = [r["coverage"]    for r in recs if r["coverage"] is not None]
-    mean_mags    = [r["mean_mag"]    for r in recs]
-    firing_rates = [r["firing_rate"] for r in recs]
-    table_data.append({
-        "Type":            latent_type,
-        "Count":           len(recs),
-        "% of SAE":        f"{100.0 * len(recs) / D_SAE:.1f}%",
-        "Coverage ± std":  _fmt(coverages,    scale=100, decimals=1, suffix="%"),
-        "Mean mag ± std":  _fmt(mean_mags,    decimals=3),
-        "Fire rate ± std": _fmt(firing_rates, scale=100, decimals=2, suffix="%"),
-    })
-
-print("╔══════════════════════════════════════════════════════════════════════════════════════════╗")
-print("║                         SAE Latent Type Classification                                  ║")
-print("╚══════════════════════════════════════════════════════════════════════════════════════════╝")
-print(SAE_NAME)
-print(pd.DataFrame(table_data).to_string(index=False))
-print(f"\nTotal: {D_SAE}  |  Classified: {sum(len(v) for v in type_groups.values())}")
-
-# ── Up to 3 example latents per type ──────────────────────────────────────
-print("\n── Up to 3 example latents per type ─────────────────────────────────────")
-for latent_type in sorted(type_groups.keys(), key=_type_sort_key):
-    recs     = type_groups[latent_type]
-    examples = sorted(recs, key=lambda r: r["coverage"] if r["coverage"] is not None else -1)[:3]
-    print(f"\n  [{latent_type}]")
-    for r in examples:
-        cov_str = f"{r['coverage']*100:.1f}%" if r["coverage"] is not None else "—"
-        if r["type"] not in ("Dead", "Near-dead", "Special"):
-            act_vals_np = sae_acts_all[:, r["latent_idx"]].numpy()
-            active_mask = act_vals_np > ACTIVATION_THRESHOLD
-            _, _, trace = peel_symbols(active_mask, act_vals_np, verbose=True)
-            sym_str = " → ".join(trace)
-        else:
-            sym_str = "—"
-        print(f"    L{r['latent_idx']:3d} | n_active={r['n_active']:4d} | cov={cov_str:>7} | "
-              f"mag={r['mean_mag']:.3f} | fire={r['firing_rate']*100:.2f}% | peel: {sym_str}")
 
 # %% [markdown]
 # ## Cell 2 — Digit distribution for top features
@@ -415,86 +276,7 @@ else:
     print("(none found)")
 
 # %% [markdown]
-# ## Cell 6 — Bigram-level alignment: special feature vs α_diff
-
-# %%
-# Identify the primary special feature and report it
-info6 = identify_special_features(sae_acts_all, alpha_d1_all, alpha_d2_all, threshold=SPECIAL_THRESH)
-
-if not info6["special_features"]:
-    print(f"No special features found at threshold={SPECIAL_THRESH}")
-else:
-    primary = info6["special_features"][0] # switch to [0] for strongest corr, or [-1] for most balanced corr
-    feat_idx  = primary["feature_idx"]
-    feat_corr = primary["correlation"]
-    feat_type = primary["type"]
-
-    print(f"Selected special feature: F{feat_idx}")
-    print(f"  Global Pearson r with (α_d1 − α_d2): {feat_corr:+.4f}  [{feat_type}]")
-    print(f"  Fire rate: {float((sae_acts_all[:, feat_idx] > 0).float().mean()) * 100:.1f}%")
-
-    feat_acts  = sae_acts_all[:, feat_idx].numpy()       # [N]
-    alpha_diff = (alpha_d1_all - alpha_d2_all).numpy()   # [N]
-    n_total    = len(feat_acts)
-
-    # ── Per-bigram concordance ───────────────────────────────────────────────
-    # For a d1-favoring feature (r > 0): expect feat active  when alpha_diff > 0
-    #                                          feat inactive  when alpha_diff < 0
-    # For a d2-favoring feature (r < 0): reversed.
-    feat_active = feat_acts > 0
-    alpha_pos   = alpha_diff > 0   # SEP attends more to d1 than d2
-
-    if feat_corr > 0:
-        concordant = (feat_active & alpha_pos) | (~feat_active & ~alpha_pos)
-    else:
-        concordant = (feat_active & ~alpha_pos) | (~feat_active & alpha_pos)
-
-    pct_concordant = 100.0 * concordant.sum() / n_total
-
-    # Only bigrams where the alpha_diff signal is clear (above bottom quartile)
-    alpha_abs_thresh = np.percentile(np.abs(alpha_diff), 25)
-    clear_mask = np.abs(alpha_diff) > alpha_abs_thresh
-    pct_concordant_clear = (
-        100.0 * concordant[clear_mask].sum() / clear_mask.sum()
-        if clear_mask.any() else float("nan")
-    )
-
-    print(f"\n  Bigrams with concordant (feature, α_diff) sign: {concordant.sum()} / {n_total}")
-    print(f"  → {pct_concordant:.1f}% of all bigrams")
-    print(f"  → {pct_concordant_clear:.1f}% of bigrams with |α_diff| > {alpha_abs_thresh:.3f} (clear signal)")
-
-    # ── Heatmaps ─────────────────────────────────────────────────────────────
-    d1_np = d1_all.numpy()
-    d2_np = d2_all.numpy()
-
-    act_grid  = np.full((N_DIGITS, N_DIGITS), np.nan)
-    conc_grid = np.full((N_DIGITS, N_DIGITS), np.nan)
-    for i in range(n_total):
-        act_grid [d1_np[i], d2_np[i]] = feat_acts[i]
-        conc_grid[d1_np[i], d2_np[i]] = float(concordant[i])
-
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
-
-    im0 = axes[0].imshow(act_grid, origin="lower", aspect="auto", cmap="viridis")
-    axes[0].set_title(f"F{feat_idx} activation over (d1, d2)", fontsize=11)
-    axes[0].set_xlabel("d2"); axes[0].set_ylabel("d1")
-    plt.colorbar(im0, ax=axes[0], label="activation")
-
-    im1 = axes[1].imshow(conc_grid, origin="lower", aspect="auto", cmap="RdYlGn", vmin=0, vmax=1)
-    axes[1].set_title(
-        f"Concordance: F{feat_idx} sign matches sign(α_d1−α_d2)\n"
-        f"({pct_concordant:.1f}% of all bigrams aligned)",
-        fontsize=11,
-    )
-    axes[1].set_xlabel("d2"); axes[1].set_ylabel("d1")
-    plt.colorbar(im1, ax=axes[1], label="concordant (1=yes, 0=no)")
-
-    plt.tight_layout()
-    fig.savefig(f"{SAVE_DIR}/07_bigram_alignment_heatmaps.pdf", dpi=150, bbox_inches="tight")
-    plt.show()
-
-# %% [markdown]
-# ## Test feature steering
+# ## Cell 6 - Test feature steering
 
 # %%
 from src.sae import *  # Import all SAE analysis utilities
@@ -512,7 +294,7 @@ results = feature_steering_experiment(
     dataset=all_ds,
     test_pairs=[(20,49)],
     transpose=True,
-    save_dir=SAVE_DIR,
+    # save_dir=SAVE_DIR,
 )
 
 crossover_df = analyze_feature_crossovers(
@@ -527,7 +309,7 @@ crossover_df = analyze_feature_crossovers(
 )
 
 # %% [markdown]
-# ## Co-activation analysis
+# ## Cell 7 - Co-activation analysis
 
 # %%
 # check how many inputs activate latent A, how many activate latent B, and how many are activated by both and by neither (+ any other relvant stats)
