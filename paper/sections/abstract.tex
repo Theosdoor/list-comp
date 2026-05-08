@@ -1,11 +1,11 @@
 % Abstracts must be a single paragraph, ideally between 4--6 sentences long. Gross violations will trigger corrections at the camera-ready phase.
 
 \begin{abstract}
-  Transformers trained on an ordered bigram copying task can represent multiple features using shared embedding directions, with meaning carried partly by differences in attention-weight magnitudes.
-  This challenges interpretation methods that treat transformer features, and sparse autoencoder (SAE) latents trained on them, primarily as independent feature presence indicators.
-  In this toy setting, high-performing SAEs frequently learn graded latents, where different activation magnitudes correspond to different bigram orderings.
-  Steering these latents changes the order of model outputs, suggesting that their magnitudes have some causal influence.
-  In our primary SAE, one graded latent strongly correlates with the difference between the separator token's attention to the first and second input symbols at $r=0.807$ (compared to $|r| < 0.004$ for 98\% of latents), and multiplicative steering swaps 49.8\% of all outputs, or 77.8\% conditional on latent activation.
+  Transformers trained on graph problems can compress structured sequences into fixed-size activation vectors.
+  Prior work that trained a toy transformer on a simple ordered bigram compression task found that bigram order is encoded by relative feature magnitudes, rather than by a separate order feature.
+  This raises a problem for interpreting sparse autoencoders (SAEs) trained on these activations: a latent may be meaningful because its value varies, not only because it is active.
+  We train SAEs on this toy model and find graded latents with different activation magnitudes corresponding to different bigram orderings.
+  In one SAE, one latent has correlation 0.807 with the model's attention difference between the first and second input positions, while 98\% of latents have absolute correlation below 0.004; scaling this latent swaps 49.8\% of all outputs, or 77.8\% when the latent is active.
+  These results suggest that SAE latents can encode relational information through magnitude, so analyses that reduce latents to binary presence indicators may misrepresent model features.
   Anonymised code is available at \url{https://anonymous.4open.science/r/graded-latents-70FA}.
 \end{abstract}
-
