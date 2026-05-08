@@ -1,19 +1,18 @@
 [project]
-name = "list-comp"
+name = "graded-latents"
 version = "0.1.0"
-description = "Further Experiments for Order by Scale paper"
+description = "Sparse Autoencoders Can Learn Graded Latents for Relational Composition"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
-    { name = "Theo Farrell", email = "theo.farrell99@outlook.com"},
+    { name = "Anonymous Authors" },
 ]
 maintainers = [
-    { name = "Theo Farrell", email = "theo.farrell99@outlook.com"},
+    { name = "Anonymous Maintainers" },
 ]
 dependencies = [
     "dictionary-learning>=0.1.0",
     "ipykernel>=7.2.0",
-    # "itda", # not used
     "matplotlib>=3.10.8",
     "nbformat>=5.10.4",
     "numpy>=1.26.4",
@@ -28,14 +27,8 @@ dependencies = [
     "wandb>=0.25.0",
 ]
 
-[project.urls]
-Repository = "https://github.com/Theosdoor/list-comp"
-
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
-
-[tool.uv.sources]
-itda = { git = "https://github.com/Theosdoor/itda.git" } # uv lock --upgrade-package itda
 
 [build-system]
 requires = ["hatchling"]

@@ -120,14 +120,14 @@ def load_sae_from_local(sae_name, d_model, device="cuda", sae_dir="../sae_checkp
     }
 
 
-def load_sae_from_wandb_run(run_id, project="theo-farrell99-durham-university/list-comp", 
+def load_sae_from_wandb_run(run_id, project=None,
                             download_dir="./wandb_downloads", device="cuda"):
     """
     Load an SAE model from a W&B run.
     
     Args:
         run_id: W&B run ID (e.g., "nqie9jok")
-        project: W&B project path (default: "theo-farrell99-durham-university/list-comp")
+        project: W&B project path formatted as "entity/project".
         download_dir: Where to download artifacts (default: "./wandb_downloads")
         device: Device to load model on
     
@@ -139,6 +139,9 @@ def load_sae_from_wandb_run(run_id, project="theo-farrell99-durham-university/li
             - run_config: Full W&B run config
             - checkpoint: Full checkpoint dict
     """
+    if project is None:
+        raise ValueError("project must be provided as 'entity/project'")
+
     api = wandb.Api()
     
     # Get the run
@@ -210,7 +213,7 @@ def load_sae_from_wandb_run(run_id, project="theo-farrell99-durham-university/li
     }
 
 
-def compare_sweep_runs(project="theo-farrell99-durham-university/list-comp", 
+def compare_sweep_runs(project=None,
                        sweep_id="wmhceuqf"):
     """
     Fetch summary statistics for all runs in a sweep.
@@ -222,6 +225,9 @@ def compare_sweep_runs(project="theo-farrell99-durham-university/list-comp",
     Returns:
         pandas DataFrame with run statistics
     """
+    if project is None:
+        raise ValueError("project must be provided as 'entity/project'")
+
     api = wandb.Api()
     sweep = api.sweep(f"{project}/{sweep_id}")
     

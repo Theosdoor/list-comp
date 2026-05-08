@@ -32,7 +32,7 @@ def main():
     parser = argparse.ArgumentParser(description="Download all SAE models from a W&B sweep concurrently.")
     parser.add_argument("sweep_id", type=str, 
                         help="The W&B sweep ID (e.g., k2bsjr0n)")
-    parser.add_argument("--project", type=str, default="theo-farrell99-durham-university/orderbyscale_sae_sweep", 
+    parser.add_argument("--project", type=str, required=True,
                         help="The W&B project path formatted as 'entity/project'")
     parser.add_argument("--save_dir", type=str, default="sae_checkpoints", 
                         help="Root directory to save the checkpoints")
