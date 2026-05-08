@@ -1,98 +1,248 @@
-# list-comp
+# Graded Latents for List Copying
 
-Mechanistic interpretability experiments for small attention-only transformers on a list-copy task.
+This repository contains the code and artifacts for mechanistic interpretability experiments on a small attention-only transformer trained on a list-copy task. The experiments study whether sparse autoencoders (SAEs) trained on the SEP-token residual stream learn graded features that mediate relational composition.
 
-The canonical task sequence is `[d1, d2, SEP, o1, o2]`. The model sees masked output tokens and must copy the input digits in order. The project studies the SEP-token bottleneck, SAE features on SEP activations, and feature steering/crossover behavior.
+The transformer code and baseline transformer model build on the companion repository [Order-by-Scale](https://github.com/Theosdoor/Order-by-Scale). This repository adds the SAE training/loading code, special-feature detection, feature steering, crossover analysis, reporting, plotting, and submission-specific experiment scripts.
+
+The canonical sequence is:
+
+```text
+[d1, d2, SEP, o1, o2]
+```
+
+The model receives masked output tokens and must copy the input digits in order. The custom attention mask creates a SEP-token bottleneck, so information flows through:
+
+```text
+input digits -> SEP token -> output tokens
+```
 
 ## Setup
 
-Install dependencies with `uv` and use the checked-in virtualenv for local commands:
+The project uses `uv` for dependency management.
 
 ```bash
 uv sync
 source .venv/bin/activate
 ```
 
-Copy the environment template if you need WandB or other credentials:
+Run commands from the repository root.
+
+If you want to use Weights & Biases for SAE training or checkpoint downloads, create a local environment file:
 
 ```bash
 cp .env.example .env
 ```
 
-For automated agent work in this repo, shell commands should be prefixed with `rtk`, and Python commands should use `.venv/bin/python` or `.venv/bin/pytest`.
+Then add your own W&B values to `.env`. The submitted code and local scripts do not require W&B unless you pass W&B-specific options.
+
+## Included Artifacts
+
+The cleaned submission includes:
+
+- `models/2layer_100dig_64d.pt`: baseline attention-only transformer checkpoint.
+- `sae_checkpoints/sae_d128_k3_seed1_2layer_100dig_64d.pt`: baseline BatchTopK SAE checkpoint.
+- `src/`: source code for datasets, models, SAE loading, metrics, steering, reporting, and utilities.
+- `scripts/`: runnable training and analysis entry points.
+- `tests/`: regression tests for datasets, SAE utilities, loading, reporting, and plotting.
+- `figures.ipynb`: notebook used for figure generation or exploratory inspection.
+
+Generated outputs are written under `results/` by default. That directory is intentionally not required to run the code.
 
 ## Repository Layout
 
-- `src/data/` builds list-copy datasets.
-- `src/models/` defines the attention-only transformer, custom attention masks, model loading, and training utilities.
-- `src/sae/` contains SAE loading, activation collection, metrics, steering, and report generation.
-- `src/utils/` contains runtime configuration and notebook/script loading helpers.
-- `scripts/` contains runnable analysis and SAE training scripts.
-- `slurm/` contains cluster job wrappers.
-- `models/` and `sae_checkpoints/` hold local checkpoints.
-- `results/` holds generated analysis outputs.
-- `paper/` contains the paper source and figures.
+- `src/data/`: exhaustive list-copy dataset construction.
+- `src/models/`: transformer definition, custom attention masks, model loading, and training utilities.
+- `src/sae/`: SAE checkpoint loading, activation collection, metrics, steering, crossover analysis, and markdown reporting.
+- `src/interpretability/`: attention-edge ablation and residual-stream analysis helpers.
+- `src/utils/`: runtime configuration and notebook/script loading helpers.
+- `scripts/`: CLI scripts for SAE training, evaluation, plotting, and crossover analysis.
 
-## Core Concepts
+## Task and Evaluation Conventions
 
-`src/data/datasets.py::get_dataset()` returns `(train_ds, val_ds)` using an 80/20 split by default. Token IDs conventionally use `MASK = n_digits` and `SEP = n_digits + 1`; the output slice is `[:, list_len + 1:]`.
+`src/data/datasets.py::get_dataset()` builds digit combinations and returns `(train_ds, val_ds)` with an 80/20 split by default. Token IDs conventionally use:
 
-The custom attention mask in `src/models/transformer.py` enforces a SEP compression bottleneck:
+- `MASK = n_digits`
+- `SEP = n_digits + 1`
+- output slice: `[:, list_len + 1:]`
 
-- Layer 0 lets SEP read input digits while output rows are effectively blocked.
-- Later layers let output tokens read SEP and causally prior outputs.
+Transformer model accuracy should be evaluated on the held-out validation split. SAE metrics and exhaustive activation scans generally use the full input space via:
 
-This makes information flow through `inputs -> SEP -> outputs`.
-
-## Common Workflows
-
-Train an SAE on the baseline model:
-
-```bash
-.venv/bin/python scripts/train_sae.py --sae_type btk --d_sae 150 --top_k 4 --n_steps 50000
+```python
+ConcatDataset([train_ds, val_ds])
 ```
 
-Run crossover analysis:
+Do not use `train_split=1.0` for model evaluation, because that mixes train data into the reported accuracy.
 
-```bash
-.venv/bin/python scripts/run_crossover_analysis.py --feature auto --threshold 0.5 --max-features 2 --report
-```
+## Quick Verification
 
-Compare SAE checkpoints:
-
-```bash
-.venv/bin/python scripts/compare_sae.py --best
-```
-
-Plot an SAE sweep comparison report:
-
-```bash
-.venv/bin/python scripts/plot_sae_sweep.py --report results/compare_sae/sae_comparison_<timestamp>.md
-```
-
-Run tests:
+Run the test suite:
 
 ```bash
 .venv/bin/pytest tests/
 ```
 
-## Baseline Artifacts
+Check that the main imports work from the repository root:
 
-- Common base model: `models/2layer_100dig_64d.pt`
-- Common SAE: `sae_checkpoints/sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt`
-- Crossover outputs: `results/xover/<sae_name>/`
-- SAE comparison outputs: `results/compare_sae/`
+```bash
+.venv/bin/python -c "import src; import src.utils.nb_utils; print('ok')"
+```
 
-## Development Notes
+## Script Guide
 
-Use `src.utils.nb_utils.load_transformer_model()` for standard model loading in notebooks and analysis scripts; it configures runtime globals before returning `(model, model_cfg)`.
+All examples assume they are run from the repository root with the virtual environment active. You can also prefix each command with `.venv/bin/`.
 
-When loading SAE checkpoints, preserve and pass `act_mean` into activation collection, patching, and steering functions. SAE loading is centralized through `src/sae/loading.py` and supports `btk`, `jumprelu`, and `matryoshka` checkpoints.
+### Inspect Checkpoints
 
-For evaluation, keep dataset usage explicit:
+Print checkpoint metadata, config fields, stored metrics, `act_mean`, and state-dict tensor shapes:
 
-- Transformer model accuracy should use the held-out validation split from `get_dataset()`.
-- SAE evaluation and exhaustive activation scans should use `ConcatDataset([train_ds, val_ds])`.
-- Do not use `train_split=1.0` for model evaluation.
+```bash
+python scripts/inspect_saes.py sae_checkpoints/sae_d128_k3_seed1_2layer_100dig_64d.pt
+```
 
-When running experiments, record the command, output paths, and headline metrics in the experiment log. Historical entries currently live in `archive/EXPERIMENTS.md`.
+You can pass a directory to inspect all `.pt` files below it:
+
+```bash
+python scripts/inspect_saes.py sae_checkpoints/
+```
+
+### Train an SAE
+
+Train a new SAE on SEP-token activations from the baseline transformer:
+
+```bash
+python scripts/train_sae.py \
+  --model_path models/2layer_100dig_64d.pt \
+  --sae_type btk \
+  --d_sae 128 \
+  --top_k 3 \
+  --n_steps 50000 \
+  --seed 1
+```
+
+Supported SAE types are:
+
+- `btk`: BatchTopK SAE, using `--top_k`.
+- `jumprelu`: JumpReLU SAE, using `--target_l0` and `--sparsity_penalty`.
+- `matryoshka`: Matryoshka BatchTopK SAE, using `--top_k` and `--n_groups`.
+
+Outputs are saved under `sae_checkpoints/` by default. Each checkpoint stores the SAE state dict, config, and `act_mean`; keep `act_mean` with the checkpoint because downstream patching and steering use it.
+
+To run with W&B sweep config injection:
+
+```bash
+python scripts/train_sae.py --wandb
+```
+
+### Compare SAE Checkpoints
+
+Evaluate one or more SAE checkpoint folders and write a markdown comparison report:
+
+```bash
+python scripts/compare_sae.py \
+  --sae-folders sae_checkpoints/ \
+  --model-path models/2layer_100dig_64d.pt
+```
+
+Useful options:
+
+- `--best`: prefer best-validation-loss checkpoints when both final and best variants exist.
+- `--special-threshold 0.5`: threshold for identifying attention-correlated special features.
+- `--output-dir results/compare_sae/`: destination for reports and tables.
+- `--exclude-l0`, `--exclude-d-sae`: filter sweep summaries.
+
+The report includes sparsity, dead-feature rate, reconstruction quality, downstream loss recovery, and special-feature counts.
+
+### Plot SAE Sweep Summaries
+
+Convert a `compare_sae.py` markdown report into aggregate tables and figures:
+
+```bash
+python scripts/plot_sae_sweep.py \
+  --report results/compare_sae/sae_comparison_<timestamp>.md
+```
+
+By default, outputs are written to `results/compare_sae/figures/`. The script can filter by L0 or dictionary size and can omit table error bars or selected columns.
+
+### Run Crossover Analysis
+
+Run the feature steering and output-swap pipeline for automatically detected special features:
+
+```bash
+python scripts/run_crossover_analysis.py \
+  --model 2layer_100dig_64d \
+  --sae sae_d128_k3_seed1_2layer_100dig_64d.pt \
+  --feature auto \
+  --threshold 0.5 \
+  --max-features 2 \
+  --report
+```
+
+You can also target a specific SAE feature:
+
+```bash
+python scripts/run_crossover_analysis.py \
+  --sae sae_d128_k3_seed1_2layer_100dig_64d.pt \
+  --feature 30
+```
+
+Outputs are written under:
+
+```text
+results/xover/<sae_name>/<feature_idx>/
+```
+
+The main CSV outputs are:
+
+- `xovers_feat<idx>.csv`: feature steering crossover points.
+- `swap_bounds_feat<idx>.csv`: inferred output-swap regions.
+- `swap_results_feat<idx>.csv`: verification of output swaps.
+- `failure_analysis_feat<idx>.md`: optional markdown report when `--report` is used.
+
+### Analyse Special Latents Across SAEs
+
+Generate plots and reports relating SAE quality metrics to special-feature counts:
+
+```bash
+python scripts/special_latents_across_saes.py \
+  --sae_dirs sae_checkpoints/ \
+  --model_path models/2layer_100dig_64d.pt \
+  --alpha_diff_thresh 0.5 \
+  --output_dir results/sae_plots
+```
+
+This computes loss recovered, explained variance, actual L0, and attention-correlation statistics across all selected checkpoints.
+
+### Download W&B Sweep Checkpoints
+
+If you trained SAEs with W&B artifacts, download all model artifacts from a sweep:
+
+```bash
+python scripts/download_wandb_checkpoints.py <sweep_id> \
+  --project <entity/project> \
+  --save_dir sae_checkpoints
+```
+
+This requires W&B credentials in the environment or in `.env`.
+
+## Programmatic Loading
+
+Use the notebook utilities for standard loading:
+
+```python
+from src.utils.nb_utils import load_transformer_model, load_sae
+
+model, model_cfg = load_transformer_model("2layer_100dig_64d")
+sae, sae_cfg = load_sae(
+    "sae_checkpoints/sae_d128_k3_seed1_2layer_100dig_64d.pt",
+    d_model=model_cfg["d_model"],
+)
+```
+
+`load_transformer_model()` configures runtime globals before returning `(model, model_cfg)`. `load_sae()` delegates to the centralized SAE loader and supports current and legacy checkpoint formats.
+
+## Notes for Reproduction
+
+- Run commands from the repository root.
+- Keep model evaluation on validation data and SAE scans on the full train-plus-validation input space.
+- Preserve `act_mean` when moving SAE checkpoints.
+- The default scripts choose CUDA when available and fall back to CPU where supported.
