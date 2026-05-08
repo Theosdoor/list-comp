@@ -1,64 +1,7 @@
 \section{Discussion}\label{s:disc}
 
-Our results suggest a failure mode for interpreting SAE latents as binary feature presence indicators. The $k$-symbol detectors in Figure \ref{fig:sae-heatmap} behave as binary indicators. In contrast, the special latents are difficult to interpret from support alone. Latent 11 activates on a broad subset of inputs, and its activation magnitude tracks $\Delta \alpha$, a continuous variable in the transformer's attention pattern. Different magnitudes then correspond to different downstream ordering behavior. Thus, the latent is not merely `on' for an ordering feature; its scalar value participates in the ordering computation. This suggests that SAE interpretability tools should not only ask which latents activate, but also whether activation magnitudes encode causal computational variables.
+% - it would be hard to interpret this feature if it appeared in an llm
+% - limitations of toy model
 
-However, this toy transformer is limited \dots
-
-TODO:
-
-Explain the asymmetry between paired special latents
-
-In the primary SAE, latent 11 has r=0.807 and swaps about 50% of inputs, while latent 56 has r=−0.321 and swaps only about 2%. Similar asymmetries appear in Table 7, where one special latent often carries much more steering power than its opposing counterpart.
-
-This is interesting and currently under-discussed. Possible explanations include top-k competition, asymmetric transformer attention patterns, uneven activation support, or SAE training artifacts. Even a short paragraph saying “we do not yet understand this asymmetry” would be useful.
-
-% Our SAEs reliably learn latents with graded activations that can be steered to swap model outputs.
-
-% However, our SAE experiments demonstrate robust findings across diverse configurations: special latents (characterised by $\Delta\alpha$ correlation) emerge across three distinct SAE architectures (BatchTopK, JumpReLU, Matryoshka) with varying sparsity and dictionary size settings \ref{tab:sae_sweep_configs}. 
-
-
-% TODO
-
-%   B. Expand the Discussion (disc.tex)
-%   The current discussion is quite thin and contains many commented-out sections. For a
-%   high-quality workshop submission:
-%    * The Binary View: Elaborate on why "graded latents" challenge the "binary" assumption
-%      (features are either on or off).
-%    * Linear Representation Hypothesis: Discuss if your findings support or contradict the
-%      hypothesis that features are represented linearly in model activations.
-%    * Safety Implications: Briefly mention how magnitude-coded logic might be harder to detect
-%      with standard "feature dashboard" tools.
-
-% Are the k-symb detectors just basis-aligned features? as predicted in farrell?
-
-% Consider training an $L_1$-regularised SAE on the residual at \texttt{SEP} after layer 1,
-% \begin{equation*}
-%     \boldsymbol r^{L_1}_s = \alpha_{s\to d_1} (\boldsymbol E_{a} + \boldsymbol P_{d_1}) + \alpha_{s \to d_2}(\boldsymbol E_{b} + \boldsymbol P_{d_2}) + \boldsymbol E_s + \boldsymbol P_s
-% \end{equation*}
-% This is the transformer model's internal single fixed-length vector representation of input bigram $(a,b)$.
-% Here, we have a subspace spanned by $\boldsymbol D_a = \boldsymbol E_{a} + \boldsymbol P_{d_1}$ and $\boldsymbol D_b = \boldsymbol E_{b} + \boldsymbol P_{d_2}$ which is specific to two input bigrams, $(a,b)$ and $(b,a)$, as $\boldsymbol E_s + \boldsymbol P_s$ is constant for all inputs.
-
-% \begin{figure}[htbp]
-%     \centering
-%     \includegraphics[width=\linewidth]{figures/sae_solutions.pdf}
-%     \caption{
-%         An $L_1$-regularised SAE trained on the residual at \texttt{SEP} after layer 1 could in theory learn one of these two solutions for inputs $(a,b)$ and $(b,a)$.
-%         \textbf{Top row}: The SAE learns latent $F_1$ for input $(a,b)$ and $F_2$ for input $(b,a)$.
-%         \textbf{Bottom row}: The SAE learns latents corresponding to $D_a$ and $D_b$. This is always sparser than the above solution because they can be reused for other inputs containing symbols $a$ or $b$.
-%     }
-%     \label{fig:sae_solutions}
-% \end{figure} 
-
-% In theory, the SAE could learn a latent for each bigram, which activates when that bigram appears in the model's input. 
-% Alternatively, the SAE could learn latents corresponding to $\boldsymbol D_a$ and $\boldsymbol D_b$ with activations equal to the attention probabilities $\alpha$.
-% Figure \ref{fig:sae_solutions} visualises these.
-% Since the latter latents can be reused for other bigrams containing $a$ or $b$, the latter solution always results in a lower average $L_1$ (sparsity) penalty than the former. In fact, this is the ideal solution since each input bigram can activate two latents corresponding to the symbols, with activation magnitudes corresponding the the bigram order. A sparser solution would require maximum one latent on average to activate for each input bigram, which necessarily results in a noisier reconstruction because that single latent would activate for all bigrams containing either $a$ or $b$, hence it is not ideal.
-
-% This results in graded latent activations, as shown in Figure \ref{fig:sae_solutions}, because the same two latents represent two opposite bigrams.
-
-% In a case study of a BatchTopK SAE in Section~\ref{s:results}. We identify $k$-symbol detectors, which activate if one of $k$ specific symbols appears anywhere in the input bigram. These are related to, but distinct from, the hypothesised $\boldsymbol{D}_a$ and $\boldsymbol{D}_b$ latents. The predicted $\boldsymbol{D}_a = \boldsymbol{E}_a + \boldsymbol{P}_{d_1}$ latent would be position-specific: it encodes symbol $a$ at input position $d_1$, and would activate differently depending on whether $a$ appears as $d_1$ or $d_2$. By contrast, $k$-symbol detectors activate whenever symbol $a$ appears at either position and do not necessarily recover positional information. They therefore align with the binary view~\citep{quirke2025binary, paulo2024automatically}, activating if a symbol is present and not otherwise, and do not fully correspond to the theoretically predicted latents. We instead find that the SAEs learn latents corresponding to the difference in attention weights, $\Delta\alpha = \alpha_{s \to d_1} - \alpha_{s \to d_2}$, which exhibit graded activations for a significant number of inputs.
-
-% Overall
-
-% As such, the binary perspective of SAE latents \citep{quirke2025binary, paulo2024automatically}, which claims that each latent activates if a feature is present and does not otherwise, is insufficient to explain the computation of this model, and the activation values of the SAE latents must be incorporated into our understanding. This creates separate problems to the echo-features caused by additive matrix binding \citep{wattenberg2024relational}, which are different directions in the activation space to the base features; and the ID features in ID binding \citep{feng2023language} which are also different directions but have an abstract interpretation. A feature that identifies the order of the bigram is necessarily not linear, due to the relative interactions between the input features. These contradict the linear representation hypothesis, which states that networks can be described in terms of independent and linear features \citep{elhage2022toy}. Similarly to the results of \citet{csordas-etal-2024-recurrent} on RNNs, we provide evidence that transformer interpretability should not be confined by the linear representation hypothesis.
-
+Most SAE latents in our experiments are $k$-symbol detectors, which indicate whether specific symbols are present in the input and can be treated as binary presence indicators.
+However, we find a few qualitatively different graded latents which activate across a broad set of inputs and 
