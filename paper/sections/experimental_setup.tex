@@ -42,7 +42,7 @@ Weight decay & 0.01 \\
 \caption{
 SAE hyperparameter sweep configurations. Braces denote swept values; fixed values are listed directly.
 Fixed parameters across all runs: 50,000 training steps, 1,000 warmup steps, 4,096 batch size.
-The sweeps are ongoing, so the counts below report evaluated checkpoints rather than completed grid sizes. Note that $n_\text{groups}=1$ in a Matryoshka SAE reduces it to a standard BatchTopK SAE, so this serves as an internal consistency check.
+The sweeps are ongoing, so the counts below cover the 2,613 trained checkpoints rather than completed grid sizes. Note that $n_\text{groups}=1$ in a Matryoshka SAE reduces it to a standard BatchTopK SAE, so this serves as an internal consistency check.
 }
 \label{tab:sae_sweep_configs}
 \begin{tabular}{llc}
@@ -50,8 +50,7 @@ The sweeps are ongoing, so the counts below report evaluated checkpoints rather 
 \textbf{Parameter} & \textbf{Architecture} & \textbf{Values} \\
 \midrule
 $d_{\mathrm{SAE}}$        & All         & \{128, 192, 256, 320\} \\
-$k$ / Target $L_0$        & BatchTopK, Matryoshka & \{1, 2, 3, 4, 5\} \\
-Target $L_0$              & JumpReLU    & \{1, 2, 3, 4, 5\} \\
+$k$ / Target $L_0$        & All & \{1, 2, 3, 4, 5\} \\
 Learning rate              & BatchTopK, Matryoshka & $3\!\times\!10^{-4}$ \\
                            & JumpReLU    & \{$7\!\times\!10^{-5}$, $3\!\times\!10^{-4}$\} \\
 Sparsity penalty           & JumpReLU    & \{0.1, 0.5, 1.0, 5.0\} \\
@@ -173,37 +172,38 @@ $L_0$ & $d_\text{SAE}$ & Runs & Loss Recovered ($\uparrow$) & Dead \% ($\downarr
 
 \begin{table*}[htbp]
 \centering
-\caption{Comparison of selected high-performing SAE checkpoints across configuration and performance metrics. These checkpoints were chosen for the steering analysis to span architecture, dictionary size and sparsity settings while keeping reconstruction performance high. Dashes indicate parameters not applicable to a given architecture. $L_0$ (actual) is the mean number of active latents measured at eval time. \textbf{Bold}: best value per performance metric.}
+\caption{Comparison of selected high-performing SAE checkpoints across configuration and performance metrics. These checkpoints were chosen for the steering analysis to span architecture, dictionary size and sparsity settings while keeping reconstruction performance high. Dashes indicate parameters not applicable to a given architecture. $L_0$ (actual) is the mean number of active latents measured at eval time. LR is learning rate. \textbf{Bold}: best value per performance metric.}
 \label{tab:selected-saes}
-\small
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{l rr rrr rrrr}
+\begin{tabular}{l cc ccc ccc}
 \toprule
 \multirow{2}{*}{\textbf{SAE Type}}
   & \multicolumn{5}{c}{\textbf{Configuration}}
-  & \multicolumn{4}{c}{\textbf{Performance}} \\
-\cmidrule(lr){2-6}\cmidrule(lr){7-10}
+  & \multicolumn{3}{c}{\textbf{Performance}} \\
+\cmidrule(lr){2-6}\cmidrule(lr){7-9}
   & $d_{\mathrm{SAE}}$
-  & LR % learning rate
   & $k$ / Target $L_0$
+  & LR % learning rate
   & Sp.\ Pen.
   & $n_{\mathrm{groups}}$
-  & CE Increase $\downarrow$
-  & Expl.\ Var.\ $\uparrow$
+  & Loss Recovered $\uparrow$
   & Dead~(\%) $\downarrow$
-  & $L_0$ (actual) \\
+  & $L_0$ (actual) $\downarrow$ \\
+\midrule
+BatchTopK (Studied)
+  & 128 & 3 & $3\!\times\!10^{-4}$ & --- & --- & 0.9991 & 3.1 & \textbf{3.02} \\
 \midrule
 \multirow{2}{*}{BatchTopK}
-  & 192 & $3\!\times\!10^{-4}$ & 3 & ---  & --- & 0.0257 & 0.9929 & 26.04 & 3.36 \\
-  & 128 & $3\!\times\!10^{-4}$ & 5 & ---  & --- & 0.0292 & 0.9939 &  \textbf{0.78} & 4.90 \\
+  & 192 & 3 & $3\!\times\!10^{-4}$ & ---  & --- & 0.9997 & 26.0 & 3.36 \\
+  & 128 & 5 & $3\!\times\!10^{-4}$ & ---  & --- & 0.9996 & \textbf{0.8} & 4.90 \\
 \midrule
 \multirow{2}{*}{JumpReLU}
-  & 256 & $7\!\times\!10^{-5}$ & 5 & 5 & --- & \textbf{0.0141} & \textbf{0.9965} & 50.78 & 4.03 \\
-  & 128 & $7\!\times\!10^{-5}$ & 5 & 5 & --- & 0.0176 & 0.9963 & 17.97 & \textbf{3.24} \\
+  & 256 & 5 & $7\!\times\!10^{-5}$ & 5 & --- & \textbf{0.9998} & 50.8 & 4.03 \\
+  & 128 & 5 & $7\!\times\!10^{-5}$ & 5 & --- & \textbf{0.9998} & 18.0 & 3.24 \\
 \midrule
 \multirow{2}{*}{Matryoshka}
-  & 256 & $3\!\times\!10^{-4}$ & 3 & --- & 2 & 0.0262 & 0.9928 & 39.06 & 3.32 \\
-  & 192 & $3\!\times\!10^{-4}$ & 4 & --- & 4 & 0.0325 & 0.9927 & 12.50 & 3.98 \\
+  & 256 & 3 & $3\!\times\!10^{-4}$ & --- & 2 & 0.9997 & 39.1 & 3.32 \\
+  & 192 & 4 & $3\!\times\!10^{-4}$ & --- & 4 & 0.9996 & 12.5 & 3.98 \\
 \bottomrule
 \end{tabular}
 \end{table*}

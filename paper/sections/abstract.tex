@@ -2,9 +2,9 @@
   % Abstracts must be a single paragraph, ideally between 4--6 sentences long. Gross violations will trigger corrections at the camera-ready phase.
   Transformers trained on an ordered bigram copying task can represent multiple features using one set of shared embedding directions, with meaning carried partly by differences in attention-weight magnitudes.
   This challenges the assumption that transformer features, and sparse autoencoder (SAE) latents trained on them, are independently interpretable.
-  In this toy setting, high-performing SAEs frequently learn graded latent activations, where different magnitudes correspond to different list orderings.
-  Steering selected graded latents changes the order of model outputs, suggesting that their magnitudes are causally meaningful in this setting.
-  This case study motivates closer attention to activation magnitude when interpreting SAE latents and provides a concrete target for future investigation in larger pretrained SAEs such as Gemma Scope.
+  In this toy setting, high-performing SAEs frequently learn latents with graded activations, where different magnitudes correspond to different bigram orderings.
+  Steering graded latents changes the order of model outputs, suggesting that their magnitudes are causally meaningful in this setting.
+  This case study motivates closer attention to activation magnitude when interpreting SAE latents and provides a concrete target for future investigation in larger pretrained SAEs.
   Anonymised code is available here: \url{https://anonymous.4open.science/r/graded-latents-70FA}.
 \end{abstract}
 
