@@ -10,8 +10,8 @@ The experiments described in this thesis live in two separate repos:
 
 | Repo | Purpose |
 |------|---------|
-| `https://github.com/Theosdoor/list-comp` | **Main repo** — RQ1 + RQ2: model training, SAE grid search, feature analysis, steering pipeline. Has `src/`, `scripts/`, `notebooks/`, `sweeps/`, `results/`, `EXPERIMENTS.md` |
-| `https://github.com/Theosdoor/order-by-scale` | **Older/simpler repo** — code for the previously published NeurIPS 2025 workshop paper only (`farrell2025order`). Has `train.py`, `interp.ipynb`, `src/` |
+| Main experiment repo | RQ1 + RQ2: model training, SAE grid search, feature analysis, steering pipeline. Has `src/`, `scripts/`, `notebooks/`, `sweeps/`, `results/`, `EXPERIMENTS.md` |
+| Prior-work repo | Older/simpler code for the previously published workshop paper. Has `train.py`, `interp.ipynb`, `src/` |
 
 `list-comp` is the authoritative source for all experiment results in this thesis. Key files from its CLAUDE.md:
 

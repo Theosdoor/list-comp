@@ -8,7 +8,7 @@
 #SBATCH --mem=20G
 
 # go to folder and sync venv
-cd /home2/nchw73/Year4/L4_Project/list-comp # NOT priv
+cd "${PROJECT_DIR:-$PWD}"
 uv sync
 source .venv/bin/activate
 

@@ -8,7 +8,7 @@
 #SBATCH --mem=20G
 
 # go to folder and sync venv
-cd /home2/nchw73/Year4/L4_Project/list-comp
+cd "${PROJECT_DIR:-$PWD}"
 uv sync
 source .venv/bin/activate
 
@@ -20,10 +20,10 @@ echo "------------------------------------------------------"
 
 
 # jumprelu 2
-# wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/fn9syo6t
+# wandb agent <entity>/<project>/<sweep_id>
 
 # matry 2
-# wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/l9sd28fg
+# wandb agent <entity>/<project>/<sweep_id>
 
 # btk 2
-wandb agent theo-farrell99-durham-university/orderbyscale_sae_sweep/rq13fukw
+wandb agent "${WANDB_SWEEP:-<entity>/<project>/<sweep_id>}"
