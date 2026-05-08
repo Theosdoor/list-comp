@@ -4,11 +4,38 @@
     \centering
     \includegraphics[width=\linewidth]{figures/special_latents_vs_performance.pdf}
     \caption{These strip plots show how the number of special latents (identified by the latent activation's correlation with $\Delta \alpha$ using threshold $|r| > 0.3$,
-    as in Section \ref{ss:sae_feat_analysis}) differs across SAEs with different sparsities and performance. This includes all SAEs from the sweep in Table \ref{tab:sae_sweep_configs}.
+    as in Section \ref{ss:sae_feat_analysis}) differs across all 2,613 trained SAEs from the sweep in Table \ref{tab:sae_sweep_configs}.
     \textbf{Left}: A large majority of the SAEs achieve $L0 \approxeq 3$. However, only those with special latents achieve high performance.
     \textbf{Right}: SAEs with no special latents tend to perform much worse than those with them. Most SAEs learn two special latents.
     }
     \label{fig:special_latents_vs_performance}
+\end{figure*}
+
+\begin{figure*}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{figures/btk_loss_recovered_boxplot_r0.3.pdf}
+    \caption{These strip plots show how the number of special latents (identified by the latent activation's correlation with $\Delta \alpha$ using threshold $|r| > 0.3$,
+    as in Section \ref{ss:sae_feat_analysis}) differs across all \textbf{BatchTopK SAEs} from the sweep in Table \ref{tab:sae_sweep_configs}.
+    }
+    \label{fig:btk_special_latents_vs_performance}
+\end{figure*}
+
+\begin{figure*}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{figures/jumprelu_loss_recovered_boxplot_r0.3.pdf}
+    \caption{These strip plots show how the number of special latents (identified by the latent activation's correlation with $\Delta \alpha$ using threshold $|r| > 0.3$,
+    as in Section \ref{ss:sae_feat_analysis}) differs across all \textbf{JumpReLU SAEs} from the sweep in Table \ref{tab:sae_sweep_configs}.
+    }
+    \label{fig:jrelu_special_latents_vs_performance}
+\end{figure*}
+
+\begin{figure*}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{figures/matryoshka_loss_recovered_boxplot_r0.3.pdf}
+    \caption{These strip plots show how the number of special latents (identified by the latent activation's correlation with $\Delta \alpha$ using threshold $|r| > 0.3$,
+    as in Section \ref{ss:sae_feat_analysis}) differs across all \textbf{Matryoshka SAEs} from the sweep in Table \ref{tab:sae_sweep_configs}.
+    }
+    \label{fig:matry_special_latents_vs_performance}
 \end{figure*}
 
 % TODO

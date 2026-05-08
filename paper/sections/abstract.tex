@@ -1,6 +1,6 @@
 \begin{abstract}
   % Abstracts must be a single paragraph, ideally between 4--6 sentences long. Gross violations will trigger corrections at the camera-ready phase.
-  Transformers trained on an ordered bigram copying task can represent multiple features using one set of basis vectors, with meaning carried partly by differences in attention-weight magnitudes.
+  Transformers trained on an ordered bigram copying task can represent multiple features using one set of shared embedding directions, with meaning carried partly by differences in attention-weight magnitudes.
   This challenges the assumption that transformer features, and sparse autoencoder (SAE) latents trained on them, are independently interpretable.
   We train SAEs on a transformer known to use this mechanism and find that they reliably learn graded latent activations, where different magnitudes correspond to different list orderings.
   Steering these latents changes the order of model outputs, suggesting that their magnitudes are causally meaningful.
