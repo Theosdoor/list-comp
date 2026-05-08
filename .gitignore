@@ -3,8 +3,13 @@ wandb/
 results/*
 .claude/*
 .worktrees/*
-# slurm/*
+slurm/*
 sae_checkpoints/
+.agents/
+.github/
+.rtk/
+.vscode/
+sweeps/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
