@@ -1,18 +1,23 @@
 \section{Introduction}
-Models can represent more than $n$ features in $n$-dimensional activations through superposition, which complicates interpretability \citep{elhage2022toy}.
-Sparse autoencoders (SAEs) \citep{bricken2023monosemanticity, huben2024sparse} and their variants \citep{gao2024scaling, bussmann2024batchtopk, rajamanoharan2024jumping, bussmann2025learning, karvonen2025saebench, leask2025inference} decompose dense activations into sparse feature representations in an attempt to address this.
-SAEs have been successfully used in the past \citep{marks2025auditing, movva2025sparse}, but there are uncertainties over whether they learn robust dictionaries. For example, \citet{chanin2024absorption} find that using sparsity as a proxy can cause feature absorption and \citet{leask2025sparse} find that SAEs do not find a unique and complete dictionary of atomic features.
-However, \citet{farrell2025order} suggest that even if an SAE recovers the correct dictionary, it may not provide a complete understanding of the model. 
-% They train an attention-only transformer on an ordered bigram copying task.
-They identify a novel `relative magnitude-based' feature composition mechanism in a toy attention-only transformer, and predict that an SAE will learn graded latent activations that are not necessarily independently interpretable.
-% in which both bigram orders, $(x,y)$ and $(y,x)$, are represented in a single fixed-length activation vector using the same basis vectors, and they are differentiated by the relative magnitude of the basis vectors (defined by scalar attention weights).
-% They predict that an SAE trained on this activation will learn graded latent activations: a latent for each basis vector with magnitudes equal to the attention weights.
-% In this way, an SAE could learn the correct dictionary and still provide an incomplete representation of the activation.
-% That is, we cannot achieve a complete understanding of the activation if we assume SAE latents are independently interpretable.
-Since interpretability with SAEs commonly assumes this independence for transformer features \cite{elhage2022toy,bricken2023monosemanticity}, graded latent activations may present a problem.
 
-In this paper, we verify this prediction across a suite of BatchTopK \cite{bussmann2024batchtopk}, JumpReLU \cite{rajamanoharan2024jumping} and Matryoshka \cite{bussmann2025learning} SAEs and find that they reliably learn latents with graded activations corresponding to different bigram orderings.
+Transformers can learn mechanisms for relational composition \citep{wattenberg2024relational}, by which multiple feature vectors are composed into a single fixed-length vector to represent complex relationships. 
+For example, \citet{farrell2025order} train a transformer on an ordered bigram 
+copying task that learns a ``relative magnitude-based'' composition mechanism, 
+representing both $(x, y)$ and $(y,x)$ as linear combinations of the input 
+embeddings with coefficients defined by the attention pattern.
+This suggests that sparse autoencoders (SAEs) \citep{bricken2023monosemanticity, huben2024sparse} and their variants \citep{gao2024scaling, bussmann2024batchtopk, rajamanoharan2024jumping, bussmann2025learning, karvonen2025saebench, leask2025inference} may learn a sparse solution with latents corresponding to the input embeddings, and graded activations corresponding to ordering.
+This challenges common interpretations of SAE latents as binary feature presence indicators \cite{paulo2025automatically,quirke2025binary}.
+This challenge persists even if SAEs learn the correct dictionary, which separates this from previous work on SAE reliability \citep{chanin2024absorption,leask2025sparse}.
 
+% For example, \citet{wattenberg2024relational} propose additive matrix binding. This could represent bigram $(x,y)$ as $r = Ax + By$ to preserve bigram order, using matrices to map each element onto role-specific subspaces.
+% which could recover ``echo features'' $Ax, Ay, Bx, By$ rather than the actual features $x,y$.
+
+% SAEs work by projecting dense superposed model activations into a latent space with much higher dimensionality and a sparsity penalty. In theory, this encourages the SAE to learn latents corresponding to underlying model feature directions, which recovers a dictionary of independently interpretable model features.
+
+% SAEs have been successfully used in the past \citep{marks2025auditing, movva2025sparse}, but there are uncertainties over whether they learn robust dictionaries. For example, \citet{chanin2024absorption} find that using sparsity as a proxy can cause feature absorption and \citet{leask2025sparse} find that SAEs do not find a unique and complete dictionary of atomic features.
+
+However, \citet{farrell2025order} did not study the impact on SAEs.
+In this paper, we train a suite of BatchTopK \cite{bussmann2024batchtopk}, JumpReLU \cite{rajamanoharan2024jumping} and Matryoshka \cite{bussmann2025learning} SAEs on the toy model from \citet{farrell2025order} and find that they reliably learn latents with graded activations corresponding to different bigram orderings.
 Our paper is structured as follows. Section \ref{s:method} introduces the base transformer and the task it is trained on, our SAE training setup and the steering protocol used to test for graded activations.
 In Section \ref{s:results}, we analyse a specific BatchTopK SAE and find two latents with graded activations that can be steered to swap the model output from $(x,y)$ to $(y,x)$. They can be identified using their activation magnitudes, which correlate with the difference between transformer attention weights, $\Delta \alpha$.
 Across a broad SAE sweep, high-performing SAEs tend to contain latents whose activations correlate with $\Delta \alpha$.

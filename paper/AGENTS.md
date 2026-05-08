@@ -150,24 +150,12 @@ All figures live in `paper/figures/`. Do not rename files without updating `\inc
 | `sae_heatmap.png` | saes | Feature activation heatmap |
 | `steering_feat30_success.png` | saes/results | Feature steering result |
 
----
-
-## Git Workflow
-
-- **Main branch**: `main`
-- Remote: `http://local_proxy@127.0.0.1:38719/git/Theosdoor/L4_paper`
-- Push with: `git push -u origin <branch-name>`
-- Do not push to `main` without explicit permission.
 
 ---
 
 ## Things to Avoid
 
-- Do not add `\usepackage{pslatex}` or any package that changes fonts.
-- Do not modify `IEEEtran.cls` or `template/template.tex`.
 - Do not change margin, spacing, or column settings anywhere in `main.tex`.
-- Do not move the `\label{sec:introduction}` out of `\IEEEraisesectionheading{...}`.
-- Do not exceed the 18-page body limit.
 - Do not include math or `\cite` in `sections/abstract.tex`.
 - Do not add `\emph` in generated prose (the author decides when to use it); do not use em-dashes.
 - Do not overwrite `notes/btk_sae_notes.md` — it contains the researcher's raw experiment notes and is informational only.
