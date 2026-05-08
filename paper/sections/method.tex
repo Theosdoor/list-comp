@@ -52,13 +52,14 @@ Hardware & NVIDIA GeForce RTX 2080 Ti \\
 
 After a grid search (Table \ref{tab:btk_sae_sweep}) we find that BatchTopK SAEs with $k \in [3,5]$ all achieve similar top performance, so we select $k=3$. We select $d_\text{SAE} = 128$ which achieves similar performance to larger $d_\text{SAE}$. We filter for loss recovered over 0.999 and use the checkpoint with the fewest dead latents ($3.1\%$). Table \ref{tab:sae_config} shows the final configuration.
 
-We inspect latent activations using activating examples, firing rates and correlations with the difference between transformer attention weights, \( 
+We inspect latent activations using activating examples, firing rates and correlations with the difference between the separator token's attention to the first and second input symbols,
+\( 
 \Delta \alpha = \alpha_{s \to d_1} - 
 \alpha_{s \to d_2}
-\), because \citet{farrell2025order} find $\Delta \alpha$ differentiates bigram orderings at $\boldsymbol r_{s}^{L_1}$. We hypothesise that latents related to ordering will correlate with $\Delta \alpha$ significantly more strongly than latents indicating feature presence.
+\). \citet{farrell2025order} find that $\Delta \alpha$ distinguishes bigram orderings at $\boldsymbol r_{s}^{L_1}$. We hypothesise that latents related to order correlate with $\Delta \alpha$ more strongly than other latents.
 To test whether a latent is graded, we perform causal steering interventions inspired by \citet{brien2025steering}.
-For some latent, we replace its activation magnitude $m$ with $m' = pm$ for some scale factor $p$. We reconstruct and replace the original activation at $\boldsymbol r_{s}^{L_1}$ and observe changes in the output logits. We repeat across all $p \in [0, 10]$ (step $0.05$) and all input bigrams. If the latent is graded, we expect different scale factors to systematically change the model's output ordering.
+For a given latent, we replace its activation magnitude $m$ with $m' = pm$ for some scale factor $p$. We reconstruct and replace the original activation at $\boldsymbol r_{s}^{L_1}$ and observe changes in the output logits. We repeat across all $p \in [0, 10]$ (step $0.05$) and all input bigrams. If the latent is graded, varying $p$ should systematically change the model's output ordering.
 % We hypothesise that special latents have graded activations. Specifically, we hypothesise that they have activation ranges corresponding to different bigram orderings. To test this hypothesis, we perform steering by linearly scaling special latent activations and observe whether the model's outputs change predictably.
 
 We test for latents correlated with $\Delta \alpha$ across a sweep of 2,613 SAEs spanning multiple architectures and hyperparameters (Table \ref{tab:sae_sweep_configs}).
-For computational feasibility, we only perform steering on the primary BatchTopK SAE and six additional selected high-performing checkpoints (Table \ref{tab:selected-saes}) chosen to span architecture, dictionary size and sparsity settings. We therefore treat the steering results as exploratory rather than statistically significant.
+For computational feasibility, we only perform steering on the primary BatchTopK SAE and six additional selected high-performing checkpoints (Table \ref{tab:selected-saes}), chosen to span architecture, dictionary size and sparsity settings. We therefore treat the steering results as exploratory rather than statistically significant.

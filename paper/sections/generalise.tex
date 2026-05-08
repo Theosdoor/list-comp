@@ -40,7 +40,7 @@
 
 % TODO could add table showing % of saes with 2 special have 1 d1 favouring the other d2 favouring (+ average corrs?). and saes with 1 special % d1 favouring and % d2 favouring + avg corrs
 
-To test whether special latents can be steered to swap outputs in other SAEs, we provide the following pipeline that works given any SAE, which is available in our public codebase:
+To test whether special latents can be steered to swap outputs in other SAEs, we use the following pipeline. The implementation is available in our public codebase.
 \begin{enumerate}
     \item Store the SAE activations for all input bigrams by running a single 
     forward pass over the full dataset and recording each SAE latent's activation 
@@ -80,7 +80,7 @@ To test whether special latents can be steered to swap outputs in other SAEs, we
     \item Report the fraction of bigrams for which a valid swap zone was found and 
     the swap verified, along with a breakdown of failure reasons for the remainder.
 \end{enumerate}
-Steps 3-5 of the pipeline are very computationally expensive, so we run the steering analysis on the primary BatchTopK SAE and six additional selected high-performing checkpoints (Table \ref{tab:selected-saes}) rather than on all SAEs in Figure \ref{fig:special_latents_vs_performance}. These checkpoints were chosen to include two BatchTopK, two JumpReLU and two Matryoshka SAEs while varying dictionary size and sparsity.
+Steps 3-5 of the pipeline are very computationally expensive. We therefore run the steering analysis on the primary BatchTopK SAE and six additional selected high-performing checkpoints (Table \ref{tab:selected-saes}), rather than on all SAEs in Figure \ref{fig:special_latents_vs_performance}. These checkpoints include two BatchTopK, two JumpReLU and two Matryoshka SAEs, while varying dictionary size and sparsity.
 
 
 % TODO table with \% success etc (CHECK IT WAS GEMINI)
