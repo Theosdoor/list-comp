@@ -1,0 +1,21 @@
+\section{Discussion}\label{s:disc}
+
+% binary view / assumption
+% in our model we find k symb and specials
+% the specials break the assmp
+% in real llms this would be difficult to interpret. eg. max activating examples may miss latents whose meaning is only visible when sweeping activation magnitudes
+% however the underlying toy model is limitied
+% although prelim generalisation to multiple saes
+
+We train SAEs on the residual stream of a transformer trained to solve an ordered bigram copying task. Most SAE latents behave like sparse symbol detectors: they activate selectively when particular symbols are present in the input. We also find graded latents that activate across a broad subset of the input space. Their activation magnitudes strongly correlate with $\Delta \alpha$: the difference between input attention weights in the first transformer layer. For these latents, different activation magnitudes correspond to different bigram orderings.
+Steering these latents also changes the model's output order. This suggests that activation magnitude is causally involved in the computation.
+
+Consider trying to label these SAE latents using only top-activating and non-activating examples. This is common for large SAEs, including those trained on large language models (LLMs) \citep{paulo2025automatically,mcdougall2025gemmascope2}.
+As suggested by Figure \ref{fig:sae-heatmap}, this works for symbol detectors, but is much harder for graded latents which activate very often.
+Our results suggest that these graded latents track internal model quantities rather than discrete input features. In particular, latent activation magnitude appears to reflect the transformer's relative attention to the two input positions, not the presence of a specific symbol.
+If similar phenomena occur in large language models, graded latents of this kind may appear noisy, polysemantic, or uninterpretable under standard feature-dashboard analyses despite participating in coherent computations.
+
+Our results do not contradict the view that SAEs recover meaningful linear structure in model activations. The graded latents still correspond to coherent decoder directions and appear causally connected to downstream model behavior. The key distinction is that their semantic content is not fully captured by a set of activating inputs.
+
+Our experiments are conducted in a deliberately simplified toy setting. This allows unusually precise mechanistic analysis and direct comparison of SAE latents against known internal quantities such as $\Delta \alpha$. On the other hand, the low-dimensional structure of the task may encourage unusually linear or disentangled representations that do not generalise to large pretrained language models.
+We therefore include preliminary evidence that similar graded latents can appear across multiple SAE architectures. These include JumpReLU and Matryoshka SAEs, the same SAE types used in Gemma Scope 1 \cite{lieberum2024gemma} and 2 \cite{mcdougall2025gemmascope2} respectively. This supports further work, but does not show that the same behaviour occurs in large language models.
