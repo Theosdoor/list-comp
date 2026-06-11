@@ -12,24 +12,24 @@ Relational Composition".
 
 ## P1: High-Impact Manuscript Revisions
 
-- [ ] Strengthen the motivation in the introduction.
+- [x] Strengthen the motivation in the introduction.
   - Explain why magnitude-sensitive SAE latents matter for real interpretability
     workflows, not only for this toy setup.
   - Add a concrete practical example where reducing SAE latents to on/off
     feature indicators would miss mechanism-relevant information.
   - Clarify why relational composition is a useful stress test for SAE analyses.
-- [ ] Calibrate the scope around the toy setting.
+- [x] Calibrate the scope around the toy setting.
   - State clearly that the evidence comes from small attention-only transformers.
   - Explain why the controlled setup is still useful: it gives a known mechanism,
     exhaustive input coverage, and direct causal interventions.
   - Avoid implying that the result already establishes behavior in frontier or
     real-world pretrained models.
-- [ ] Reword the future-work claim.
+- [x] Reword the future-work claim.
   - Replace commitment-style phrasing such as "we will attempt..." with a
     neutral recommendation about what future work should test.
   - Suggest checking graded latents in pretrained SAEs and more naturalistic
     model settings without overclaiming that the phenomenon will transfer.
-- [ ] Sharpen the definition of "graded".
+- [x] Sharpen the definition of "graded".
   - Discuss whether the latent is genuinely continuous or whether a small number
     of magnitude bins would explain the effect.
   - Use the current evidence around the Figure 4 right-panel pattern to motivate
@@ -43,7 +43,7 @@ Relational Composition".
     aspects of SAE reconstruction quality.
   - Check whether existing comparison scripts already compute enough information
     to add this without rerunning all experiments.
-- [ ] Add a short discussion connecting graded latents to polysemanticity.
+- [x] Add a short discussion connecting graded latents to polysemanticity.
   - Explain how broad continuous activation patterns could be mistaken for
     polysemantic features.
   - Clarify how the paper distinguishes a graded relational variable from an
