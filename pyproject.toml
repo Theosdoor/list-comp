@@ -5,10 +5,10 @@ description = "Sparse Autoencoders Can Learn Graded Latents for Relational Compo
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
-    { name = "Anonymous Authors" },
+    { name = "Theo Farrell", email = "theodore.farrell@durham.ac.uk" },
 ]
 maintainers = [
-    { name = "Anonymous Maintainers" },
+    { name = "Theo Farrell", email = "theodore.farrell@durham.ac.uk" },
 ]
 dependencies = [
     "dictionary-learning>=0.1.0",
