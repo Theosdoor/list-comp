@@ -4,7 +4,7 @@ Transformers can learn mechanisms for relational composition \citep{wattenberg20
 
 This poses an interesting challenge for sparse autoencoders (SAEs) \citep{bricken2023monosemanticity, huben2024sparse} and their variants \citep{gao2024scaling, bussmann2024batchtopk, rajamanoharan2024jumping, bussmann2025learning, karvonen2025saebench, leask2025inference}. 
 If the transformer reuses shared embedding directions and varies their relative magnitudes, then an SAE trained on these activations may recover the shared directions and encode order in activation magnitude.
-We call these \emph{graded latents}, for which different activation magnitudes carry different information and latent on/off activation alone is insufficient to fully understand it.
+We call these \emph{graded latents}, for which different activation magnitudes carry different information and latent on/off activation alone is insufficient to fully understand them.
 This matters for practical SAE workflows because many feature dashboards label a latent by inspecting top-activating examples or by checking whether it fires on a class of inputs.
 A latent whose low, medium and high activations correspond to different relational states could look broadly active or noisy under that workflow, even when its activation value tracks a coherent internal variable.
 This challenges interpretation methods that primarily treat SAE latents as on/off feature presence indicators \citep{paulo2025automatically, quirke2025binary}. The issue persists even if an SAE successfully recovers the underlying feature directions, separating it from previous work focused on dictionary correctness \citep{chanin2024absorption, leask2025sparse}.
