@@ -36,8 +36,7 @@ Key:
   - Results layout: `results/xover/<sae_name>/special_features.md` (auto mode) and `results/xover/<sae_name>/<feat_idx>/` per feature.
 - SAE sweep comparison: `.venv/bin/python scripts/compare_sae.py [--best]` (evaluates checkpoints in `sae_checkpoints/`, writes reports under `results/compare_sae/`).
 - SAE sweep plotting: `.venv/bin/python scripts/plot_sae_sweep.py --report <results/compare_sae/sae_comparison_*.md>`.
-- WandB sweep configs currently live in `archive/sweeps/`; run with `wandb sweep archive/sweeps/<config>.yaml` then `wandb agent <sweep_id>` (or adapt the SLURM wrappers in `slurm/`).
-- Cluster/GPU workflow is captured in `slurm/` scripts (sync env, activate `.venv`, run analysis scripts).
+- W&B sweep configs and cluster wrappers are not tracked in the clean submission checkout; if local `archive/`, `sweeps/`, or `slurm/` directories are restored, inspect them before documenting/running sweep or cluster commands.
 
 ## Project-Specific Patterns
 - Prefer imports from `src.utils.nb_utils` and `src.sae` in notebooks/scripts to stay consistent with existing analysis flow.
@@ -54,11 +53,11 @@ Key:
 
 ## Current Baselines and Files
 - Common base model: `models/2layer_100dig_64d.pt`.
-- Common SAE: `sae_checkpoints/sae_d100_k3_lr0.0003_seed44_2layer_100dig_64d.pt` (feature-30 was the manually-identified special feature; auto-detection now finds this automatically).
+- Common SAE: `sae_checkpoints/sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt`. Additional SAE checkpoints under `sae_checkpoints/` are local/generated artifacts and ignored by git unless explicitly unignored.
 - Key reference files: `src/data/datasets.py`, `src/models/transformer.py`, `src/models/utils.py`, `src/utils/nb_utils.py`, `src/sae/loading.py` (SAE loading and checkpoint selection), `src/sae/steering.py`, `src/sae/reporting.py` (failure-reason classification and markdown report generation).
 
 ## Reproducibility Requirement
-- When running experiments, append a concise entry to the experiment log with command, output paths, and headline metrics. The current tracked historical log is `archive/EXPERIMENTS.md`; create or use a root `EXPERIMENTS.md` only if the project owner restores that convention.
+- When running experiments, append a concise entry to the experiment log with command, output paths, and headline metrics if an experiment log exists in the checkout. The clean submission currently does not track `archive/EXPERIMENTS.md`; create or use a root `EXPERIMENTS.md` only if the project owner restores that convention.
 
 ## Attention Mask Architecture
 Two masks are built in `build_attention_mask()` and applied via hooks in `attach_custom_mask()`:
@@ -77,6 +76,6 @@ This enforces the SEP compression bottleneck: information must flow `inputs -> S
 
 ## Development Environment
 - Run tests: `.venv/bin/pytest tests/`. Current tests cover datasets, SAE hooks/metrics/reporting/loading, and SAE sweep plotting.
-- To verify changes to the analysis pipeline, run the crossover pipeline on the baseline model/SAE.
+- To verify changes to the analysis pipeline, run the crossover pipeline on the baseline model plus the included baseline SAE checkpoint, or on another local/generated SAE checkpoint when relevant.
 - `src/interpretability/interp_utils.py` contains attention-edge ablation and residual-stream analysis helpers used by exploratory notebooks/scripts.
 - Private dependency sources should stay omitted from blind-review materials.

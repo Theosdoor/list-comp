@@ -3,7 +3,7 @@
 Code for the paper:
 > Farrell, Theo, Patrick Leask, and Noura Al Moubayed. "Sparse Autoencoders Can Learn Graded Latents for Relational Composition." Mechanistic Interpretability Workshop at ICML 2026. https://openreview.net/forum?id=ltQ6XAduTF
 
-This repository contains the code and artifacts for mechanistic interpretability experiments on a small attention-only transformer trained on a list-copy task. The experiments study whether sparse autoencoders (SAEs) trained on the SEP-token residual stream learn graded features that mediate relational composition.
+This repository contains the code and core artifacts for mechanistic interpretability experiments on a small attention-only transformer trained on a list-copy task. The experiments study whether sparse autoencoders (SAEs) trained on the SEP-token residual stream learn graded features that mediate relational composition.
 
 The transformer code and baseline transformer model build on the companion repository [Order-by-Scale](https://github.com/Theosdoor/Order-by-Scale). This repository adds the SAE training/loading code, special-feature detection, feature steering, crossover analysis, reporting, plotting, and submission-specific experiment scripts.
 
@@ -19,6 +19,19 @@ The model receives masked output tokens and must copy the input digits in order.
 input digits -> SEP token -> output tokens
 ```
 
+## Reviewer Quick Start
+
+For a clean checkout, the fastest way to verify the codebase is:
+
+```bash
+uv sync
+source .venv/bin/activate
+pytest tests/
+python -c "import src; import src.utils.nb_utils; print('ok')"
+```
+
+The tracked repository includes the baseline transformer checkpoint at `models/2layer_100dig_64d.pt` and the baseline BatchTopK SAE checkpoint at `sae_checkpoints/sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt`. Additional SAE checkpoints and generated result tables are treated as local or regenerated artifacts.
+
 ## Setup
 
 The project uses `uv` for dependency management.
@@ -28,7 +41,7 @@ uv sync
 source .venv/bin/activate
 ```
 
-Run commands from the repository root.
+Run commands from the repository root with the virtual environment active.
 
 If you want to use Weights & Biases for SAE training or checkpoint downloads, create a local environment file:
 
@@ -40,16 +53,20 @@ Then add your own W&B values to `.env`. The submitted code and local scripts do 
 
 ## Included Artifacts
 
-The cleaned submission includes:
+The cleaned submission includes the code, tests, and baseline transformer needed to inspect and rerun the pipeline:
 
 - `models/2layer_100dig_64d.pt`: baseline attention-only transformer checkpoint.
-- `sae_checkpoints/sae_d128_k3_seed1_2layer_100dig_64d.pt`: baseline BatchTopK SAE checkpoint.
+- `sae_checkpoints/sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt`: baseline BatchTopK SAE checkpoint.
 - `src/`: source code for datasets, models, SAE loading, metrics, steering, reporting, and utilities.
 - `scripts/`: runnable training and analysis entry points.
 - `tests/`: regression tests for datasets, SAE utilities, loading, reporting, and plotting.
-- `figures.ipynb`: notebook used for figure generation or exploratory inspection.
+- `visualisation/nb_sae_feat_analysis.ipynb`: notebook used for SAE feature exploration.
 
-Generated outputs are written under `results/` by default. That directory is intentionally not required to run the code.
+The following directories are intentionally local or regenerated and may not exist in a clean clone:
+
+- Additional files under `sae_checkpoints/`: SAE checkpoints produced by `scripts/train_sae.py` or downloaded from W&B.
+- `results/`: generated comparison reports, crossover CSVs, markdown failure reports, and plots.
+- `wandb/`: local W&B run metadata.
 
 ## Repository Layout
 
@@ -81,25 +98,42 @@ Do not use `train_split=1.0` for model evaluation, because that mixes train data
 Run the test suite:
 
 ```bash
-.venv/bin/pytest tests/
+pytest tests/
 ```
 
 Check that the main imports work from the repository root:
 
 ```bash
-.venv/bin/python -c "import src; import src.utils.nb_utils; print('ok')"
+python -c "import src; import src.utils.nb_utils; print('ok')"
+```
+
+To check that the tracked baseline transformer can be loaded and its config inferred:
+
+```bash
+python -c "from src.models.utils import infer_model_config; print(infer_model_config('models/2layer_100dig_64d.pt', device='cpu'))"
 ```
 
 ## Script Guide
 
-All examples assume they are run from the repository root with the virtual environment active. You can also prefix each command with `.venv/bin/`.
+All examples assume they are run from the repository root.
+
+### Reproduce the Analysis Flow
+
+The main end-to-end path is:
+
+1. Verify the baseline transformer and tests.
+2. Inspect or reuse the included baseline SAE checkpoint, or train/download additional checkpoints into `sae_checkpoints/`.
+3. Inspect checkpoint metadata with `scripts/inspect_saes.py`.
+4. Compare SAE checkpoints with `scripts/compare_sae.py`.
+5. Run crossover analysis for automatically detected special features with `scripts/run_crossover_analysis.py`.
+6. Plot sweep summaries from a generated comparison report with `scripts/plot_sae_sweep.py`.
 
 ### Inspect Checkpoints
 
 Print checkpoint metadata, config fields, stored metrics, `act_mean`, and state-dict tensor shapes:
 
 ```bash
-python scripts/inspect_saes.py sae_checkpoints/sae_d128_k3_seed1_2layer_100dig_64d.pt
+python scripts/inspect_saes.py sae_checkpoints/sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt
 ```
 
 You can pass a directory to inspect all `.pt` files below it:
@@ -173,7 +207,7 @@ Run the feature steering and output-swap pipeline for automatically detected spe
 ```bash
 python scripts/run_crossover_analysis.py \
   --model 2layer_100dig_64d \
-  --sae sae_d128_k3_seed1_2layer_100dig_64d.pt \
+  --sae sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt \
   --feature auto \
   --threshold 0.5 \
   --max-features 2 \
@@ -184,7 +218,7 @@ You can also target a specific SAE feature:
 
 ```bash
 python scripts/run_crossover_analysis.py \
-  --sae sae_d128_k3_seed1_2layer_100dig_64d.pt \
+  --sae sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt \
   --feature 30
 ```
 
@@ -236,7 +270,7 @@ from src.utils.nb_utils import load_transformer_model, load_sae
 
 model, model_cfg = load_transformer_model("2layer_100dig_64d")
 sae, sae_cfg = load_sae(
-    "sae_checkpoints/sae_d128_k3_seed1_2layer_100dig_64d.pt",
+    "sae_checkpoints/sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt",
     d_model=model_cfg["d_model"],
 )
 ```
