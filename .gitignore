@@ -4,7 +4,8 @@ results/*
 .claude/*
 .worktrees/*
 slurm/*
-sae_checkpoints/
+sae_checkpoints/*
+!sae_checkpoints/sae_d128_k3_lr0.001_seed1_2layer_100dig_64d.pt
 .agents/
 .github/
 .rtk/
