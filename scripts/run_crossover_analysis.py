@@ -267,7 +267,8 @@ def run_pipeline(args):
         print(f"Saved swap results to {swap_results_path}")
         total = len(swap_results_df)
         swapped = swap_results_df["swapped"].sum()
-        print(f"  Successfully swapped: {swapped}/{total} ({swapped/total*100:.1f}%)")
+        pct = swapped / total * 100 if total > 0 else 0.0
+        print(f"  Successfully swapped: {swapped}/{total} ({pct:.1f}%)")
 
         all_contexts.append(dict(
             model=model, sae=sae, act_mean=act_mean,
