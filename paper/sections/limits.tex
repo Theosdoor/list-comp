@@ -1,8 +1,0 @@
-\section{Limitations}\label{app:limitations}
-
-\begin{enumerate}[label=\Alph*.]
-    \item \textbf{Minimal toy model.} The transformer is trained on a single narrow task and omits components standard in pretrained LLMs (MLPs, LayerNorm, multi-head attention, value and output projections), with a vocabulary of only 100 symbols. Whether relative magnitude-based composition appears in less constrained models remains an open question.
-    \item \textbf{Single-latent steering.} The steering pipeline handles one special latent at a time. The co-activation experiments in Appendix~\ref{app:further_steering} suggest that simultaneous multi-latent steering could recover additional swaps.
-    \item \textbf{SAE selection bias.} Our primary SAE was selected for having few dead latents, biasing toward high-quality SAEs. A fully representative study would require analysis across a random sample of all trained SAEs, not just well-performing ones.
-    \item \textbf{Limited SAE steering generalisation.} Special latents emerge across BatchTopK, JumpReLU, and Matryoshka architectures in the broader correlation analysis, but steering was tested on only seven selected checkpoints (including the primary BatchTopK SAE). Broader statistical significance testing across more configurations is needed.
-\end{enumerate}
