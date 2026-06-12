@@ -1,4 +1,7 @@
-# Graded Latents for List Copying
+# Sparse Autoencoders Can Learn Graded Latents for Relational Composition
+
+Code for the paper:
+> Farrell, Theo, Patrick Leask, and Noura Al Moubayed. "Sparse Autoencoders Can Learn Graded Latents for Relational Composition." Mechanistic Interpretability Workshop at ICML 2026. https://openreview.net/forum?id=ltQ6XAduTF
 
 This repository contains the code and artifacts for mechanistic interpretability experiments on a small attention-only transformer trained on a list-copy task. The experiments study whether sparse autoencoders (SAEs) trained on the SEP-token residual stream learn graded features that mediate relational composition.
 
@@ -246,3 +249,18 @@ sae, sae_cfg = load_sae(
 - Keep model evaluation on validation data and SAE scans on the full train-plus-validation input space.
 - Preserve `act_mean` when moving SAE checkpoints.
 - The default scripts choose CUDA when available and fall back to CPU where supported.
+
+## Citation
+
+If you use this code or paper in your research, please cite:
+
+```bibtex
+@inproceedings{
+farrell2026sparse,
+title={Sparse Autoencoders Can Learn Graded Latents for Relational Composition},
+author={Theo Farrell and Patrick Leask and Noura Al Moubayed},
+booktitle={Mechanistic Interpretability Workshop at ICML 2026},
+year={2026},
+url={https://openreview.net/forum?id=ltQ6XAduTF}
+}
+```
