@@ -3,6 +3,16 @@
 Code for the paper:
 > Farrell, Theo, Patrick Leask, and Noura Al Moubayed. "Sparse Autoencoders Can Learn Graded Latents for Relational Composition." Mechanistic Interpretability Workshop at ICML 2026. https://openreview.net/forum?id=ltQ6XAduTF
 
+<div align="center">
+  <img src="figures/figure1_heatmap.svg" alt="Figure 1: Heatmap of latent activations" width="80%"/>
+</div>
+
+<div align="center">
+
+> Figure 1: These $100 \times 100$ heatmaps show example SAE latent activations over all input bigrams $(d_1, d_2)$ with $d_1, d_2 \in [0, 99]$: top-left cell is $(0,0)$, bottom-right cell is $(99,99)$. **Left** (1-symbol detector): latent 0 activates strongly if $d_1$ or $d_2 = 41$ and peaks at $d_1 = d_2 = 41$, producing a plus-sign pattern. **Centre** ($k$-symbol detector, $k > 1$): latent 5 activates strongly if $d_1$ or $d_2 \in \{7, 58\}$, producing two plus-sign patterns. **Right** (special latent): latent 11 activates on most inputs with generally much greater magnitudes than any other latent.
+
+</div>
+
 This repository contains the code and core artifacts for mechanistic interpretability experiments on a small attention-only transformer trained on a list-copy task. The experiments study whether sparse autoencoders (SAEs) trained on the SEP-token residual stream learn graded features that mediate relational composition.
 
 The transformer code and baseline transformer model build on the companion repository [Order-by-Scale](https://github.com/Theosdoor/Order-by-Scale). This repository adds the SAE training/loading code, special-feature detection, feature steering, crossover analysis, reporting, plotting, and submission-specific experiment scripts.
